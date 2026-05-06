@@ -5,44 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fundepar - Sistema Profissional de Gestão de Workflow</title>
     
-    <!-- Design moderno e ícones -->
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script> <!-- Ícones Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script> 
 
-    <!-- SDK Supabase (Obrigatório vir primeiro) -->
+    <!-- SDK Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- Scripts da nossa aplicação na ordem correta -->
-    <script defer src="auth.js"></script>  <!-- Gerenciamento de Login/Cadastro/Sessão -->
-    <script defer src="views.js"></script> <!-- Definição dos componentes HTML em JS -->
-    <script defer src="app.js"></script>   <!-- Lógica principal da SPA -->
+    <!-- Scripts da aplicação -->
+    <script defer src="auth.js"></script> 
+    <script defer src="views.js"></script>
+    <script defer src="app.js"></script>  
 </head>
 <body class="light">
 
-    <!-- Sistema de Notificações (Toast) -->
+    <!-- Sistema de Notificações -->
     <div id="toast-container" class="toast-container"></div>
 
     <!-- Contêiner Principal da SPA -->
     <div id="app">
-        
-        <!-- Estado 1: Container de Autenticação (carregado dinamicamente) -->
-        <div id="auth-container" class="auth-container fade-in hidden">
-            <!-- Os formulários de Login/Cadastro são injetados aqui via JS -->
-        </div>
+        <!-- Autenticação -->
+        <div id="auth-container" class="auth-container fade-in hidden"></div>
 
-        <!-- Estado 2: Container do App Principal (Dashboard/Gestão/Workflow) -->
+        <!-- App Principal -->
         <div id="app-container" class="app-container hidden">
-            <!-- Sidebar (Barra Lateral) -->
+            <!-- Barra Lateral -->
             <aside id="sidebar" class="sidebar">
-                <!-- Branding da Fundepar -->
                 <div class="sidebar-header">
-                    <!-- Logo substituído por CSS para evitar erro de conexão -->
                     <div style="background: var(--primary-color); color: white; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; border-radius: 8px;">F</div>
                     <h1>Fundepar <span>TI</span></h1>
                 </div>
 
-                <!-- Menu de Navegação -->
                 <nav class="sidebar-menu">
                     <ul>
                         <li class="active"><a href="#dashboard" class="nav-link"><i data-lucide="layout-dashboard"></i> Dashboard</a></li>
@@ -53,34 +46,34 @@
                     </ul>
                 </nav>
 
-                <!-- Área do Usuário Logado -->
-                <div id="sidebar-profile" class="sidebar-profile">
-                    <!-- Injetado dinamicamente pelo app.js -->
-                </div>
+                <div id="sidebar-profile" class="sidebar-profile"></div>
             </aside>
 
-            <!-- Área de Conteúdo Principal -->
+            <!-- Área Principal -->
             <main class="main-content">
-                <!-- Barra Superior -->
                 <header class="topbar">
-                    <div class="search-bar">
-                        <i data-lucide="search"></i>
-                        <input type="text" placeholder="Pesquisar chamados, salas...">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <button id="mobile-menu-btn" class="btn-icon hidden-desktop" onclick="App.toggleMobileMenu()">
+                            <i data-lucide="menu"></i>
+                        </button>
+                        <div class="search-bar">
+                            <i data-lucide="search"></i>
+                            <input type="text" placeholder="Pesquisar chamados, salas...">
+                        </div>
                     </div>
                     <div class="topbar-actions">
                         <button class="btn-icon"><i data-lucide="bell"></i><span class="badge"></span></button>
                     </div>
                 </header>
 
-                <!-- Contêiner onde as "Views" (telas) serão carregadas -->
-                <div id="view-content" class="view-content fade-in">
-                    <!-- Dashboard, Workflow, Cadastro de Salas, Cadastro de Usuários aparecem aqui -->
-                </div>
+                <div id="view-content" class="view-content fade-in"></div>
             </main>
         </div>
     </div>
 
-    <!-- Inicializar Ícones -->
+    <!-- Root para Modais (Formulários flutuantes) -->
+    <div id="modal-root"></div>
+
     <script>lucide.createIcons();</script>
 </body>
 </html>
