@@ -1,6 +1,5 @@
 // app.js
 
-// Objeto para gerenciar alertas visuais e de carregamento na interface
 const UI = {
     showToast: (message, type = 'success') => {
         const container = document.getElementById('toast-container');
@@ -8,141 +7,195 @@ const UI = {
         
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        toast.innerHTML = `<i data-lucide="${type === 'success' ? 'check-circle' : 'alert-circle'}"></i> ${message}`;
         
+        let icon = 'info';
+        if (type === 'success') icon = 'check-circle';
+        if (type === 'danger') icon = 'alert-circle';
+        if (type === 'warning') icon = 'loader';
+
+        toast.innerHTML = `<i data-lucide="${icon}"></i> ${message}`;
         container.appendChild(toast);
+        
         if (typeof lucide !== 'undefined') lucide.createIcons();
         
-        // Remove o aviso após 4 segundos
         setTimeout(() => {
             toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            toast.style.transition = 'all 0.3s ease';
             setTimeout(() => toast.remove(), 300);
         }, 4000);
     },
     
     showLoading: () => {
         document.getElementById('view-content').innerHTML = `
-            <div style="display:flex; justify-content:center; padding: 100px; color: var(--text-secondary);">
-                <i data-lucide="loader-2" style="animation: spin 1s linear infinite; width: 40px; height: 40px;"></i>
+            <div style="display:flex; justify-content:center; align-items:center; height: 50vh; color: var(--accent-color);">
+                <i data-lucide="loader-2" style="animation: spin 1s linear infinite; width: 48px; height: 48px;"></i>
             </div>
         `;
         if (typeof lucide !== 'undefined') lucide.createIcons();
     }
 };
 
-// Lógica Principal da Single Page Application (SPA)
 const App = {
-    
     init: async () => {
-        // Inicializa Autenticação e verifica sessão
         await Auth.init();
-        
-        // Configura Roteamento (escutar mudanças na URL)
         window.addEventListener('hashchange', App.handleRoute);
     },
 
-    // 1. Controla a exibição da tela de Login
     showAuthView: () => {
         document.getElementById('app-container').classList.add('hidden');
         document.getElementById('auth-container').classList.remove('hidden');
-        App.loadLogin(); // Carrega view de login por padrão
+        App.loadLogin(); 
     },
 
-    // 2. Controla a exibição do App Principal logado
     showAppView: () => {
         document.getElementById('auth-container').classList.add('hidden');
         document.getElementById('app-container').classList.remove('hidden');
-        
-        // Renderiza perfil na sidebar
         App.renderSidebarProfile();
-        App.handleRoute(); // Processa a rota atual (dashboard, salas, etc)
-        if (typeof lucide !== 'undefined') lucide.createIcons(); // Re-renderizar ícones
+        App.handleRoute(); 
     },
 
-    // 3. Sistema de Roteamento Profissional (Vanilla)
     handleRoute: () => {
         const route = window.location.hash || '#dashboard';
         const viewContent = document.getElementById('view-content');
         
-        // Atualiza navegação sidebar
         App.updateActiveNavLink(route);
-        UI.showLoading(); // Mostra esqueleto de loading
+        UI.showLoading(); 
+        
+        // Mobile: fecha a barra lateral ao clicar em um link do menu
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && sidebar.classList.contains('open')) {
+            sidebar.classList.remove('open');
+        }
 
         switch (route) {
             case '#dashboard': App.modules.dashboard.init(); break;
-            case '#workflow': viewContent.innerHTML = '<h2>Workflow (Em Desenvolvimento)</h2>'; break; // Kanban
-            case '#salas': App.modules.salas.init(); break; // CADASTRO DE SALAS
-            case '#usuarios': App.modules.usuarios.init(); break; // CADASTRO DE USUÁRIOS
-            default: viewContent.innerHTML = '<h2>404 - Tela não encontrada</h2>';
+            case '#workflow': App.modules.workflow.init(); break;
+            case '#salas': App.modules.salas.init(); break;
+            case '#usuarios': App.modules.usuarios.init(); break;
+            default: viewContent.innerHTML = '<div style="text-align:center; padding: 40px;"><h2>Erro 404</h2><p style="color:var(--text-secondary)">A tela procurada não existe.</p></div>';
         }
-        
-        if (typeof lucide !== 'undefined') lucide.createIcons(); // Inicializar ícones na nova view
     },
 
-    // =========================================
-    // 4. MÓDULOS DE NEGÓCIO DA SPA
-    // =========================================
+    toggleMobileMenu: () => {
+        document.getElementById('sidebar').classList.toggle('open');
+    },
+
     modules: {
         dashboard: {
             init: async () => {
-                const viewContent = document.getElementById('view-content');
-                // Busca estatísticas no Supabase
                 const { count: totalOpen } = await supabaseClient.from('tickets').select('*', { count: 'exact' }).eq('status', 'aberto');
+                const { count: totalResolved } = await supabaseClient.from('tickets').select('*', { count: 'exact' }).eq('status', 'resolvido');
                 const { count: totalRooms } = await supabaseClient.from('rooms').select('*', { count: 'exact' });
                 
-                viewContent.innerHTML = Views.app.dashboard({ totalOpen, totalRooms });
+                document.getElementById('view-content').innerHTML = Views.app.dashboard({ totalOpen, totalResolved, totalRooms });
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         },
+
+        workflow: {
+            init: async () => {
+                const { data: tickets, error } = await supabaseClient
+                    .from('tickets')
+                    .select('*, rooms(name), profiles:requester_id(full_name)')
+                    .order('created_at', { ascending: false });
+
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+
+                document.getElementById('view-content').innerHTML = Views.app.workflow(tickets);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            showCreateModal: async () => {
+                const { data: rooms } = await supabaseClient.from('rooms').select('id, name');
+                document.getElementById('modal-root').innerHTML = Views.app.ticketModal(rooms || []);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            createTicket: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const originalText = btn.textContent;
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Processando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                const newTicket = {
+                    title: document.getElementById('ticket-title').value,
+                    description: document.getElementById('ticket-desc').value,
+                    room_id: document.getElementById('ticket-room').value,
+                    priority: document.getElementById('ticket-priority').value,
+                    requester_id: Auth.user.id,
+                    status: 'aberto'
+                };
+
+                const { error } = await supabaseClient.from('tickets').insert([newTicket]);
+
+                if (error) {
+                    UI.showToast('Erro ao criar chamado: ' + error.message, 'danger');
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                } else {
+                    document.getElementById('ticket-modal').remove();
+                    UI.showToast('Chamado aberto com sucesso!', 'success');
+                    App.modules.workflow.init(); 
+                }
+            },
+
+            dragStart: (event, ticketId) => {
+                event.dataTransfer.setData('ticketId', ticketId);
+            },
+
+            drop: async (event, newStatus) => {
+                event.preventDefault();
+                const ticketId = event.dataTransfer.getData('ticketId');
+                
+                if(!ticketId) return;
+
+                const { error } = await supabaseClient
+                    .from('tickets')
+                    .update({ status: newStatus })
+                    .eq('id', ticketId);
+
+                if (error) {
+                    UI.showToast('Falha ao atualizar status.', 'danger');
+                } else {
+                    App.modules.workflow.init(); 
+                }
+            }
+        },
         
-        // MODULO COMPLETO: GESTÃO DE SALAS (CRUD)
         salas: {
             init: async () => {
-                // 1. Busca Salas no Supabase
-                const { data: salas, error } = await supabaseClient
-                    .from('rooms')
-                    .select('*')
-                    .order('name');
-                
+                const { data: salas, error } = await supabaseClient.from('rooms').select('*').order('name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
                 
-                // 2. Renderiza View de Salas
                 document.getElementById('view-content').innerHTML = Views.app.salas(salas);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
             
             showCreateForm: () => {
-                const name = prompt("Nome da Sala:");
+                const name = prompt("Informe o nome do novo Local / Sala:");
                 if (!name) return;
-                const description = prompt("Descrição (Opcional):");
+                const description = prompt("Descrição ou Setor responsável (Opcional):");
                 
                 App.modules.salas.create(name, description);
             },
             
             create: async (name, description) => {
-                // Inserir sala no Supabase
-                const { data, error } = await supabaseClient
-                    .from('rooms')
-                    .insert([{ name, description }]);
-                
+                const { error } = await supabaseClient.from('rooms').insert([{ name, description }]);
                 if (error) {
                     UI.showToast('Erro ao criar sala: ' + error.message, 'danger');
                 } else {
                     UI.showToast('Sala cadastrada com sucesso!', 'success');
-                    App.modules.salas.init(); // Recarrega tabela
+                    App.modules.salas.init(); 
                 }
             }
         },
 
-        // MODULO: GESTÃO DE USUÁRIOS
         usuarios: {
             init: async () => {
-                // Busca Perfis no Supabase
-                const { data: usuarios, error } = await supabaseClient
-                    .from('profiles')
-                    .select('*')
-                    .order('full_name');
-                
+                const { data: usuarios, error } = await supabaseClient.from('profiles').select('*').order('full_name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
                 
                 document.getElementById('view-content').innerHTML = Views.app.usuarios(usuarios);
@@ -151,21 +204,17 @@ const App = {
         }
     },
 
-    // =========================================
-    // 5. FUNÇÕES AUXILIARES DA INTERFACE
-    // =========================================
-    
     loadLogin: () => {
         const authContainer = document.getElementById('auth-container');
-        authContainer.innerHTML = Views.auth.login(); // Injeta o HTML do formulário
+        authContainer.innerHTML = Views.auth.login(); 
         
-        // Listener para o envio do formulário de login
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.textContent;
             
-            btn.textContent = 'Autenticando...';
+            btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
             btn.disabled = true;
             
             const email = document.getElementById('login-email').value;
@@ -173,11 +222,12 @@ const App = {
             
             await Auth.signIn(email, pass);
             
-            btn.textContent = originalText;
-            btn.disabled = false;
+            if (document.getElementById('login-form')) {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         });
 
-        // Trocar para a tela de registro
         document.getElementById('go-to-register').addEventListener('click', (e) => {
             e.preventDefault();
             App.loadRegister();
@@ -186,15 +236,15 @@ const App = {
 
     loadRegister: () => {
         const authContainer = document.getElementById('auth-container');
-        authContainer.innerHTML = Views.auth.register(); // Injeta o HTML do formulário de registro
+        authContainer.innerHTML = Views.auth.register(); 
         
-        // Listener para o envio do formulário de cadastro
         document.getElementById('register-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.textContent;
             
-            btn.textContent = 'Criando conta...';
+            btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
             btn.disabled = true;
             
             const name = document.getElementById('register-name').value;
@@ -203,11 +253,12 @@ const App = {
             
             await Auth.signUp(name, email, pass);
             
-            btn.textContent = originalText;
-            btn.disabled = false;
+            if (document.getElementById('register-form')) {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         });
 
-        // Voltar para a tela de login
         document.getElementById('go-to-login').addEventListener('click', (e) => {
             e.preventDefault();
             App.loadLogin();
@@ -217,27 +268,23 @@ const App = {
     renderSidebarProfile: () => {
         const container = document.getElementById('sidebar-profile');
         if(container && Auth.user) {
-            // Cria um avatar dinâmico com as iniciais do usuário
             const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURI(Auth.user.full_name)}&background=0c4a6e&color=fff`;
-            
             container.innerHTML = `
                 <img src="${avatarUrl}" alt="Avatar" class="avatar">
                 <div class="profile-info">
-                    <div class="name">${Auth.user.full_name}</div>
-                    <div class="role" style="text-transform: capitalize;">${Auth.user.role}</div>
+                    <div class="name" title="${Auth.user.full_name}">${Auth.user.full_name}</div>
+                    <div class="role">${Auth.user.role || 'Usuário'}</div>
                 </div>
-                <button class="btn-logout" onclick="Auth.signOut()" title="Sair da Conta">
+                <button class="btn-logout" onclick="Auth.signOut()" title="Sair do Sistema">
                     <i data-lucide="log-out"></i>
                 </button>
             `;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     },
 
     updateActiveNavLink: (route) => {
-        // Remove a classe 'active' de todos os itens de menu
         document.querySelectorAll('.sidebar-menu ul li').forEach(li => li.classList.remove('active'));
-        
-        // Adiciona a classe 'active' no link correspondente à URL atual
         const link = document.querySelector(`.sidebar-menu a[href="${route}"]`);
         if(link) {
             link.parentElement.classList.add('active');
@@ -245,5 +292,4 @@ const App = {
     }
 };
 
-// Iniciar Aplicação
 App.init();

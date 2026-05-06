@@ -1,15 +1,15 @@
 :root {
-    --primary-color: #0c4a6e; /* Azul Fundepar Escuro */
-    --accent-color: #0ea5e9; /* Azul Claro para Destaques */
-    --success-color: #10b981; /* Verde moderno */
-    --warning-color: #f59e0b; /* Laranja moderno */
-    --danger-color: #ef4444;  /* Vermelho moderno */
+    --primary-color: #0c4a6e; 
+    --accent-color: #0ea5e9; 
+    --success-color: #10b981; 
+    --warning-color: #f59e0b; 
+    --danger-color: #ef4444;  
     --text-primary: #1e293b;
     --text-secondary: #64748b;
     --text-on-dark: #f1f5f9;
     --bg-main: #f8fafc;
     --bg-card: #ffffff;
-    --bg-dark: #020617; /* Fundo Sidebar e Topbar */
+    --bg-dark: #020617; 
     --border-color: #e2e8f0;
     --radius-full: 9999px;
     --radius-lg: 12px;
@@ -27,42 +27,37 @@ button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 500; 
 .fade-in { animation: fadeIn 0.4s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-/* =========================================
-   1. Estilos de Autenticação (Login/Cadastro)
-   ========================================= */
-.auth-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-main); }
-.auth-card { background: var(--bg-card); padding: 40px; border-radius: var(--radius-lg); shadow: var(--shadow-md); width: 100%; max-width: 400px; border: 1px solid var(--border-color); }
-.auth-card .logo-container { text-align: center; margin-bottom: 32px; }
-.auth-card .logo { width: 60px; margin-bottom: 16px; }
-.auth-card h2 { font-size: 24px; font-weight: 700; color: var(--primary-color); margin-bottom: 8px; }
-.auth-card p.subtitle { color: var(--text-secondary); margin-bottom: 32px; }
-
-.form-group { margin-bottom: 20px; }
+/* Formulários */
+.form-group { margin-bottom: 20px; text-align: left; }
 .form-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); font-weight: 500; }
-.form-control { width: 100%; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 15px; }
+.form-control { width: 100%; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 15px; font-family: 'Inter', sans-serif; }
 .form-control:focus { border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1); }
+textarea.form-control { resize: vertical; }
 
-.btn-primary { background: var(--accent-color); color: white; padding: 12px 24px; border-radius: 8px; font-size: 16px; width: 100%; }
+.btn-primary { background: var(--accent-color); color: white; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .btn-primary:hover { background: #0c91c9; }
+.btn-primary:disabled { opacity: 0.7; cursor: not-allowed; }
 
-.auth-footer { text-align: center; margin-top: 24px; font-size: 14px; color: var(--text-secondary); }
+/* Autenticação */
+.auth-container { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg-main); padding: 16px; }
+.auth-card { background: var(--bg-card); padding: 40px; border-radius: var(--radius-lg); box-shadow: var(--shadow-md); width: 100%; max-width: 400px; border: 1px solid var(--border-color); text-align: center; }
+.auth-card h2 { font-size: 24px; font-weight: 700; color: var(--primary-color); margin-bottom: 8px; }
+.auth-card p.subtitle { color: var(--text-secondary); margin-bottom: 32px; font-size: 14px; }
+.auth-card button { width: 100%; }
+.auth-footer { margin-top: 24px; font-size: 14px; color: var(--text-secondary); }
 .auth-footer a { color: var(--accent-color); font-weight: 500; }
 
-/* =========================================
-   2. Estrutura Principal do App
-   ========================================= */
+/* Estrutura Principal */
 .app-container { display: flex; height: 100vh; overflow: hidden; }
 
-/* Sidebar (Barra Lateral) */
-.sidebar { width: 280px; background: var(--bg-dark); color: var(--text-on-dark); display: flex; flex-direction: column; padding: 24px; }
+/* Sidebar */
+.sidebar { width: 280px; background: var(--bg-dark); color: var(--text-on-dark); display: flex; flex-direction: column; padding: 24px; flex-shrink: 0; }
 .sidebar-header { display: flex; align-items: center; gap: 12px; margin-bottom: 48px; }
-.sidebar-header .logo { width: 40px; height: 40px; border-radius: 10px; }
 .sidebar-header h1 { font-size: 20px; font-weight: 700; }
 .sidebar-header h1 span { color: var(--accent-color); font-weight: 300; }
 
 .sidebar-menu ul li { margin-bottom: 8px; }
 .sidebar-menu ul li.separator { text-transform: uppercase; font-size: 11px; color: #475569; font-weight: 700; letter-spacing: 1px; margin: 32px 0 16px 12px; }
-
 .nav-link { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; font-size: 15px; }
 .nav-link i { color: #64748b; width: 20px; }
 .nav-link:hover { background: rgba(241, 245, 249, 0.05); }
@@ -72,55 +67,121 @@ button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 500; 
 
 .sidebar-profile { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(241, 245, 249, 0.03); border-radius: 10px; }
 .avatar { width: 40px; height: 40px; border-radius: var(--radius-full); }
-.profile-info { flex: 1; }
-.profile-info .name { font-weight: 600; font-size: 14px; }
+.profile-info { flex: 1; overflow: hidden; }
+.profile-info .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .profile-info .role { font-size: 12px; color: var(--text-secondary); text-transform: capitalize; }
 .btn-logout { background: transparent; color: var(--danger-color); padding: 6px; border-radius: 6px; }
 
-/* Área Principal */
-.main-content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
-.topbar { background: var(--bg-dark); color: white; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e293b; }
-.topbar .search-bar { display: flex; align-items: center; gap: 12px; background: #1e293b; border-radius: var(--radius-full); padding: 8px 16px; width: 400px; }
-.topbar .search-bar i { color: #64748b; }
-.topbar .search-bar input { background: transparent; border: none; color: white; font-size: 14px; width: 100%; }
+/* Main Content */
+.main-content { flex: 1; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg-main); width: 100%; }
+.topbar { background: var(--bg-card); padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); }
+.topbar .search-bar { display: flex; align-items: center; gap: 12px; background: var(--bg-main); border-radius: var(--radius-full); padding: 8px 16px; max-width: 400px; width: 100%; border: 1px solid var(--border-color); }
+.topbar .search-bar i { color: #64748b; width: 18px; }
+.topbar .search-bar input { background: transparent; border: none; color: var(--text-primary); font-size: 14px; width: 100%; }
 
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
-.btn-icon { background: transparent; color: white; padding: 10px; border-radius: var(--radius-full); position: relative; }
-.btn-icon:hover { background: #1e293b; }
+.btn-icon { background: transparent; color: var(--text-secondary); padding: 10px; border-radius: var(--radius-full); position: relative; display: flex; align-items: center; justify-content: center; }
+.btn-icon:hover { background: var(--bg-main); color: var(--text-primary); }
 .btn-icon .badge { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; background: var(--danger-color); border-radius: var(--radius-full); }
 
-.view-content { padding: 48px 32px; }
-
-/* =========================================
-   3. Estilos de Componentes da View (Dashboard, Tabelas, Kanban)
-   ========================================= */
-.view-header { margin-bottom: 48px; display: flex; justify-content: space-between; align-items: center; }
+.view-content { padding: 48px 32px; flex: 1; }
+.view-header { margin-bottom: 40px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
 .view-header h2 { font-size: 28px; font-weight: 700; color: var(--primary-color); }
-.view-header p { color: var(--text-secondary); margin-top: 4px; }
+.view-header p { color: var(--text-secondary); margin-top: 4px; font-size: 14px; }
 
-/* Grid de Cards (Dashboard) */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; margin-bottom: 48px; }
-.stat-card { background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 20px; }
-.stat-card .icon-box { background: rgba(14, 165, 233, 0.1); color: var(--accent-color); padding: 16px; border-radius: 12px; }
-.stat-card .value { font-size: 32px; font-weight: 700; color: var(--primary-color); }
+/* Dashboard Cards */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 24px; margin-bottom: 48px; }
+.stat-card { background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); display: flex; align-items: center; gap: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.stat-card .icon-box { background: rgba(14, 165, 233, 0.1); color: var(--accent-color); padding: 16px; border-radius: 12px; display: flex; }
+.stat-card .value { font-size: 32px; font-weight: 700; color: var(--primary-color); line-height: 1; margin-bottom: 4px; }
 .stat-card .label { font-size: 14px; color: var(--text-secondary); font-weight: 500; }
 
-/* Tabelas (CRUD) */
-.table-card { background: var(--bg-card); padding: 32px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); shadow: var(--shadow-md); }
-.data-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px; }
+/* Tabelas */
+.table-card { background: var(--bg-card); padding: 24px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 600px; }
 .data-table th { text-align: left; padding: 16px; border-bottom: 2px solid var(--border-color); color: var(--text-secondary); text-transform: uppercase; font-size: 12px; font-weight: 700; }
-.data-table td { padding: 16px; border-bottom: 1px solid var(--border-color); }
+.data-table td { padding: 16px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
 .data-table tr:hover td { background: rgba(14, 165, 233, 0.02); }
 
-.badge-status { padding: 4px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; text-transform: uppercase; }
+/* Badges */
+.badge-status { padding: 4px 8px; border-radius: 6px; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
 .badge-status.ativa, .badge-status.resolvido { background: rgba(16, 185, 129, 0.1); color: var(--success-color); }
 .badge-status.manutencao, .badge-status.em_progresso { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); }
-.badge-status.inativa, .badge-status.cancelado { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+.badge-status.inativa, .badge-status.fechado, .badge-status.cancelado { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+.badge-status.aberto { background: rgba(14, 165, 233, 0.1); color: var(--accent-color); }
 
-/* Sistema de Toast (Notificações) */
-.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 1000; }
-.toast { background: var(--bg-card); padding: 16px 24px; border-radius: var(--radius-lg); shadow: var(--shadow-md); display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s; border-left: 4px solid var(--border-color); font-size: 14px; font-weight: 500; }
+.badge-status.baixa { background: #f1f5f9; color: #64748b; }
+.badge-status.media { background: rgba(245, 158, 11, 0.1); color: var(--warning-color); }
+.badge-status.alta { background: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+.badge-status.urgente { background: var(--danger-color); color: white; }
+
+/* Kanban (Workflow) */
+.kanban-board { display: flex; gap: 24px; overflow-x: auto; padding-bottom: 24px; min-height: calc(100vh - 220px); align-items: flex-start; }
+.kanban-column { background: #f1f5f9; border-radius: var(--radius-lg); min-width: 300px; max-width: 320px; display: flex; flex-direction: column; border: 1px solid var(--border-color); flex-shrink: 0; }
+.kanban-header { padding: 16px; border-bottom: 1px solid var(--border-color); font-weight: 600; display: flex; justify-content: space-between; align-items: center; color: var(--primary-color); }
+.kanban-header .count { background: var(--border-color); padding: 2px 8px; border-radius: var(--radius-full); font-size: 12px; color: var(--text-secondary); }
+.kanban-cards { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 150px; }
+
+.kanban-card { background: var(--bg-card); padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: 0 2px 4px rgba(0,0,0,0.05); cursor: grab; transition: transform 0.2s, border-color 0.2s; }
+.kanban-card:active { cursor: grabbing; transform: scale(0.98); }
+.kanban-card:hover { border-color: var(--accent-color); }
+.kanban-card h4 { font-size: 14px; margin-bottom: 8px; color: var(--primary-color); font-weight: 600; }
+.kanban-card p { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kanban-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+
+/* Modais */
+.modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: flex; align-items: center; justify-content: center; z-index: 2000; animation: fadeIn 0.2s; padding: 16px; backdrop-filter: blur(4px); }
+.modal-content { background: var(--bg-card); width: 100%; max-width: 500px; border-radius: 16px; padding: 32px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); position: relative; max-height: 90vh; overflow-y: auto; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.modal-header h3 { font-size: 20px; color: var(--primary-color); font-weight: 700; }
+.modal-close { background: #f1f5f9; color: var(--text-secondary); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.modal-close:hover { background: #e2e8f0; color: var(--danger-color); }
+
+/* Toasts */
+.toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 12px; z-index: 9999; }
+.toast { background: var(--bg-card); padding: 16px 24px; border-radius: var(--radius-lg); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 12px; animation: slideIn 0.3s; border-left: 4px solid var(--border-color); font-size: 14px; font-weight: 500; color: var(--text-primary); }
 @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 .toast.success { border-color: var(--success-color); }
+.toast.success i { color: var(--success-color); }
 .toast.danger { border-color: var(--danger-color); }
+.toast.danger i { color: var(--danger-color); }
 .toast.warning { border-color: var(--warning-color); }
+.toast.warning i { color: var(--warning-color); }
+
+/* =========================================
+   Responsividade Mobile/Tablet
+   ========================================= */
+.hidden-desktop { display: none; }
+
+@media (max-width: 1024px) {
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .view-content { padding: 32px 24px; }
+}
+
+@media (max-width: 768px) {
+    .hidden-desktop { display: flex; }
+    
+    /* Configura o Sidebar como Gaveta Oculta */
+    .sidebar { position: fixed; transform: translateX(-100%); z-index: 1000; height: 100vh; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 25px -5px rgba(0,0,0,0.1); width: 280px; }
+    .sidebar.open { transform: translateX(0); }
+    
+    /* Ajusta a Topbar para caber o Menu Sanduíche */
+    .topbar { padding: 12px 16px; }
+    .topbar .search-bar { background: transparent; border: none; padding: 0; width: auto; }
+    .topbar .search-bar input { display: none; } /* Oculta pesquisa em telas muito pequenas */
+    
+    .view-content { padding: 24px 16px; }
+    .view-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+    .view-header button { width: 100%; }
+    
+    .stat-grid { grid-template-columns: 1fr; }
+    
+    .table-card { padding: 16px; border-radius: 8px; }
+    
+    /* Ajusta Kanban para ser apenas Rolagem Horizontal Nativa */
+    .kanban-board { flex-direction: row; padding-bottom: 16px; scroll-snap-type: x mandatory; }
+    .kanban-column { min-width: 85vw; scroll-snap-align: center; }
+    
+    /* Ajusta Modais */
+    .modal-content { padding: 24px; border-radius: 12px; }
+}
