@@ -16,7 +16,6 @@
     <script defer src="app.js"></script>  
 
     <style>
-        /* Preloader instantâneo para não dar sensação de tela travada */
         #initial-loader {
             position: fixed; inset: 0; background: #f8fafc; z-index: 9999;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -54,9 +53,10 @@
                     <ul>
                         <li class="active"><a href="#dashboard" class="nav-link"><i data-lucide="layout-dashboard"></i> Dashboard</a></li>
                         <li><a href="#workflow" class="nav-link"><i data-lucide="kanban-square"></i> Workflow (Kanban)</a></li>
-                        <li class="separator">Administração</li>
-                        <li><a href="#salas" class="nav-link"><i data-lucide="map-pin"></i> Cadastro de Salas</a></li>
-                        <li><a href="#usuarios" class="nav-link"><i data-lucide="users"></i> Cadastro de Usuários</a></li>
+                        
+                        <li id="menu-admin-sep" class="separator">Administração</li>
+                        <li id="menu-salas"><a href="#salas" class="nav-link"><i data-lucide="map-pin"></i> Cadastro de Salas</a></li>
+                        <li id="menu-usuarios"><a href="#usuarios" class="nav-link"><i data-lucide="users"></i> Cadastro de Usuários</a></li>
                     </ul>
                 </nav>
 
@@ -71,7 +71,7 @@
                         </button>
                         <div class="search-bar">
                             <i data-lucide="search"></i>
-                            <input type="text" placeholder="Pesquisar chamados, salas...">
+                            <input type="text" id="global-search" placeholder="Pesquisar OS por título ou ID e aperte Enter..." onkeyup="if(event.key === 'Enter') App.globalSearch(this.value)">
                         </div>
                     </div>
                     <div class="topbar-actions">
@@ -87,7 +87,6 @@
     <div id="modal-root"></div>
 
     <script>
-        // Inicia ícones se carregarem rápido, senão o app.js cuida disso depois
         if(typeof lucide !== 'undefined') lucide.createIcons();
     </script>
 </body>
