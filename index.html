@@ -7,29 +7,43 @@
     
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script> 
-
-    <!-- SDK Supabase -->
+    
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script> 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- Scripts da aplicação -->
     <script defer src="auth.js"></script> 
     <script defer src="views.js"></script>
     <script defer src="app.js"></script>  
+
+    <style>
+        /* Preloader instantâneo para não dar sensação de tela travada */
+        #initial-loader {
+            position: fixed; inset: 0; background: #f8fafc; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: 'Inter', sans-serif; transition: opacity 0.4s ease;
+        }
+        .spinner-loader {
+            width: 48px; height: 48px; border: 4px solid #e2e8f0; 
+            border-top-color: #0c4a6e; border-radius: 50%; 
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
 </head>
 <body class="light">
 
-    <!-- Sistema de Notificações -->
+    <div id="initial-loader">
+        <div class="spinner-loader"></div>
+        <h3 style="margin-top: 20px; color: #0c4a6e; font-weight: 700;">Fundepar TI</h3>
+        <p style="color: #64748b; font-size: 14px; margin-top: 4px;">Iniciando sistema...</p>
+    </div>
+
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Contêiner Principal da SPA -->
     <div id="app">
-        <!-- Autenticação -->
         <div id="auth-container" class="auth-container fade-in hidden"></div>
 
-        <!-- App Principal -->
         <div id="app-container" class="app-container hidden">
-            <!-- Barra Lateral -->
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-header">
                     <div style="background: var(--primary-color); color: white; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; border-radius: 8px;">F</div>
@@ -49,7 +63,6 @@
                 <div id="sidebar-profile" class="sidebar-profile"></div>
             </aside>
 
-            <!-- Área Principal -->
             <main class="main-content">
                 <header class="topbar">
                     <div style="display: flex; align-items: center; gap: 12px;">
@@ -71,9 +84,11 @@
         </div>
     </div>
 
-    <!-- Root para Modais (Formulários flutuantes) -->
     <div id="modal-root"></div>
 
-    <script>lucide.createIcons();</script>
+    <script>
+        // Inicia ícones se carregarem rápido, senão o app.js cuida disso depois
+        if(typeof lucide !== 'undefined') lucide.createIcons();
+    </script>
 </body>
 </html>

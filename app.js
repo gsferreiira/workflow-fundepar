@@ -42,15 +42,28 @@ const App = {
         window.addEventListener('hashchange', App.handleRoute);
     },
 
+    removeLoader: () => {
+        const loader = document.getElementById('initial-loader');
+        if (loader) {
+            loader.style.opacity = '0'; 
+            setTimeout(() => loader.remove(), 400); 
+        }
+    },
+
     showAuthView: () => {
+        App.removeLoader();
         document.getElementById('app-container').classList.add('hidden');
         document.getElementById('auth-container').classList.remove('hidden');
         App.loadLogin(); 
     },
 
     showAppView: () => {
+        App.removeLoader();
+        const appContainer = document.getElementById('app-container');
+        if (!appContainer.classList.contains('hidden')) return; 
+
         document.getElementById('auth-container').classList.add('hidden');
-        document.getElementById('app-container').classList.remove('hidden');
+        appContainer.classList.remove('hidden');
         App.renderSidebarProfile();
         App.handleRoute(); 
     },
@@ -62,7 +75,6 @@ const App = {
         App.updateActiveNavLink(route);
         UI.showLoading(); 
         
-        // Mobile: fecha a barra lateral ao clicar em um link do menu
         const sidebar = document.getElementById('sidebar');
         if (sidebar && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
@@ -174,20 +186,35 @@ const App = {
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
             
-            showCreateForm: () => {
-                const name = prompt("Informe o nome do novo Local / Sala:");
-                if (!name) return;
-                const description = prompt("Descrição ou Setor responsável (Opcional):");
-                
-                App.modules.salas.create(name, description);
+            showCreateModal: () => {
+                document.getElementById('modal-root').innerHTML = Views.app.salaModal();
+                if (typeof lucide !== 'undefined') lucide.createIcons();
             },
             
-            create: async (name, description) => {
-                const { error } = await supabaseClient.from('rooms').insert([{ name, description }]);
+            create: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const originalText = btn.textContent;
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                const newSala = {
+                    name: document.getElementById('sala-name').value,
+                    department_head: document.getElementById('sala-head').value,
+                    room_type: document.getElementById('sala-type').value,
+                    description: document.getElementById('sala-desc').value
+                };
+
+                const { error } = await supabaseClient.from('rooms').insert([newSala]);
+
                 if (error) {
                     UI.showToast('Erro ao criar sala: ' + error.message, 'danger');
+                    btn.disabled = false;
+                    btn.textContent = originalText;
                 } else {
-                    UI.showToast('Sala cadastrada com sucesso!', 'success');
+                    document.getElementById('sala-modal').remove();
+                    UI.showToast('Sala e Responsável cadastrados!', 'success');
                     App.modules.salas.init(); 
                 }
             }
@@ -200,6 +227,37 @@ const App = {
                 
                 document.getElementById('view-content').innerHTML = Views.app.usuarios(usuarios);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            showRoleModal: (id, name, role) => {
+                document.getElementById('modal-root').innerHTML = Views.app.roleModal({ id, name, role });
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            updateRole: async (e, userId) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const originalText = btn.textContent;
+                btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Atualizando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                const newRole = document.getElementById('user-role').value;
+
+                const { error } = await supabaseClient
+                    .from('profiles')
+                    .update({ role: newRole })
+                    .eq('id', userId);
+
+                if (error) {
+                    UI.showToast('Erro ao atualizar permissão: ' + error.message, 'danger');
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                } else {
+                    document.getElementById('role-modal').remove();
+                    UI.showToast('Permissão atualizada com sucesso!', 'success');
+                    App.modules.usuarios.init(); 
+                }
             }
         }
     },
@@ -268,11 +326,11 @@ const App = {
     renderSidebarProfile: () => {
         const container = document.getElementById('sidebar-profile');
         if(container && Auth.user) {
-            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURI(Auth.user.full_name)}&background=0c4a6e&color=fff`;
+            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURI(Auth.user.full_name || 'U')}&background=0c4a6e&color=fff`;
             container.innerHTML = `
                 <img src="${avatarUrl}" alt="Avatar" class="avatar">
                 <div class="profile-info">
-                    <div class="name" title="${Auth.user.full_name}">${Auth.user.full_name}</div>
+                    <div class="name" title="${Auth.user.full_name}">${Auth.user.full_name || 'Usuário'}</div>
                     <div class="role">${Auth.user.role || 'Usuário'}</div>
                 </div>
                 <button class="btn-logout" onclick="Auth.signOut()" title="Sair do Sistema">

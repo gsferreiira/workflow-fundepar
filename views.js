@@ -68,7 +68,7 @@ const Views = {
                 </div>
                 <div class="stat-card">
                     <div class="icon-box" style="background: rgba(245, 158, 11, 0.1); color: var(--warning-color);"><i data-lucide="map-pin"></i></div>
-                    <div><div class="value">${stats.totalRooms || 0}</div><div class="label">Locais / Salas</div></div>
+                    <div><div class="value">${stats.totalRooms || 0}</div><div class="label">Locais / Salas Cadastradas</div></div>
                 </div>
             </div>
         `,
@@ -76,27 +76,29 @@ const Views = {
         salas: (salas) => `
             <div class="view-header">
                 <div>
-                    <h2>Gestão de Salas</h2>
-                    <p>Cadastre os ambientes onde os chamados podem ocorrer.</p>
+                    <h2>Gestão de Salas e Locais</h2>
+                    <p>Organização dos ambientes e responsáveis da Fundepar.</p>
                 </div>
-                <button class="btn-primary" onclick="App.modules.salas.showCreateForm()"><i data-lucide="plus"></i> Cadastrar Sala</button>
+                <button class="btn-primary" onclick="App.modules.salas.showCreateModal()"><i data-lucide="plus"></i> Cadastrar Nova Sala</button>
             </div>
             <div class="table-card fade-in">
                 <table class="data-table">
                     <thead>
                         <tr>
                             <th>Nome do Local</th>
-                            <th>Descrição / Setor</th>
-                            <th>Status Operacional</th>
+                            <th>Tipo / Categoria</th>
+                            <th>Setor / Departamento</th>
+                            <th>Chefe do Setor</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${salas.length === 0 ? '<tr><td colspan="3" style="text-align:center; padding: 32px; color: var(--text-secondary);">Nenhuma sala cadastrada no sistema.</td></tr>' : ''}
+                        ${salas.length === 0 ? '<tr><td colspan="4" style="text-align:center; padding: 32px; color: var(--text-secondary);">Nenhuma sala cadastrada.</td></tr>' : ''}
                         ${salas.map(sala => `
                             <tr>
                                 <td><strong>${sala.name}</strong></td>
+                                <td><span class="badge-status aberto">${sala.room_type || 'Não definido'}</span></td>
                                 <td>${sala.description || '-'}</td>
-                                <td><span class="badge-status ${sala.status ? sala.status.toLowerCase().replace(' ', '_') : 'ativa'}">${sala.status || 'Ativa'}</span></td>
+                                <td><div style="display:flex; align-items:center; gap:8px;"><i data-lucide="user" style="width:14px"></i> ${sala.department_head || 'Não informado'}</div></td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -108,7 +110,7 @@ const Views = {
             <div class="view-header">
                 <div>
                     <h2>Controle de Usuários</h2>
-                    <p>Visualização de todos os colaboradores cadastrados.</p>
+                    <p>Gerencie o nível de acesso da equipe. (Apenas Admins podem alterar cargos).</p>
                 </div>
             </div>
             <div class="table-card fade-in">
@@ -116,16 +118,26 @@ const Views = {
                     <thead>
                         <tr>
                             <th>Nome do Colaborador</th>
-                            <th>Nível de Acesso</th>
+                            <th>Nível de Acesso (Cargo)</th>
                             <th>Data de Ingresso</th>
+                            <th>Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${usuarios.map(u => `
                             <tr>
                                 <td><strong>${u.full_name || 'Usuário Sem Nome'}</strong></td>
-                                <td style="text-transform: capitalize;">${u.role || 'usuario'}</td>
+                                <td>
+                                    <span class="badge-status ${u.role === 'admin' ? 'urgente' : u.role === 'tecnico' ? 'media' : 'baixa'}">
+                                        ${u.role || 'usuario'}
+                                    </span>
+                                </td>
                                 <td style="color: var(--text-secondary);">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+                                <td>
+                                    ${Auth.user.role === 'admin' 
+                                        ? `<button class="btn-icon" title="Editar Permissões" onclick="App.modules.usuarios.showRoleModal('${u.id}', '${u.full_name}', '${u.role}')"><i data-lucide="shield"></i></button>` 
+                                        : '<span style="color:var(--text-secondary); font-size:12px;">Sem permissão</span>'}
+                                </td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -197,7 +209,7 @@ const Views = {
                         <h3>Solicitação de Atendimento</h3>
                         <button class="modal-close" type="button" onclick="document.getElementById('ticket-modal').remove()"><i data-lucide="x"></i></button>
                     </div>
-                    <form id="form-new-ticket" onsubmit="App.modules.workflow.createTicket(event)">
+                    <form onsubmit="App.modules.workflow.createTicket(event)">
                         <div class="form-group">
                             <label>Título / Resumo do Problema</label>
                             <input type="text" id="ticket-title" class="form-control" required placeholder="Ex: Projetor não liga">
@@ -227,6 +239,76 @@ const Views = {
                         <div style="display:flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
                             <button type="button" class="btn-primary" style="background: #e2e8f0; color: #475569;" onclick="document.getElementById('ticket-modal').remove()">Cancelar</button>
                             <button type="submit" class="btn-primary">Enviar Solicitação</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `,
+
+        salaModal: () => `
+            <div class="modal-overlay" id="sala-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Configurar Novo Ambiente</h3>
+                        <button class="modal-close" type="button" onclick="document.getElementById('sala-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <form onsubmit="App.modules.salas.create(event)">
+                        <div class="form-group">
+                            <label>Nome da Sala (Ex: Sala 204)</label>
+                            <input type="text" id="sala-name" class="form-control" required placeholder="Ex: Laboratório de Robótica">
+                        </div>
+                        <div class="form-group">
+                            <label>Nome do Chefe/Responsável pelo Setor</label>
+                            <input type="text" id="sala-head" class="form-control" required placeholder="Ex: Prof. Carlos Alberto">
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                            <div class="form-group">
+                                <label>Tipo de Sala</label>
+                                <select id="sala-type" class="form-control" required>
+                                    <option value="Sala de Aula">Sala de Aula</option>
+                                    <option value="Laboratório">Laboratório</option>
+                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Auditório">Auditório</option>
+                                    <option value="Outros">Outros</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Bloco / Departamento (Opcional)</label>
+                                <input type="text" id="sala-desc" class="form-control" placeholder="Ex: Bloco B - 2º Andar">
+                            </div>
+                        </div>
+                        <div style="display:flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                            <button type="button" class="btn-primary" style="background: #e2e8f0; color: #475569;" onclick="document.getElementById('sala-modal').remove()">Cancelar</button>
+                            <button type="submit" class="btn-primary">Finalizar Cadastro</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `,
+
+        roleModal: (user) => `
+            <div class="modal-overlay" id="role-modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>Gestão de Permissões</h3>
+                        <button class="modal-close" type="button" onclick="document.getElementById('role-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <form onsubmit="App.modules.usuarios.updateRole(event, '${user.id}')">
+                        <div class="form-group">
+                            <label>Colaborador</label>
+                            <input type="text" class="form-control" value="${user.name}" disabled style="background: #f8fafc; color: #64748b;">
+                        </div>
+                        <div class="form-group">
+                            <label>Nível de Acesso (Cargo)</label>
+                            <select id="user-role" class="form-control">
+                                <option value="usuario" ${user.role === 'usuario' ? 'selected' : ''}>Usuário Padrão (Abre chamados)</option>
+                                <option value="tecnico" ${user.role === 'tecnico' ? 'selected' : ''}>Técnico (Gerencia Workflow)</option>
+                                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador (Acesso total)</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                            <button type="button" class="btn-primary" style="background: #e2e8f0; color: #475569;" onclick="document.getElementById('role-modal').remove()">Cancelar</button>
+                            <button type="submit" class="btn-primary">Atualizar Permissão</button>
                         </div>
                     </form>
                 </div>
