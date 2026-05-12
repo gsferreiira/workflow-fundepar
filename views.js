@@ -242,17 +242,21 @@ const Views = {
                             <button class="modal-close" type="button" onclick="document.getElementById('movimentacao-modal').remove()"><i data-lucide="x"></i></button>
                         </div>
                         <form id="form-new-movimentacao" onsubmit="App.modules.movimentacoes.create(event)">
-                            <input type="hidden" id="mov-equipment-id">
-
                             <div class="form-group">
                                 <label>Equipamento <span style="color:var(--danger-color)">*</span></label>
-                                <input type="text" id="mov-equipment-name" class="form-control" list="equipment-datalist" required
-                                       placeholder="Digite ou selecione o equipamento..." autocomplete="off"
-                                       oninput="App.modules.movimentacoes.fillEquipmentData(this.value)">
-                                <datalist id="equipment-datalist">
-                                    ${equipment.map(e => `<option value="${escapeHtml(e.name)}"></option>`).join('')}
-                                </datalist>
-                                ${equipment.length === 0 ? `<p style="color:var(--warning-color);font-size:12px;margin-top:6px;"><i>Nenhum equipamento cadastrado. <a href="#equipamentos" style="color:var(--accent-color)" onclick="document.getElementById('movimentacao-modal').remove()">Cadastre primeiro →</a></i></p>` : ''}
+                                <input type="hidden" id="mov-equipment-id">
+                                <div class="autocomplete-wrapper" id="wrap-mov-equip">
+                                    <input type="text" id="mov-equipment-name" class="form-control" required
+                                           placeholder="Toque para ver os equipamentos..." autocomplete="off"
+                                           onfocus="Autocomplete.show('wrap-mov-equip')"
+                                           onblur="Autocomplete.hide('wrap-mov-equip')"
+                                           oninput="Autocomplete.filter('wrap-mov-equip')">
+                                    <div class="autocomplete-list" id="wrap-mov-equip-list">
+                                        ${equipment.length === 0
+                                            ? `<div class="autocomplete-empty">Nenhum equipamento. <a href="#equipamentos" style="color:var(--accent-color)" onclick="document.getElementById('movimentacao-modal').remove()">Cadastre primeiro →</a></div>`
+                                            : equipment.map(e => `<div class="autocomplete-item" data-label="${escapeHtml(e.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-mov-equip','${escapeHtml(e.id)}','${escapeHtml(e.name)}','mov-equipment-id')">${escapeHtml(e.name)}</div>`).join('')}
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-2col">
@@ -269,19 +273,29 @@ const Views = {
                             <div class="form-2col">
                                 <div class="form-group">
                                     <label>Origem <span style="color:var(--danger-color)">*</span></label>
-                                    <input type="text" id="mov-origin" class="form-control" list="rooms-datalist-origin" required
-                                           placeholder="Local de origem..." autocomplete="off">
-                                    <datalist id="rooms-datalist-origin">
-                                        ${rooms.map(r => `<option value="${escapeHtml(r.name)}"></option>`).join('')}
-                                    </datalist>
+                                    <input type="hidden" id="mov-origin-id">
+                                    <div class="autocomplete-wrapper" id="wrap-mov-origin">
+                                        <input type="text" class="form-control" required placeholder="Toque para ver as salas..." autocomplete="off"
+                                               onfocus="Autocomplete.show('wrap-mov-origin')"
+                                               onblur="Autocomplete.hide('wrap-mov-origin')"
+                                               oninput="Autocomplete.filter('wrap-mov-origin')">
+                                        <div class="autocomplete-list" id="wrap-mov-origin-list">
+                                            ${rooms.map(r => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-mov-origin','${escapeHtml(r.id)}','${escapeHtml(r.name)}','mov-origin-id')">${escapeHtml(r.name)}</div>`).join('')}
+                                        </div>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label>Destino <span style="color:var(--danger-color)">*</span></label>
-                                    <input type="text" id="mov-destination" class="form-control" list="rooms-datalist-dest" required
-                                           placeholder="Local de destino..." autocomplete="off">
-                                    <datalist id="rooms-datalist-dest">
-                                        ${rooms.map(r => `<option value="${escapeHtml(r.name)}"></option>`).join('')}
-                                    </datalist>
+                                    <input type="hidden" id="mov-destination-id">
+                                    <div class="autocomplete-wrapper" id="wrap-mov-dest">
+                                        <input type="text" class="form-control" required placeholder="Toque para ver as salas..." autocomplete="off"
+                                               onfocus="Autocomplete.show('wrap-mov-dest')"
+                                               onblur="Autocomplete.hide('wrap-mov-dest')"
+                                               oninput="Autocomplete.filter('wrap-mov-dest')">
+                                        <div class="autocomplete-list" id="wrap-mov-dest-list">
+                                            ${rooms.map(r => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-mov-dest','${escapeHtml(r.id)}','${escapeHtml(r.name)}','mov-destination-id')">${escapeHtml(r.name)}</div>`).join('')}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -859,19 +873,33 @@ const Views = {
                         <div class="form-2col">
                             <div class="form-group">
                                 <label>Origem <span style="color:var(--danger-color)">*</span></label>
-                                <input type="text" id="edit-mov-origin" class="form-control" list="edit-rooms-origin" required
-                                       value="${movement.origin ? escapeHtml(movement.origin.name) : ''}" autocomplete="off">
-                                <datalist id="edit-rooms-origin">
-                                    ${rooms.map(r => `<option value="${escapeHtml(r.name)}"></option>`).join('')}
-                                </datalist>
+                                <input type="hidden" id="edit-mov-origin-id" value="${escapeHtml(movement.origin_room_id || '')}">
+                                <div class="autocomplete-wrapper" id="wrap-edit-origin">
+                                    <input type="text" id="edit-mov-origin" class="form-control" required autocomplete="off"
+                                           value="${movement.origin ? escapeHtml(movement.origin.name) : ''}"
+                                           placeholder="Toque para ver as salas..."
+                                           onfocus="Autocomplete.show('wrap-edit-origin')"
+                                           onblur="Autocomplete.hide('wrap-edit-origin')"
+                                           oninput="Autocomplete.filter('wrap-edit-origin')">
+                                    <div class="autocomplete-list" id="wrap-edit-origin-list">
+                                        ${rooms.map(r => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-edit-origin','${escapeHtml(r.id)}','${escapeHtml(r.name)}','edit-mov-origin-id')">${escapeHtml(r.name)}</div>`).join('')}
+                                    </div>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label>Destino <span style="color:var(--danger-color)">*</span></label>
-                                <input type="text" id="edit-mov-destination" class="form-control" list="edit-rooms-dest" required
-                                       value="${movement.destination ? escapeHtml(movement.destination.name) : ''}" autocomplete="off">
-                                <datalist id="edit-rooms-dest">
-                                    ${rooms.map(r => `<option value="${escapeHtml(r.name)}"></option>`).join('')}
-                                </datalist>
+                                <input type="hidden" id="edit-mov-destination-id" value="${escapeHtml(movement.destination_room_id || '')}">
+                                <div class="autocomplete-wrapper" id="wrap-edit-dest">
+                                    <input type="text" id="edit-mov-destination" class="form-control" required autocomplete="off"
+                                           value="${movement.destination ? escapeHtml(movement.destination.name) : ''}"
+                                           placeholder="Toque para ver as salas..."
+                                           onfocus="Autocomplete.show('wrap-edit-dest')"
+                                           onblur="Autocomplete.hide('wrap-edit-dest')"
+                                           oninput="Autocomplete.filter('wrap-edit-dest')">
+                                    <div class="autocomplete-list" id="wrap-edit-dest-list">
+                                        ${rooms.map(r => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-edit-dest','${escapeHtml(r.id)}','${escapeHtml(r.name)}','edit-mov-destination-id')">${escapeHtml(r.name)}</div>`).join('')}
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div class="form-2col">

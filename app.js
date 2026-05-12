@@ -335,9 +335,9 @@ const App = {
             deleteUsuario: async (btn, userId) => {
                 if (btn.dataset.confirming) {
                     btn.disabled = true; btn.textContent = '...';
-                    const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
-                    if (error) {
-                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                    const { data: deleted, error } = await supabaseClient.from('profiles').delete().eq('id', userId).select();
+                    if (error || !deleted || deleted.length === 0) {
+                        UI.showToast(error ? 'Erro: ' + error.message : 'Sem permissão. Adicione a política RLS no Supabase.', 'danger');
                         btn.disabled = false; delete btn.dataset.confirming;
                         btn.innerHTML = '<i data-lucide="trash-2"></i>';
                         if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -610,15 +610,15 @@ const App = {
                 btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
 
-                const originName  = document.getElementById('edit-mov-origin').value.trim();
-                const destName    = document.getElementById('edit-mov-destination').value.trim();
-                const editReason  = document.getElementById('edit-mov-reason').value.trim();
+                const originRoomId = document.getElementById('edit-mov-origin-id').value;
+                const destRoomId   = document.getElementById('edit-mov-destination-id').value;
+                const editReason   = document.getElementById('edit-mov-reason').value.trim();
 
-                const originRoom = App.modules.movimentacoes._rooms.find(r => r.name === originName);
-                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.name === destName);
+                const originRoom = App.modules.movimentacoes._rooms.find(r => r.id === originRoomId);
+                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.id === destRoomId);
 
-                if (!originRoom) { UI.showToast('Origem não encontrada. Selecione uma sala da lista.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
-                if (!destRoom)   { UI.showToast('Destino não encontrado. Selecione uma sala da lista.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!originRoom) { UI.showToast('Selecione a sala de origem.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!destRoom)   { UI.showToast('Selecione a sala de destino.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
                 if (!editReason) { UI.showToast('A justificativa é obrigatória.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
 
                 const movedAtVal = document.getElementById('edit-mov-date').value;
@@ -705,25 +705,18 @@ const App = {
                 btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Registrando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
 
-                const equipmentId = document.getElementById('mov-equipment-id').value;
-                const originName  = document.getElementById('mov-origin').value.trim();
-                const destName    = document.getElementById('mov-destination').value.trim();
+                const equipmentId  = document.getElementById('mov-equipment-id').value;
+                const originRoomId = document.getElementById('mov-origin-id').value;
+                const destRoomId   = document.getElementById('mov-destination-id').value;
 
-                if (!equipmentId) {
-                    UI.showToast('Selecione um equipamento da lista.', 'warning');
-                    btn.disabled = false; btn.textContent = orig; return;
-                }
-                const originRoom = App.modules.movimentacoes._rooms.find(r => r.name === originName);
-                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.name === destName);
+                if (!equipmentId)  { UI.showToast('Selecione um equipamento da lista.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!originRoomId) { UI.showToast('Selecione a sala de origem.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!destRoomId)   { UI.showToast('Selecione a sala de destino.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
 
-                if (!originRoom) {
-                    UI.showToast('Origem não encontrada. Selecione uma sala da lista.', 'warning');
-                    btn.disabled = false; btn.textContent = orig; return;
-                }
-                if (!destRoom) {
-                    UI.showToast('Destino não encontrado. Selecione uma sala da lista.', 'warning');
-                    btn.disabled = false; btn.textContent = orig; return;
-                }
+                const originRoom = App.modules.movimentacoes._rooms.find(r => r.id === originRoomId);
+                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.id === destRoomId);
+
+                if (!originRoom || !destRoom) { UI.showToast('Sala não encontrada. Tente novamente.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
 
                 const serialNumber = document.getElementById('mov-serial').value || null;
                 const assetNumber  = document.getElementById('mov-asset-number').value || null;
@@ -863,6 +856,44 @@ const App = {
         document.querySelectorAll('.sidebar-menu ul li').forEach(li => li.classList.remove('active'));
         const link = document.querySelector(`.sidebar-menu a[href="${route}"]`);
         if (link) link.parentElement.classList.add('active');
+    }
+};
+
+const Autocomplete = {
+    show: (id) => {
+        const list = document.getElementById(id + '-list');
+        if (!list) return;
+        list.querySelectorAll('.autocomplete-item').forEach(el => el.classList.remove('hidden'));
+        list.classList.add('open');
+    },
+    hide: (id) => {
+        setTimeout(() => {
+            const list = document.getElementById(id + '-list');
+            if (list) list.classList.remove('open');
+        }, 200);
+    },
+    filter: (id) => {
+        const wrapper = document.getElementById(id);
+        const list    = document.getElementById(id + '-list');
+        if (!wrapper || !list) return;
+        const q = (wrapper.querySelector('input[type="text"]')?.value || '').toLowerCase().trim();
+        list.classList.add('open');
+        let visible = 0;
+        list.querySelectorAll('.autocomplete-item').forEach(el => {
+            const match = !q || el.dataset.label.toLowerCase().includes(q);
+            el.classList.toggle('hidden', !match);
+            if (match) visible++;
+        });
+        let empty = list.querySelector('.autocomplete-empty');
+        if (!empty) { empty = document.createElement('div'); empty.className = 'autocomplete-empty'; empty.textContent = 'Nenhum resultado.'; list.appendChild(empty); }
+        empty.style.display = visible === 0 ? '' : 'none';
+    },
+    pick: (id, value, label, hiddenId) => {
+        const wrapper = document.getElementById(id);
+        if (wrapper) { const inp = wrapper.querySelector('input[type="text"]'); if (inp) inp.value = label; }
+        if (hiddenId) { const h = document.getElementById(hiddenId); if (h) h.value = value; }
+        const list = document.getElementById(id + '-list');
+        if (list) list.classList.remove('open');
     }
 };
 
