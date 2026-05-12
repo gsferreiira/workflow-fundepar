@@ -255,7 +255,7 @@ const Views = {
                                 ${equipment.length === 0 ? `<p style="color:var(--warning-color);font-size:12px;margin-top:6px;"><i>Nenhum equipamento cadastrado. <a href="#equipamentos" style="color:var(--accent-color)" onclick="document.getElementById('movimentacao-modal').remove()">Cadastre primeiro →</a></i></p>` : ''}
                             </div>
 
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div class="form-2col">
                                 <div class="form-group">
                                     <label>Nº de Série <span style="color:var(--text-secondary);font-weight:400">(Opcional)</span></label>
                                     <input type="text" id="mov-serial" class="form-control" placeholder="Ex: SN123456789">
@@ -266,7 +266,7 @@ const Views = {
                                 </div>
                             </div>
 
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div class="form-2col">
                                 <div class="form-group">
                                     <label>Origem <span style="color:var(--danger-color)">*</span></label>
                                     <input type="text" id="mov-origin" class="form-control" list="rooms-datalist-origin" required
@@ -285,7 +285,7 @@ const Views = {
                                 </div>
                             </div>
 
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                            <div class="form-2col">
                                 <div class="form-group">
                                     <label>Responsável pela Movimentação</label>
                                     <input type="text" class="form-control" readonly value="${escapeHtml(Auth.user.full_name || Auth.user.email)}">
@@ -468,7 +468,7 @@ const Views = {
                             <label>Nome do Local / Sala <span style="color:var(--danger-color)">*</span></label>
                             <input type="text" id="room-name" class="form-control" required placeholder="Ex: Sala de Reuniões">
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Número da Sala <span style="color:var(--text-secondary);font-weight:400">(Opcional)</span></label>
                                 <input type="text" id="room-number" class="form-control" placeholder="Ex: 101">
@@ -503,7 +503,7 @@ const Views = {
                             <label>Nome do Local / Sala <span style="color:var(--danger-color)">*</span></label>
                             <input type="text" id="edit-room-name" class="form-control" required value="${escapeHtml(sala.name)}">
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Número da Sala <span style="color:var(--text-secondary);font-weight:400">(Opcional)</span></label>
                                 <input type="text" id="edit-room-number" class="form-control" value="${escapeHtml(sala.room_number || '')}">
@@ -630,7 +630,7 @@ const Views = {
                             <label>Descrição Completa</label>
                             <textarea id="ticket-desc" class="form-control" required rows="4" placeholder="Detalhe o que está acontecendo..."></textarea>
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Local afetado</label>
                                 <select id="ticket-room" class="form-control" required>
@@ -758,7 +758,7 @@ const Views = {
                             <label>Equipamento</label>
                             <input type="text" class="form-control" readonly value="${movement.equipment ? escapeHtml(movement.equipment.name) : '—'}">
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Nº de Série</label>
                                 <input type="text" id="edit-mov-serial" class="form-control" value="${escapeHtml(movement.serial_number || '')}" placeholder="Ex: SN123456789">
@@ -768,7 +768,7 @@ const Views = {
                                 <input type="text" id="edit-mov-asset" class="form-control" value="${escapeHtml(movement.asset_number || '')}" placeholder="Ex: PAT-00123">
                             </div>
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Origem <span style="color:var(--danger-color)">*</span></label>
                                 <input type="text" id="edit-mov-origin" class="form-control" list="edit-rooms-origin" required
@@ -786,7 +786,7 @@ const Views = {
                                 </datalist>
                             </div>
                         </div>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div class="form-2col">
                             <div class="form-group">
                                 <label>Recebedor</label>
                                 <input type="text" id="edit-mov-received-by" class="form-control" value="${escapeHtml(movement.received_by || '')}" placeholder="Nome de quem recebe...">

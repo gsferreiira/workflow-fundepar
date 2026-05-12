@@ -17,7 +17,7 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
-body { font-family: 'Inter', sans-serif; background: var(--bg-main); color: var(--text-primary); }
+body { font-family: 'Inter', sans-serif; background: var(--bg-main); color: var(--text-primary); overflow-x: hidden; }
 ul { list-style: none; }
 a { text-decoration: none; color: inherit; transition: color 0.2s; }
 button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 500; font-family: inherit; }
@@ -32,6 +32,7 @@ button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 500; 
 .form-group { margin-bottom: 20px; text-align: left; }
 .form-group label { display: block; margin-bottom: 8px; font-size: 14px; color: var(--text-secondary); font-weight: 500; }
 .form-control { width: 100%; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 15px; font-family: 'Inter', sans-serif; }
+.form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-control:focus { border-color: var(--accent-color); box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1); }
 textarea.form-control { resize: vertical; }
 
@@ -235,33 +236,92 @@ textarea.form-control { resize: vertical; }
     .view-content { padding: 32px 24px; }
 }
 
+/* ── TABLET / MOBILE (≤768px) ─────────────────────────────────────── */
 @media (max-width: 768px) {
     .hidden-desktop { display: flex; }
 
+    /* Sidebar deslizante */
     .sidebar { position: fixed; transform: translateX(-100%); z-index: 1000; height: 100vh; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 25px -5px rgba(0,0,0,0.1); width: 280px; }
     .sidebar.open { transform: translateX(0); }
+    .sidebar-menu a { padding: 12px 16px; font-size: 15px; min-height: 48px; display: flex; align-items: center; }
 
+    /* Topbar */
     .topbar { padding: 12px 16px; }
     .topbar .search-bar { background: transparent; border: none; padding: 0; width: auto; }
     .topbar .search-bar input { display: none; }
+    .btn-icon { min-height: 44px; min-width: 44px; }
 
-    .view-content { padding: 24px 16px; }
-    .view-header { flex-direction: column; align-items: flex-start; gap: 16px; }
-    .view-header button { width: 100%; justify-content: center; }
+    /* Conteúdo */
+    .view-content { padding: 20px 16px; }
+    .view-header { flex-direction: column; align-items: flex-start; gap: 12px; margin-bottom: 24px; }
+    .view-header h2 { font-size: 22px; }
+    .view-header > div:last-child { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+    .view-header button, .view-header > div:last-child > button { width: 100%; justify-content: center; min-height: 48px; }
 
-    .stat-grid { grid-template-columns: 1fr; }
+    /* Stat cards */
+    .stat-grid { grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .stat-card { padding: 16px; gap: 12px; }
+    .stat-card .icon-box { padding: 12px; }
+    .stat-card .value { font-size: 26px; }
+    .stat-card .label { font-size: 12px; }
 
-    .table-card { padding: 16px; border-radius: 8px; }
+    /* Tabelas — scroll horizontal contido */
+    .table-card { padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+    .table-card .search-inline { margin: 16px 16px 0; }
+    .data-table { min-width: 520px; font-size: 13px; }
+    .data-table thead th { padding: 12px 12px; font-size: 11px; }
+    .data-table tbody td { padding: 11px 12px; }
+    .table-actions { gap: 6px; }
+    .btn-table-action { min-height: 38px; min-width: 38px; padding: 8px 10px; font-size: 12px; }
 
-    /* Kanban: abas por coluna no mobile */
+    /* Modais — bottom sheet */
+    .modal-overlay { padding: 0; align-items: flex-end; }
+    .modal-content { border-radius: 22px 22px 0 0; max-width: 100%; width: 100%; max-height: 92vh; padding: 8px 20px 36px; overflow-y: auto; }
+    .modal-content::before { content: ''; display: block; width: 36px; height: 4px; background: var(--border-color); border-radius: 99px; margin: 0 auto 20px; }
+    .modal-header { margin-bottom: 20px; }
+    .modal-close { width: 40px; height: 40px; }
+
+    /* Inputs — font-size 16px evita zoom automático no iOS */
+    .form-control { font-size: 16px; }
+    textarea.form-control { font-size: 16px; }
+
+    /* Formulários 2 colunas → 1 coluna */
+    .form-2col { grid-template-columns: 1fr; }
+
+    /* Kanban — abas por coluna */
     .kanban-tabs { display: flex; background: var(--bg-card); border-radius: 10px; padding: 4px; border: 1px solid var(--border-color); margin-bottom: 16px; }
-    .kanban-tab { flex: 1; padding: 10px 4px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: transparent; text-align: center; transition: all 0.2s; }
+    .kanban-tab { flex: 1; padding: 12px 4px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--text-secondary); background: transparent; text-align: center; min-height: 44px; display: flex; align-items: center; justify-content: center; }
     .kanban-tab.active { background: var(--accent-color); color: white; }
-
     .kanban-board { flex-direction: column; overflow-x: visible; padding-bottom: 16px; min-height: unset; }
     .kanban-column { min-width: unset; max-width: unset; width: 100%; display: none; }
     .kanban-column.active { display: flex; }
 
-    .modal-content { padding: 24px; border-radius: 12px; }
+    /* Mapa de salas */
+    .room-map-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Misc */
     .detail-meta-grid { grid-template-columns: 1fr 1fr; }
+    .badge-edited { font-size: 10px; padding: 3px 7px; }
+}
+
+/* ── CELULAR (≤480px) ─────────────────────────────────────────────── */
+@media (max-width: 480px) {
+    .view-content { padding: 16px 12px; }
+
+    /* Stat cards em 1 coluna no celular pequeno */
+    .stat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stat-card .value { font-size: 22px; }
+
+    /* Mapa de salas — 1 coluna */
+    .room-map-grid { grid-template-columns: 1fr; }
+
+    /* Tabela — ações empilhadas */
+    .table-actions { flex-direction: column; gap: 4px; align-items: flex-start; }
+
+    /* Modal mais espaçoso */
+    .modal-content { padding: 8px 16px 40px; }
+
+    /* View header */
+    .view-header h2 { font-size: 19px; }
+    .view-header p { font-size: 13px; }
 }
