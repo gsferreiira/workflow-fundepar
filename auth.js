@@ -40,6 +40,10 @@ const Auth = {
             Auth.user = { ...authUser, full_name: authUser.email, role: 'usuario' };
         } else {
             Auth.user = { ...authUser, ...profile };
+            // Sincroniza email no perfil caso ainda não esteja salvo
+            if (!profile.email) {
+                supabaseClient.from('profiles').update({ email: authUser.email }).eq('id', authUser.id);
+            }
         }
     },
 

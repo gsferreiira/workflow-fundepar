@@ -527,25 +527,34 @@ const Views = {
         `,
 
         /* ── USUÁRIOS ────────────────────────────────────────────────── */
-        usuarios: (usuarios) => `
+        usuarios: (usuarios, currentUserId, currentUserRole) => `
             <div class="view-header">
                 <div>
                     <h2>Controle de Usuários</h2>
-                    <p>Gerencie os colaboradores e níveis de acesso.</p>
+                    <p>Gerencie os colaboradores e níveis de acesso do sistema.</p>
                 </div>
             </div>
             <div class="table-card fade-in">
                 <table class="data-table">
                     <thead><tr>
-                        <th>Nome do Colaborador</th>
+                        <th>Colaborador</th>
+                        <th>E-mail</th>
                         <th>Nível de Acesso</th>
-                        <th>Data de Ingresso</th>
+                        <th>Ingresso</th>
+                        <th style="width:110px;">Ações</th>
                     </tr></thead>
                     <tbody>
-                        ${usuarios.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum usuário cadastrado.</td></tr>' : ''}
+                        ${usuarios.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum usuário cadastrado.</td></tr>' : ''}
                         ${usuarios.map(u => `
                             <tr>
-                                <td><strong>${escapeHtml(u.full_name) || 'Usuário Sem Nome'}</strong></td>
+                                <td>
+                                    <div style="display:flex;align-items:center;gap:10px;">
+                                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(u.full_name||'U')}&background=0c4a6e&color=fff&size=32" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;">
+                                        <strong>${escapeHtml(u.full_name) || '<span style="color:var(--text-secondary)">Sem nome</span>'}</strong>
+                                        ${u.id === currentUserId ? '<span style="background:var(--accent-color);color:white;font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:4px;">Você</span>' : ''}
+                                    </div>
+                                </td>
+                                <td style="color:var(--text-secondary);font-size:13px;">${escapeHtml(u.email) || '—'}</td>
                                 <td>
                                     <select class="role-select" onchange="App.modules.usuarios.updateRole('${escapeHtml(u.id)}',this.value)">
                                         <option value="usuario" ${u.role==='usuario'||!u.role?'selected':''}>Usuário</option>
@@ -553,11 +562,90 @@ const Views = {
                                         <option value="admin"   ${u.role==='admin'?'selected':''}>Admin</option>
                                     </select>
                                 </td>
-                                <td style="color:var(--text-secondary);">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+                                <td style="color:var(--text-secondary);white-space:nowrap;">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+                                <td>
+                                    <div class="table-actions">
+                                        ${currentUserRole === 'admin' && u.id !== currentUserId && u.role !== 'admin' ? `<button class="btn-table-action edit" title="Editar usuário" onclick="App.modules.usuarios.editUsuario('${escapeHtml(u.id)}')"><i data-lucide="pencil"></i></button>` : ''}
+                                        ${u.id !== currentUserId ? `<button class="btn-table-action delete" title="Excluir usuário" onclick="App.modules.usuarios.deleteUsuario(this,'${escapeHtml(u.id)}')"><i data-lucide="trash-2"></i></button>` : ''}
+                                    </div>
+                                </td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+            </div>
+        `,
+
+        usuarioEditModal: (u) => `
+            <div class="modal-overlay" id="usuario-edit-modal">
+                <div class="modal-content" style="max-width:440px;">
+                    <div class="modal-header">
+                        <h3>Editar Usuário</h3>
+                        <button class="modal-close" type="button" onclick="document.getElementById('usuario-edit-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <form id="form-edit-usuario" onsubmit="App.modules.usuarios.updateUsuario(event,'${escapeHtml(u.id)}')">
+                        <div class="form-group">
+                            <label>Nome Completo <span style="color:var(--danger-color)">*</span></label>
+                            <input type="text" id="edit-usuario-name" class="form-control" value="${escapeHtml(u.full_name || '')}" required placeholder="Nome completo...">
+                        </div>
+                        <div class="form-group">
+                            <label>E-mail <span style="color:var(--danger-color)">*</span></label>
+                            <input type="email" id="edit-usuario-email" class="form-control" value="${escapeHtml(u.email || '')}" required placeholder="email@exemplo.com">
+                            <small style="color:var(--text-secondary);font-size:11px;display:block;margin-top:4px;">Altera apenas o e-mail de exibição no sistema.</small>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:8px;">
+                            <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('usuario-edit-modal').remove()">Cancelar</button>
+                            <button type="submit" class="btn-primary">Salvar</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `,
+
+        perfilPage: (user) => `
+            <div class="view-header">
+                <div>
+                    <h2>Meu Perfil</h2>
+                    <p>Gerencie suas informações pessoais e segurança da conta.</p>
+                </div>
+            </div>
+            <div class="profile-page-grid fade-in">
+                <div class="profile-avatar-card">
+                    <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name||'U')}&background=0c4a6e&color=fff&size=96" class="avatar-lg">
+                    <h3>${escapeHtml(user.full_name) || 'Usuário'}</h3>
+                    <span class="badge-role-pill ${escapeHtml(user.role || 'usuario')}">${escapeHtml(user.role) || 'usuário'}</span>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;word-break:break-all;">${escapeHtml(user.email)}</p>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:20px;">
+                    <div class="table-card">
+                        <h4 style="font-size:16px;font-weight:700;color:var(--primary-color);margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i data-lucide="user" style="width:17px;"></i> Dados Pessoais</h4>
+                        <form id="form-perfil-nome" onsubmit="App.modules.perfil.updateName(event)">
+                            <div class="form-group">
+                                <label>Nome Completo</label>
+                                <input type="text" id="perfil-name" class="form-control" value="${escapeHtml(user.full_name || '')}" required>
+                            </div>
+                            <div class="form-group">
+                                <label>E-mail</label>
+                                <input type="email" class="form-control" readonly value="${escapeHtml(user.email)}">
+                            </div>
+                            <button type="submit" class="btn-primary">Salvar Nome</button>
+                        </form>
+                    </div>
+                    <div class="table-card">
+                        <h4 style="font-size:16px;font-weight:700;color:var(--primary-color);margin-bottom:20px;display:flex;align-items:center;gap:8px;"><i data-lucide="lock" style="width:17px;"></i> Alterar Senha</h4>
+                        <form id="form-perfil-senha" onsubmit="App.modules.perfil.updatePassword(event)">
+                            <div class="form-group">
+                                <label>Nova Senha <span style="color:var(--danger-color)">*</span></label>
+                                <input type="password" id="perfil-new-pass" class="form-control" minlength="6" placeholder="Mínimo 6 caracteres" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Confirmar Senha <span style="color:var(--danger-color)">*</span></label>
+                                <input type="password" id="perfil-confirm-pass" class="form-control" placeholder="Repita a nova senha" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="background:var(--primary-color);">Alterar Senha</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         `,
 

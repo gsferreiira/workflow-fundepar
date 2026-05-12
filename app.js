@@ -64,6 +64,7 @@ const App = {
             case '#movimentacoes': App.modules.movimentacoes.init(); break;
             case '#rastreio':      App.modules.rastreio.init();      break;
             case '#mapa-salas':    App.modules.mapaSalas.init();    break;
+            case '#perfil':        App.modules.perfil.init();       break;
             default: viewContent.innerHTML = '<div style="text-align:center;padding:40px;"><h2>Erro 404</h2><p style="color:var(--text-secondary)">A tela procurada não existe.</p></div>';
         }
     },
@@ -292,16 +293,104 @@ const App = {
 
         /* ── USUÁRIOS ───────────────────────────────────────────────── */
         usuarios: {
+            _list: [],
+
             init: async () => {
                 const { data: usuarios, error } = await supabaseClient.from('profiles').select('*').order('full_name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
-                document.getElementById('view-content').innerHTML = Views.app.usuarios(usuarios);
+                App.modules.usuarios._list = usuarios || [];
+                document.getElementById('view-content').innerHTML = Views.app.usuarios(usuarios, Auth.user.id, Auth.user.role);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
+
             updateRole: async (userId, role) => {
                 const { error } = await supabaseClient.from('profiles').update({ role }).eq('id', userId);
                 if (error) { UI.showToast('Erro ao atualizar permissão.', 'danger'); }
                 else { UI.showToast('Permissão atualizada!', 'success'); }
+            },
+
+            editUsuario: (userId) => {
+                const u = App.modules.usuarios._list.find(u => u.id === userId);
+                if (!u) return;
+                document.getElementById('modal-root').innerHTML = Views.app.usuarioEditModal(u);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            updateUsuario: async (e, userId) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const { error } = await supabaseClient.from('profiles').update({
+                    full_name: document.getElementById('edit-usuario-name').value.trim(),
+                    email:     document.getElementById('edit-usuario-email').value.trim()
+                }).eq('id', userId);
+                if (error) { UI.showToast('Erro ao atualizar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
+                document.getElementById('usuario-edit-modal').remove();
+                UI.showToast('Usuário atualizado!', 'success');
+                App.modules.usuarios.init();
+            },
+
+            deleteUsuario: async (btn, userId) => {
+                if (btn.dataset.confirming) {
+                    btn.disabled = true; btn.textContent = '...';
+                    const { error } = await supabaseClient.from('profiles').delete().eq('id', userId);
+                    if (error) {
+                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else { UI.showToast('Usuário removido.', 'success'); App.modules.usuarios.init(); }
+                } else {
+                    btn.dataset.confirming = '1'; btn.textContent = 'Confirmar?';
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
+                }
+            }
+        },
+
+        /* ── PERFIL ─────────────────────────────────────────────────── */
+        perfil: {
+            init: () => {
+                document.getElementById('view-content').innerHTML = Views.app.perfilPage(Auth.user);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            updateName: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const newName = document.getElementById('perfil-name').value.trim();
+                const { error } = await supabaseClient.from('profiles').update({ full_name: newName }).eq('id', Auth.user.id);
+                if (error) { UI.showToast('Erro ao salvar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
+                Auth.user.full_name = newName;
+                App.renderSidebarProfile();
+                btn.disabled = false; btn.textContent = orig;
+                UI.showToast('Nome atualizado!', 'success');
+            },
+
+            updatePassword: async (e) => {
+                e.preventDefault();
+                const newPass  = document.getElementById('perfil-new-pass').value;
+                const confPass = document.getElementById('perfil-confirm-pass').value;
+                if (newPass !== confPass) { UI.showToast('As senhas não coincidem.', 'warning'); return; }
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Alterando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const { error } = await supabaseClient.auth.updateUser({ password: newPass });
+                if (error) { UI.showToast('Erro: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
+                e.target.reset();
+                btn.disabled = false; btn.textContent = orig;
+                UI.showToast('Senha alterada com sucesso!', 'success');
             }
         },
 
@@ -756,11 +845,13 @@ const App = {
         if (container && Auth.user) {
             const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(Auth.user.full_name || 'U')}&background=0c4a6e&color=fff`;
             container.innerHTML = `
-                <img src="${avatarUrl}" alt="Avatar" class="avatar">
-                <div class="profile-info">
-                    <div class="name" title="${escapeHtml(Auth.user.full_name)}">${escapeHtml(Auth.user.full_name)}</div>
-                    <div class="role">${escapeHtml(Auth.user.role) || 'Usuário'}</div>
-                </div>
+                <a href="#perfil" class="sidebar-profile-link" title="Ver meu perfil">
+                    <img src="${avatarUrl}" alt="Avatar" class="avatar">
+                    <div class="profile-info">
+                        <div class="name" title="${escapeHtml(Auth.user.full_name)}">${escapeHtml(Auth.user.full_name)}</div>
+                        <div class="role">${escapeHtml(Auth.user.role) || 'Usuário'}</div>
+                    </div>
+                </a>
                 <button class="btn-logout" onclick="Auth.signOut()" title="Sair do Sistema">
                     <i data-lucide="log-out"></i>
                 </button>`;
