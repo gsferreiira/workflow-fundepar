@@ -11,6 +11,8 @@
 
     <!-- SDK Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- SheetJS (exportar Excel) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     
     <!-- Scripts da aplicação -->
     <script defer src="auth.js"></script> 
@@ -40,6 +42,11 @@
                     <ul>
                         <li class="active"><a href="#dashboard" class="nav-link"><i data-lucide="layout-dashboard"></i> Dashboard</a></li>
                         <li><a href="#workflow" class="nav-link"><i data-lucide="kanban-square"></i> Workflow (Kanban)</a></li>
+                        <li class="separator">Patrimônio</li>
+                        <li><a href="#equipamentos" class="nav-link"><i data-lucide="package"></i> Equipamentos</a></li>
+                        <li><a href="#movimentacoes" class="nav-link"><i data-lucide="arrow-right-left"></i> Movimentações</a></li>
+                        <li><a href="#rastreio" class="nav-link"><i data-lucide="search"></i> Rastreio</a></li>
+                        <li><a href="#mapa-salas" class="nav-link"><i data-lucide="layout-grid"></i> Mapa de Salas</a></li>
                         <li class="separator">Administração</li>
                         <li><a href="#salas" class="nav-link"><i data-lucide="map-pin"></i> Cadastro de Salas</a></li>
                         <li><a href="#usuarios" class="nav-link"><i data-lucide="users"></i> Cadastro de Usuários</a></li>
@@ -73,6 +80,9 @@
 
     <!-- Root para Modais (Formulários flutuantes) -->
     <div id="modal-root"></div>
+
+    <!-- Backdrop do Sidebar Mobile -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="App.closeMobileMenu()"></div>
 
     <script>lucide.createIcons();</script>
 </body>

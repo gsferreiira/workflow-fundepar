@@ -7,13 +7,23 @@ const Auth = {
     user: null, 
 
     init: async () => {
+        // Verifica sessão imediatamente para não deixar tela em branco
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            await Auth.fetchProfile(session.user);
+            App.showAppView();
+        } else {
+            App.showAuthView();
+        }
+
+        // Escuta mudanças posteriores (login / logout)
         supabaseClient.auth.onAuthStateChange(async (event, session) => {
-            if (session && session.user) {
+            if (event === 'SIGNED_IN' && session) {
                 await Auth.fetchProfile(session.user);
-                App.showAppView(); 
-            } else {
+                App.showAppView();
+            } else if (event === 'SIGNED_OUT') {
                 Auth.user = null;
-                App.showAuthView(); 
+                App.showAuthView();
             }
         });
     },
