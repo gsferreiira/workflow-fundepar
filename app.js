@@ -6,14 +6,26 @@ const UI = {
         if (!container) return;
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        let icon = type === 'success' ? 'check-circle' : 'alert-circle';
+        let icon = 'info';
+        if (type === 'success') icon = 'check-circle';
+        if (type === 'danger')  icon = 'alert-circle';
+        if (type === 'warning') icon = 'alert-triangle';
         toast.innerHTML = `<i data-lucide="${icon}"></i> ${message}`;
         container.appendChild(toast);
         if (typeof lucide !== 'undefined') lucide.createIcons();
-        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 4000);
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+            toast.style.transition = 'all 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, 4000);
     },
+
     showLoading: () => {
-        document.getElementById('view-content').innerHTML = `<div style="display:flex; justify-content:center; align-items:center; height: 50vh; color: var(--accent-color);"><i data-lucide="loader-2" style="animation: spin 1s linear infinite; width: 48px; height: 48px;"></i></div>`;
+        document.getElementById('view-content').innerHTML = `
+            <div style="display:flex;justify-content:center;align-items:center;height:50vh;color:var(--accent-color);">
+                <i data-lucide="loader-2" style="animation:spin 1s linear infinite;width:48px;height:48px;"></i>
+            </div>`;
         if (typeof lucide !== 'undefined') lucide.createIcons();
     }
 };
@@ -24,196 +36,84 @@ const App = {
         window.addEventListener('hashchange', App.handleRoute);
     },
 
-    removeLoader: () => {
-        const loader = document.getElementById('initial-loader');
-        if (loader) { loader.style.opacity = '0'; setTimeout(() => loader.remove(), 400); }
-    },
-
     showAuthView: () => {
-        App.removeLoader();
         document.getElementById('app-container').classList.add('hidden');
         document.getElementById('auth-container').classList.remove('hidden');
-        App.loadLogin(); 
+        App.loadLogin();
     },
 
     showAppView: () => {
-        App.removeLoader();
-        const appContainer = document.getElementById('app-container');
-        if (!appContainer.classList.contains('hidden')) return; 
         document.getElementById('auth-container').classList.add('hidden');
-        appContainer.classList.remove('hidden');
-        
+        document.getElementById('app-container').classList.remove('hidden');
         App.renderSidebarProfile();
-        App.applyMenuPermissions(); 
-        App.handleRoute(); 
-    },
-
-    // Permissões do Menu
-    applyMenuPermissions: () => {
-        const role = Auth.user.role;
-        const menuSalas = document.getElementById('menu-salas');
-        const menuUsuarios = document.getElementById('menu-usuarios');
-        const menuAdminSep = document.getElementById('menu-admin-sep');
-
-        if (role === 'usuario') {
-            if(menuSalas) menuSalas.style.display = 'none';
-            if(menuUsuarios) menuUsuarios.style.display = 'none';
-            if(menuAdminSep) menuAdminSep.style.display = 'none';
-        } else if (role === 'tecnico') {
-            if(menuSalas) menuSalas.style.display = 'block';
-            if(menuUsuarios) menuUsuarios.style.display = 'none';
-            if(menuAdminSep) menuAdminSep.style.display = 'block';
-        } else {
-            if(menuSalas) menuSalas.style.display = 'block';
-            if(menuUsuarios) menuUsuarios.style.display = 'block';
-            if(menuAdminSep) menuAdminSep.style.display = 'block';
-        }
+        App.handleRoute();
     },
 
     handleRoute: () => {
         const route = window.location.hash || '#dashboard';
-        const role = Auth.user.role;
-
-        if (route === '#usuarios' && role !== 'admin') {
-            window.location.hash = '#dashboard';
-            UI.showToast('Acesso negado. Apenas administradores.', 'danger');
-            return;
-        }
-        if (route === '#salas' && role === 'usuario') {
-            window.location.hash = '#dashboard';
-            UI.showToast('Acesso negado.', 'danger');
-            return;
-        }
-
+        const viewContent = document.getElementById('view-content');
         App.updateActiveNavLink(route);
-        UI.showLoading(); 
-        const sidebar = document.getElementById('sidebar');
-        if (sidebar) sidebar.classList.remove('open');
-
+        UI.showLoading();
+        App.closeMobileMenu();
         switch (route) {
-            case '#dashboard': App.modules.dashboard.init(); break;
-            case '#workflow': App.modules.workflow.init(); break;
-            case '#salas': App.modules.salas.init(); break;
-            case '#usuarios': App.modules.usuarios.init(); break;
+            case '#dashboard':    App.modules.dashboard.init();    break;
+            case '#workflow':     App.modules.workflow.init();     break;
+            case '#salas':        App.modules.salas.init();        break;
+            case '#usuarios':     App.modules.usuarios.init();     break;
+            case '#equipamentos':  App.modules.equipamentos.init();  break;
+            case '#movimentacoes': App.modules.movimentacoes.init(); break;
+            case '#rastreio':      App.modules.rastreio.init();      break;
+            case '#mapa-salas':    App.modules.mapaSalas.init();    break;
+            default: viewContent.innerHTML = '<div style="text-align:center;padding:40px;"><h2>Erro 404</h2><p style="color:var(--text-secondary)">A tela procurada não existe.</p></div>';
         }
     },
 
-    toggleMobileMenu: () => { document.getElementById('sidebar').classList.toggle('open'); },
-
-    // ==========================================
-    // FUNÇÕES DE PERFIL (Visualizar/Alterar Senha)
-    // ==========================================
-    showProfileModal: () => {
-        // Usa as informações da variável global Auth.user que tem os dados locais
-        document.getElementById('modal-root').innerHTML = Views.app.myProfileModal({
-            full_name: Auth.user.full_name,
-            email: Auth.user.email
-        });
-        if (typeof lucide !== 'undefined') lucide.createIcons();
+    toggleMobileMenu: () => {
+        document.getElementById('sidebar').classList.toggle('open');
+        document.getElementById('sidebar-backdrop').classList.toggle('active');
     },
 
-    updateMyProfile: async (e) => {
-        e.preventDefault();
-        const btn = e.target.querySelector('button[type="submit"]');
-        btn.disabled = true;
-        btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Salvando...';
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-
-        const newName = document.getElementById('my-profile-name').value;
-        const newPass = document.getElementById('my-profile-pass').value;
-
-        // Atualiza nome no banco de dados de Perfis
-        const { error: profileError } = await supabaseClient.from('profiles').update({ full_name: newName }).eq('id', Auth.user.id);
-        
-        if (profileError) {
-            UI.showToast('Erro ao salvar nome', 'danger');
-            btn.disabled = false; return;
-        }
-
-        // Se o usuário digitou uma senha nova, envia pro Supabase Auth
-        if (newPass.trim() !== '') {
-            const { error: passError } = await supabaseClient.auth.updateUser({ password: newPass });
-            if (passError) {
-                UI.showToast('Erro ao atualizar senha: ' + passError.message, 'danger');
-                btn.disabled = false; return;
-            }
-        }
-
-        Auth.user.full_name = newName; 
-        App.renderSidebarProfile(); // Atualiza nome ali embaixo na esquerda
-        document.getElementById('my-profile-modal').remove();
-        UI.showToast('Perfil atualizado com sucesso!', 'success');
-    },
-
-    globalSearch: async (term) => {
-        if (!term || !term.trim()) return;
-        
-        const searchInput = document.getElementById('global-search');
-        const iconElement = searchInput.previousElementSibling;
-        iconElement.outerHTML = `<i data-lucide="loader-2" style="animation: spin 1s linear infinite; color: var(--accent-color);"></i>`;
-        if (typeof lucide !== 'undefined') lucide.createIcons();
-
-        try {
-            const { data: textResults } = await supabaseClient
-                .from('tickets')
-                .select('*, rooms(name), profiles:requester_id(full_name)')
-                .or(`title.ilike.%${term}%,description.ilike.%${term}%`)
-                .order('created_at', { ascending: false })
-                .limit(50);
-
-            const { data: recentTickets } = await supabaseClient
-                .from('tickets')
-                .select('*, rooms(name), profiles:requester_id(full_name)')
-                .order('created_at', { ascending: false })
-                .limit(1000);
-            
-            let allResults = [...(textResults || [])];
-            
-            if (recentTickets) {
-                const idMatches = recentTickets.filter(t => t.id.toLowerCase().includes(term.toLowerCase()));
-                idMatches.forEach(match => {
-                    if (!allResults.find(t => t.id === match.id)) allResults.push(match);
-                });
-            }
-
-            document.getElementById('modal-root').innerHTML = Views.app.searchResultsModal(allResults, term);
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-        } catch (error) {
-            UI.showToast('Erro ao realizar a pesquisa', 'danger');
-        } finally {
-            document.querySelector('.search-bar').firstElementChild.outerHTML = `<i data-lucide="search"></i>`;
-            if (typeof lucide !== 'undefined') lucide.createIcons();
-            searchInput.value = ''; 
-        }
+    closeMobileMenu: () => {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebar-backdrop').classList.remove('active');
     },
 
     modules: {
+
+        /* ── DASHBOARD ──────────────────────────────────────────────── */
         dashboard: {
             init: async () => {
-                const { count: totalOpen } = await supabaseClient.from('tickets').select('*', { count: 'exact' }).eq('status', 'aberto');
-                const { count: totalResolved } = await supabaseClient.from('tickets').select('*', { count: 'exact' }).eq('status', 'resolvido');
-                const { count: totalRooms } = await supabaseClient.from('rooms').select('*', { count: 'exact' });
-                document.getElementById('view-content').innerHTML = Views.app.dashboard({ totalOpen, totalResolved, totalRooms });
+                const [
+                    { count: totalOpen },
+                    { count: totalResolved },
+                    { count: totalRooms },
+                    { count: totalEquipment }
+                ] = await Promise.all([
+                    supabaseClient.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'aberto'),
+                    supabaseClient.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'resolvido'),
+                    supabaseClient.from('rooms').select('*', { count: 'exact', head: true }),
+                    supabaseClient.from('equipment').select('*', { count: 'exact', head: true })
+                ]);
+                document.getElementById('view-content').innerHTML = Views.app.dashboard({ totalOpen, totalResolved, totalRooms, totalEquipment });
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         },
 
+        /* ── WORKFLOW (KANBAN) ──────────────────────────────────────── */
         workflow: {
-            init: async () => {
-                const { data: tickets } = await supabaseClient.from('tickets').select('*, rooms(name), profiles:requester_id(full_name)').order('created_at', { ascending: false });
-                
-                const { data: techs } = await supabaseClient.from('profiles').select('id, full_name');
-                if (tickets && techs) {
-                    tickets.forEach(t => {
-                        if (t.assignee_id) {
-                            const tech = techs.find(u => u.id === t.assignee_id);
-                            t.assignee_name = tech ? tech.full_name : 'Técnico';
-                        }
-                    });
-                }
+            _tickets: [],
+            _isDragging: false,
 
-                document.getElementById('view-content').innerHTML = Views.app.workflow(tickets || []);
+            init: async () => {
+                const { data: tickets, error } = await supabaseClient
+                    .from('tickets')
+                    .select('*, rooms(name), profiles:requester_id(full_name)')
+                    .order('created_at', { ascending: false });
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+                App.modules.workflow._tickets = tickets;
+                document.getElementById('view-content').innerHTML = Views.app.workflow(tickets);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+                App.modules.workflow.switchTab('aberto');
             },
 
             showCreateModal: async () => {
@@ -225,359 +125,645 @@ const App = {
             createTicket: async (e) => {
                 e.preventDefault();
                 const btn = e.target.querySelector('button[type="submit"]');
-                const originalText = btn.textContent;
+                const orig = btn.textContent;
                 btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Processando...';
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Processando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
-
-                const newTicket = {
-                    title: document.getElementById('ticket-title').value,
-                    description: document.getElementById('ticket-desc').value,
-                    room_id: document.getElementById('ticket-room').value,
+                const { error } = await supabaseClient.from('tickets').insert([{
+                    title:        document.getElementById('ticket-title').value,
+                    description:  document.getElementById('ticket-desc').value,
+                    room_id:      document.getElementById('ticket-room').value,
+                    priority:     document.getElementById('ticket-priority').value,
                     requester_id: Auth.user.id,
-                    status: 'aberto'
-                };
-
-                const { error } = await supabaseClient.from('tickets').insert([newTicket]);
-
+                    status:       'aberto'
+                }]);
                 if (error) {
                     UI.showToast('Erro ao criar chamado: ' + error.message, 'danger');
-                    btn.disabled = false;
-                    btn.textContent = originalText;
+                    btn.disabled = false; btn.textContent = orig;
                 } else {
                     document.getElementById('ticket-modal').remove();
-                    UI.showToast('Chamado aberto e enviado para a BASE!', 'success');
-                    App.modules.workflow.init(); 
+                    UI.showToast('Chamado aberto com sucesso!', 'success');
+                    App.modules.workflow.init();
                 }
             },
 
-            showDetailModal: async (ticketId) => {
-                const { data: ticket } = await supabaseClient.from('tickets').select('*, rooms(name), profiles:requester_id(full_name)').eq('id', ticketId).single();
-                const { data: comments } = await supabaseClient.from('ticket_comments').select('*, profiles:user_id(full_name)').eq('ticket_id', ticketId).order('created_at', { ascending: true });
-                const { data: technicians } = await supabaseClient.from('profiles').select('id, full_name').in('role', ['admin', 'tecnico']);
-
-                // Puxa o nome do tecnico atual para injetar no botão de "Assumir"
-                let currentTechName = '';
-                if(ticket.assignee_id && technicians) {
-                    const tech = technicians.find(t => t.id === ticket.assignee_id);
-                    if(tech) { currentTechName = tech.full_name; ticket.assignee_name = tech.full_name; }
-                }
-
-                document.getElementById('modal-root').innerHTML = Views.app.ticketDetailModal(ticket, comments || [], technicians || []);
-                
-                const commentsList = document.getElementById('comments-list');
-                if (commentsList) commentsList.scrollTop = commentsList.scrollHeight;
-
+            showDetailModal: (ticketId) => {
+                if (App.modules.workflow._isDragging) return;
+                const ticket = App.modules.workflow._tickets.find(t => t.id === ticketId);
+                if (!ticket) return;
+                document.getElementById('modal-root').innerHTML = Views.app.ticketDetailModal(ticket);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
-            // --- NOVO LÓGICA DE ASSUMIR/CAPTURAR OS ---
-            captureTicket: async (ticketId, oldTechName) => {
-                await supabaseClient.from('tickets').update({ 
-                    assignee_id: Auth.user.id,
-                    status: 'em_progresso' 
-                }).eq('id', ticketId);
-
-                // Define mensagem diferente se for roubada de alguém ou se estava na base
-                let logContent = `📌 OS Capturada na BASE e iniciada por ${Auth.user.full_name}.`;
-                if (oldTechName && oldTechName.trim() !== '') {
-                    logContent = `🚨 OS Assumida por ${Auth.user.full_name} (Anteriormente com ${oldTechName}).`;
-                }
-
-                await supabaseClient.from('ticket_comments').insert([{
-                    ticket_id: ticketId,
-                    user_id: Auth.user.id,
-                    content: logContent
-                }]);
-
-                UI.showToast('OS Assumida com sucesso!', 'success');
-                App.modules.workflow.showDetailModal(ticketId);
+            moveTicket: async (ticketId, newStatus) => {
+                const { error } = await supabaseClient.from('tickets').update({ status: newStatus }).eq('id', ticketId);
+                if (error) { UI.showToast('Erro ao mover chamado.', 'danger'); return; }
+                document.getElementById('ticket-detail-modal')?.remove();
+                UI.showToast('Status atualizado!', 'success');
                 App.modules.workflow.init();
             },
 
-            reassignTicket: async (ticketId) => {
-                const techDropdown = document.getElementById('reassign-tech');
-                const techId = techDropdown.value;
-                const reason = document.getElementById('reassign-reason').value;
-
-                if (!techId || !reason.trim()) {
-                    UI.showToast('Você deve selecionar um técnico e informar o motivo!', 'warning');
-                    return;
-                }
-
-                const techName = techDropdown.options[techDropdown.selectedIndex].text;
-
-                await supabaseClient.from('tickets').update({ assignee_id: techId }).eq('id', ticketId);
-
-                await supabaseClient.from('ticket_comments').insert([{
-                    ticket_id: ticketId,
-                    user_id: Auth.user.id,
-                    content: `🔄 OS Repassada para ${techName}. Motivo: ${reason}`
-                }]);
-
-                UI.showToast('OS repassada com sucesso!', 'success');
-                App.modules.workflow.showDetailModal(ticketId);
-                App.modules.workflow.init();
-            },
-
-            addComment: async (e, ticketId) => {
-                e.preventDefault();
-                const content = document.getElementById('new-comment').value;
-                const { error } = await supabaseClient.from('ticket_comments').insert([{
-                    ticket_id: ticketId, user_id: Auth.user.id, content: content
-                }]);
-                if (error) {
-                    UI.showToast(error.message, 'danger');
+            deleteTicket: async (ticketId) => {
+                const btn = document.getElementById('btn-delete-ticket');
+                if (!btn) return;
+                if (btn.dataset.confirming) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Excluindo...';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    const { error } = await supabaseClient.from('tickets').delete().eq('id', ticketId);
+                    if (error) {
+                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i> Excluir Chamado';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else {
+                        document.getElementById('ticket-detail-modal')?.remove();
+                        UI.showToast('Chamado excluído.', 'success');
+                        App.modules.workflow.init();
+                    }
                 } else {
-                    App.modules.workflow.showDetailModal(ticketId); 
+                    btn.dataset.confirming = '1';
+                    btn.innerHTML = '<i data-lucide="alert-triangle"></i> Confirmar exclusão';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="trash-2"></i> Excluir Chamado';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
                 }
             },
 
-            archiveTicket: async (ticketId) => {
-                const { error } = await supabaseClient.from('tickets').update({ status: 'fechado' }).eq('id', ticketId);
-                if (error) {
-                    UI.showToast(error.message, 'danger');
-                } else { 
-                    document.getElementById('detail-modal').remove(); 
-                    UI.showToast('OS Arquivada com sucesso!', 'success'); 
-                    App.modules.workflow.init(); 
-                }
+            switchTab: (status) => {
+                document.querySelectorAll('.kanban-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('active'));
+                document.querySelector(`.kanban-tab[data-tab="${status}"]`)?.classList.add('active');
+                document.querySelector(`.kanban-column[data-status="${status}"]`)?.classList.add('active');
             },
 
-            dragStart: (event, id) => event.dataTransfer.setData('ticketId', id),
-            
-            drop: async (event, newStatus) => {
-                const id = event.dataTransfer.getData('ticketId');
-                await supabaseClient.from('tickets').update({ status: newStatus }).eq('id', id);
-                App.modules.workflow.init();
+            dragStart: (event) => {
+                App.modules.workflow._isDragging = true;
+                event.dataTransfer.setData('ticketId', event.currentTarget.dataset.ticketId);
+            },
+            dragEnd: () => { setTimeout(() => { App.modules.workflow._isDragging = false; }, 100); },
+
+            drop: async (event) => {
+                event.preventDefault();
+                const ticketId = event.dataTransfer.getData('ticketId');
+                const newStatus = event.currentTarget.dataset.status;
+                if (!ticketId || !newStatus) return;
+                const { error } = await supabaseClient.from('tickets').update({ status: newStatus }).eq('id', ticketId);
+                if (error) { UI.showToast('Falha ao atualizar status.', 'danger'); }
+                else { App.modules.workflow.init(); }
             }
         },
 
+        /* ── SALAS ──────────────────────────────────────────────────── */
         salas: {
             init: async () => {
                 const { data: salas, error } = await supabaseClient.from('rooms').select('*').order('name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
-                
                 document.getElementById('view-content').innerHTML = Views.app.salas(salas);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
-            
             showCreateModal: () => {
-                document.getElementById('modal-root').innerHTML = Views.app.salaModal();
+                document.getElementById('modal-root').innerHTML = Views.app.roomModal();
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
-            
-            create: async (e) => {
+            createRoom: async (e) => {
                 e.preventDefault();
                 const btn = e.target.querySelector('button[type="submit"]');
-                const originalText = btn.textContent;
-                btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Salvando...';
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Processando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
-
-                const newSala = {
-                    name: document.getElementById('sala-name').value,
-                    department_head: document.getElementById('sala-head').value,
-                    room_type: document.getElementById('sala-type').value,
-                    description: document.getElementById('sala-desc').value
-                };
-
-                const { error } = await supabaseClient.from('rooms').insert([newSala]);
-
-                if (error) {
-                    UI.showToast('Erro ao criar sala: ' + error.message, 'danger');
-                    btn.disabled = false;
-                    btn.textContent = originalText;
+                const { error } = await supabaseClient.from('rooms').insert([{
+                    name:        document.getElementById('room-name').value,
+                    description: document.getElementById('room-description').value,
+                    room_number: document.getElementById('room-number').value || null,
+                    coordinator: document.getElementById('room-coordinator').value || null
+                }]);
+                if (error) { UI.showToast('Erro ao criar sala: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
+                else { document.getElementById('room-modal').remove(); UI.showToast('Sala cadastrada!', 'success'); App.modules.salas.init(); }
+            },
+            editRoom: async (salaId) => {
+                const { data: sala, error } = await supabaseClient.from('rooms').select('*').eq('id', salaId).single();
+                if (error) { UI.showToast('Erro ao carregar sala.', 'danger'); return; }
+                document.getElementById('modal-root').innerHTML = Views.app.salaEditModal(sala);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+            updateRoom: async (e, salaId) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const { error } = await supabaseClient.from('rooms').update({
+                    name:        document.getElementById('edit-room-name').value,
+                    description: document.getElementById('edit-room-description').value,
+                    room_number: document.getElementById('edit-room-number').value || null,
+                    coordinator: document.getElementById('edit-room-coordinator').value || null
+                }).eq('id', salaId);
+                if (error) { UI.showToast('Erro ao atualizar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
+                else { document.getElementById('sala-edit-modal').remove(); UI.showToast('Sala atualizada!', 'success'); App.modules.salas.init(); }
+            },
+            deleteRoom: async (btn, salaId) => {
+                if (btn.dataset.confirming) {
+                    btn.disabled = true; btn.textContent = '...';
+                    const { error } = await supabaseClient.from('rooms').delete().eq('id', salaId);
+                    if (error) {
+                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else { UI.showToast('Sala excluída.', 'success'); App.modules.salas.init(); }
                 } else {
-                    document.getElementById('sala-modal').remove();
-                    UI.showToast('Sala e Responsável cadastrados!', 'success');
-                    App.modules.salas.init(); 
+                    btn.dataset.confirming = '1'; btn.textContent = 'Confirmar?';
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
                 }
             }
         },
 
+        /* ── USUÁRIOS ───────────────────────────────────────────────── */
         usuarios: {
             init: async () => {
                 const { data: usuarios, error } = await supabaseClient.from('profiles').select('*').order('full_name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
-                
                 document.getElementById('view-content').innerHTML = Views.app.usuarios(usuarios);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+            updateRole: async (userId, role) => {
+                const { error } = await supabaseClient.from('profiles').update({ role }).eq('id', userId);
+                if (error) { UI.showToast('Erro ao atualizar permissão.', 'danger'); }
+                else { UI.showToast('Permissão atualizada!', 'success'); }
+            }
+        },
+
+        /* ── EQUIPAMENTOS ───────────────────────────────────────────── */
+        equipamentos: {
+            init: async () => {
+                const { data: equipamentos, error } = await supabaseClient.from('equipment').select('*').order('name');
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+                document.getElementById('view-content').innerHTML = Views.app.equipamentos(equipamentos);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
             showCreateModal: () => {
-                document.getElementById('modal-root').innerHTML = Views.app.userCreateModal();
+                document.getElementById('modal-root').innerHTML = Views.app.equipamentoModal();
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
-            createUser: async (e) => {
+            create: async (e) => {
                 e.preventDefault();
                 const btn = e.target.querySelector('button[type="submit"]');
-                const originalText = btn.textContent;
-                btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Processando...';
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const { error } = await supabaseClient.from('equipment').insert([{
+                    name:       document.getElementById('equip-name').value,
+                    created_by: Auth.user.id
+                }]);
+                if (error) { UI.showToast('Erro ao cadastrar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
+                else { document.getElementById('equipamento-modal').remove(); UI.showToast('Equipamento cadastrado!', 'success'); App.modules.equipamentos.init(); }
+            },
+
+            editEquipamento: async (id) => {
+                const { data: eq, error } = await supabaseClient.from('equipment').select('*').eq('id', id).single();
+                if (error) { UI.showToast('Erro ao carregar equipamento.', 'danger'); return; }
+                document.getElementById('modal-root').innerHTML = Views.app.equipamentoEditModal(eq);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            updateEquipamento: async (e, id) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+                const { error } = await supabaseClient.from('equipment').update({
+                    name: document.getElementById('edit-equip-name').value
+                }).eq('id', id);
+                if (error) { UI.showToast('Erro ao atualizar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
+                else { document.getElementById('equipamento-edit-modal').remove(); UI.showToast('Equipamento atualizado!', 'success'); App.modules.equipamentos.init(); }
+            },
+
+            deleteEquipamento: async (btn, id) => {
+                if (btn.dataset.confirming) {
+                    btn.disabled = true; btn.textContent = '...';
+                    const { error } = await supabaseClient.from('equipment').delete().eq('id', id);
+                    if (error) {
+                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else { UI.showToast('Equipamento excluído.', 'success'); App.modules.equipamentos.init(); }
+                } else {
+                    btn.dataset.confirming = '1'; btn.textContent = 'Confirmar?';
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
+                }
+            }
+        },
+
+        /* ── RASTREIO ───────────────────────────────────────────────── */
+        rastreio: {
+            _data: [],
+
+            init: async () => {
+                const [
+                    { data: locations, error },
+                    { data: rooms },
+                    { data: profilesList }
+                ] = await Promise.all([
+                    supabaseClient.from('equipment_locations')
+                        .select('*, equipment(name)')
+                        .order('moved_at', { ascending: false }),
+                    supabaseClient.from('rooms').select('id, name'),
+                    supabaseClient.from('profiles').select('id, full_name')
+                ]);
+
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+
+                const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
+                const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
+
+                const data = (locations || []).map(l => ({
+                    ...l,
+                    room:    roomMap[l.current_room_id] || null,
+                    profile: profileMap[l.moved_by]    || null
+                }));
+
+                App.modules.rastreio._data = data;
+                document.getElementById('view-content').innerHTML = Views.app.rastreio(data);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            filter: (term) => {
+                const q = term.toLowerCase().trim();
+                document.querySelectorAll('#rastreio-tbody tr[data-search]').forEach(row => {
+                    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+                });
+            }
+        },
+
+        /* ── MOVIMENTAÇÕES ──────────────────────────────────────────── */
+        movimentacoes: {
+            _equipment: [],
+            _rooms: [],
+            _lastData: [],
+
+            exportExcel: () => {
+                if (typeof XLSX === 'undefined') {
+                    UI.showToast('Biblioteca de exportação não carregada.', 'danger');
+                    return;
+                }
+                const rows = App.modules.movimentacoes._lastData;
+                if (rows.length === 0) {
+                    UI.showToast('Nenhuma movimentação para exportar.', 'warning');
+                    return;
+                }
+
+                const wsData = [
+                    ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Data / Hora'],
+                    ...rows.map(m => [
+                        m.equipment?.name        || '—',
+                        m.serial_number          || '—',
+                        m.asset_number           || '—',
+                        m.origin?.name           || '—',
+                        m.destination?.name      || '—',
+                        m.profiles?.full_name    || '—',
+                        new Date(m.moved_at).toLocaleString('pt-BR')
+                    ])
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+                // Largura das colunas
+                ws['!cols'] = [
+                    { wch: 30 }, { wch: 18 }, { wch: 18 },
+                    { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 20 }
+                ];
+
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Movimentações');
+
+                const fileName = `movimentacoes_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                XLSX.writeFile(wb, fileName);
+                UI.showToast('Arquivo exportado com sucesso!', 'success');
+            },
+
+            init: async () => {
+                const [
+                    { data: movements, error },
+                    { data: rooms },
+                    { data: profilesList }
+                ] = await Promise.all([
+                    supabaseClient.from('asset_movements')
+                        .select('*, equipment(name)')
+                        .order('moved_at', { ascending: false }),
+                    supabaseClient.from('rooms').select('id, name'),
+                    supabaseClient.from('profiles').select('id, full_name')
+                ]);
+
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+
+                const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
+                const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
+
+                const movimentacoes = (movements || []).map(m => ({
+                    ...m,
+                    origin:      roomMap[m.origin_room_id]      || null,
+                    destination: roomMap[m.destination_room_id] || null,
+                    profiles:    profileMap[m.moved_by]         || null,
+                    editedBy:    profileMap[m.edited_by]        || null
+                }));
+
+                App.modules.movimentacoes._lastData = movimentacoes;
+                document.getElementById('view-content').innerHTML = Views.app.movimentacoes(movimentacoes);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            showCreateModal: async () => {
+                const [{ data: equipment }, { data: rooms }] = await Promise.all([
+                    supabaseClient.from('equipment').select('id, name').order('name'),
+                    supabaseClient.from('rooms').select('id, name').order('name')
+                ]);
+                App.modules.movimentacoes._equipment = equipment || [];
+                App.modules.movimentacoes._rooms     = rooms     || [];
+                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoModal(equipment || [], rooms || []);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            showEditModal: async (movId) => {
+                const movement = App.modules.movimentacoes._lastData.find(m => m.id === movId);
+                if (!movement) return;
+                const { data: rooms } = await supabaseClient.from('rooms').select('id, name').order('name');
+                App.modules.movimentacoes._rooms = rooms || [];
+                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoEditModal(movement, rooms || []);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            update: async (e, movId) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
 
-                const name = document.getElementById('new-user-name').value;
-                const email = document.getElementById('new-user-email').value;
-                const pass = document.getElementById('new-user-pass').value;
-                const dept = document.getElementById('new-user-dept').value;
-                const job = document.getElementById('new-user-job').value;
-                const role = document.getElementById('new-user-role').value;
+                const originName  = document.getElementById('edit-mov-origin').value.trim();
+                const destName    = document.getElementById('edit-mov-destination').value.trim();
+                const editReason  = document.getElementById('edit-mov-reason').value.trim();
 
-                const { data, error } = await supabaseClient.auth.signUp({
-                    email: email,
-                    password: pass,
-                    options: { 
-                        data: { 
-                            full_name: name,
-                            department: dept,
-                            job_title: job,
-                            role: role
-                        } 
-                    }
+                const originRoom = App.modules.movimentacoes._rooms.find(r => r.name === originName);
+                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.name === destName);
+
+                if (!originRoom) { UI.showToast('Origem não encontrada. Selecione uma sala da lista.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!destRoom)   { UI.showToast('Destino não encontrado. Selecione uma sala da lista.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (!editReason) { UI.showToast('A justificativa é obrigatória.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+
+                const movedAtVal = document.getElementById('edit-mov-date').value;
+
+                const { error } = await supabaseClient.from('asset_movements').update({
+                    serial_number:       document.getElementById('edit-mov-serial').value.trim() || null,
+                    asset_number:        document.getElementById('edit-mov-asset').value.trim() || null,
+                    origin_room_id:      originRoom.id,
+                    destination_room_id: destRoom.id,
+                    received_by:         document.getElementById('edit-mov-received-by').value.trim() || null,
+                    moved_at:            movedAtVal ? new Date(movedAtVal).toISOString() : undefined,
+                    is_edited:           true,
+                    edited_by:           Auth.user.id,
+                    edited_at:           new Date().toISOString(),
+                    edit_reason:         editReason
+                }).eq('id', movId);
+
+                if (error) { UI.showToast('Erro ao atualizar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
+
+                await supabaseClient.from('movement_edits').insert([{
+                    movement_id: movId,
+                    edited_by:   Auth.user.id,
+                    edited_at:   new Date().toISOString(),
+                    edit_reason: editReason
+                }]);
+
+                document.getElementById('movimentacao-edit-modal').remove();
+                UI.showToast('Movimentação atualizada!', 'success');
+                App.modules.movimentacoes.init();
+            },
+
+            showEditInfo: async (movId) => {
+                const [
+                    { data: logs, error },
+                    { data: profilesList }
+                ] = await Promise.all([
+                    supabaseClient.from('movement_edits')
+                        .select('*')
+                        .eq('movement_id', movId)
+                        .order('edited_at', { ascending: false }),
+                    supabaseClient.from('profiles').select('id, full_name')
+                ]);
+                if (error) { UI.showToast('Erro ao carregar histórico.', 'danger'); return; }
+                const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
+                const enrichedLogs = (logs || []).map(log => ({
+                    ...log,
+                    editor_name: profileMap[log.edited_by]?.full_name || '—'
+                }));
+                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoEditInfoModal(enrichedLogs);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            delete: async (btn, movId) => {
+                if (btn.dataset.confirming) {
+                    btn.disabled = true; btn.textContent = '...';
+                    const { error } = await supabaseClient.from('asset_movements').delete().eq('id', movId);
+                    if (error) {
+                        UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else { UI.showToast('Movimentação excluída.', 'success'); App.modules.movimentacoes.init(); }
+                } else {
+                    btn.dataset.confirming = '1'; btn.textContent = 'Confirmar?';
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="trash-2"></i>';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
+                }
+            },
+
+            fillEquipmentData: (name) => {
+                const eq = App.modules.movimentacoes._equipment.find(e => e.name === name);
+                document.getElementById('mov-equipment-id').value = eq ? eq.id : '';
+            },
+
+            create: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.textContent; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Registrando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                const equipmentId = document.getElementById('mov-equipment-id').value;
+                const originName  = document.getElementById('mov-origin').value.trim();
+                const destName    = document.getElementById('mov-destination').value.trim();
+
+                if (!equipmentId) {
+                    UI.showToast('Selecione um equipamento da lista.', 'warning');
+                    btn.disabled = false; btn.textContent = orig; return;
+                }
+                const originRoom = App.modules.movimentacoes._rooms.find(r => r.name === originName);
+                const destRoom   = App.modules.movimentacoes._rooms.find(r => r.name === destName);
+
+                if (!originRoom) {
+                    UI.showToast('Origem não encontrada. Selecione uma sala da lista.', 'warning');
+                    btn.disabled = false; btn.textContent = orig; return;
+                }
+                if (!destRoom) {
+                    UI.showToast('Destino não encontrado. Selecione uma sala da lista.', 'warning');
+                    btn.disabled = false; btn.textContent = orig; return;
+                }
+
+                const serialNumber = document.getElementById('mov-serial').value || null;
+                const assetNumber  = document.getElementById('mov-asset-number').value || null;
+                const receivedBy   = document.getElementById('mov-received-by').value.trim() || null;
+                const movedAt      = new Date().toISOString();
+
+                const { error } = await supabaseClient.from('asset_movements').insert([{
+                    equipment_id:        equipmentId,
+                    serial_number:       serialNumber,
+                    asset_number:        assetNumber,
+                    origin_room_id:      originRoom.id,
+                    destination_room_id: destRoom.id,
+                    moved_by:            Auth.user.id,
+                    received_by:         receivedBy,
+                    moved_at:            movedAt
+                }]);
+
+                if (error) { UI.showToast('Erro ao registrar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
+
+                // Atualiza localização atual do equipamento (upsert silencioso)
+                await supabaseClient.from('equipment_locations').upsert({
+                    equipment_id:    equipmentId,
+                    asset_number:    assetNumber,
+                    serial_number:   serialNumber,
+                    current_room_id: destRoom.id,
+                    moved_by:        Auth.user.id,
+                    received_by:     receivedBy,
+                    moved_at:        movedAt
+                }, { onConflict: 'equipment_id' });
+
+                document.getElementById('movimentacao-modal').remove();
+                UI.showToast('Movimentação registrada!', 'success');
+                App.modules.movimentacoes.init();
+            }
+        },
+
+        /* ── MAPA DE SALAS ──────────────────────────────────────────── */
+        mapaSalas: {
+            _rooms: [],
+
+            init: async () => {
+                const [
+                    { data: rooms, error },
+                    { data: locations }
+                ] = await Promise.all([
+                    supabaseClient.from('rooms').select('*').order('name'),
+                    supabaseClient.from('equipment_locations')
+                        .select('*, equipment(name)')
+                ]);
+
+                if (error) { UI.showToast(error.message, 'danger'); return; }
+
+                const locationsByRoom = {};
+                (locations || []).forEach(loc => {
+                    const rid = loc.current_room_id;
+                    if (!locationsByRoom[rid]) locationsByRoom[rid] = [];
+                    locationsByRoom[rid].push({
+                        name:          loc.equipment?.name || '—',
+                        asset_number:  loc.asset_number    || null,
+                        serial_number: loc.serial_number   || null,
+                        received_by:   loc.received_by     || null,
+                        moved_at:      loc.moved_at        || null
+                    });
                 });
 
-                if (error) {
-                    UI.showToast('Erro ao criar: ' + error.message, 'danger');
-                    btn.disabled = false;
-                    btn.textContent = originalText;
-                } else {
-                    document.getElementById('user-create-modal').remove();
-                    UI.showToast('Usuário cadastrado com sucesso!', 'success');
-                    
-                    const { data: { session } } = await supabaseClient.auth.getSession();
-                    if(session && session.user.email === email) {
-                        setTimeout(() => {
-                            UI.showToast('Sessão alterada. Faça login com sua conta Admin novamente.', 'warning');
-                            window.location.reload();
-                        }, 2000);
-                    } else {
-                        App.modules.usuarios.init(); 
-                    }
-                }
-            },
+                const roomsWithItems = (rooms || []).map(r => ({
+                    ...r,
+                    items: locationsByRoom[r.id] || []
+                }));
 
-            showEditModal: async (userId) => {
-                const { data: user } = await supabaseClient.from('profiles').select('*').eq('id', userId).single();
-                if(user) {
-                    document.getElementById('modal-root').innerHTML = Views.app.userEditModal(user);
-                    if (typeof lucide !== 'undefined') lucide.createIcons();
-                }
-            },
-
-            updateUser: async (e, userId) => {
-                e.preventDefault();
-                const btn = e.target.querySelector('button[type="submit"]');
-                const originalText = btn.textContent;
-                btn.disabled = true;
-                btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i> Atualizando...';
+                App.modules.mapaSalas._rooms = roomsWithItems;
+                document.getElementById('view-content').innerHTML = Views.app.mapaSalas(roomsWithItems);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
 
-                const newRole = document.getElementById('edit-user-role').value;
-                const newDept = document.getElementById('edit-user-dept').value;
-                const newJob = document.getElementById('edit-user-job').value;
-
-                const { error } = await supabaseClient.from('profiles').update({ 
-                    role: newRole,
-                    department: newDept,
-                    job_title: newJob
-                }).eq('id', userId);
-
-                if (error) {
-                    UI.showToast('Erro ao atualizar: ' + error.message, 'danger');
-                    btn.disabled = false;
-                    btn.textContent = originalText;
-                } else {
-                    document.getElementById('user-edit-modal').remove();
-                    UI.showToast('Perfil atualizado com sucesso!', 'success');
-                    App.modules.usuarios.init(); 
-                }
+            showRoomDetail: (roomId) => {
+                const room = App.modules.mapaSalas._rooms.find(r => r.id === roomId);
+                if (!room) return;
+                document.getElementById('modal-root').innerHTML = Views.app.salaDetailModal(room);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         }
     },
 
+    /* ── AUTH / PROFILE ─────────────────────────────────────────────── */
+
     loadLogin: () => {
-        const authContainer = document.getElementById('auth-container');
-        authContainer.innerHTML = Views.auth.login(); 
-        
+        document.getElementById('auth-container').innerHTML = Views.auth.login();
         document.getElementById('login-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
-            const originalText = btn.textContent;
-            
-            btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i>';
+            const orig = btn.textContent;
+            btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i>';
             if (typeof lucide !== 'undefined') lucide.createIcons();
             btn.disabled = true;
-            
-            const email = document.getElementById('login-email').value;
-            const pass = document.getElementById('login-password').value;
-            
-            await Auth.signIn(email, pass);
-            
-            if (document.getElementById('login-form')) {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
+            await Auth.signIn(document.getElementById('login-email').value, document.getElementById('login-password').value);
+            if (document.getElementById('login-form')) { btn.textContent = orig; btn.disabled = false; }
         });
-
-        document.getElementById('go-to-register').addEventListener('click', (e) => {
-            e.preventDefault();
-            App.loadRegister();
-        });
+        document.getElementById('go-to-register').addEventListener('click', (e) => { e.preventDefault(); App.loadRegister(); });
     },
 
     loadRegister: () => {
-        const authContainer = document.getElementById('auth-container');
-        authContainer.innerHTML = Views.auth.register(); 
-        
+        document.getElementById('auth-container').innerHTML = Views.auth.register();
         document.getElementById('register-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
-            const originalText = btn.textContent;
-            
-            btn.innerHTML = '<i data-lucide="loader-2" style="animation: spin 1s linear infinite;"></i>';
+            const orig = btn.textContent;
+            btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i>';
             if (typeof lucide !== 'undefined') lucide.createIcons();
             btn.disabled = true;
-            
-            const name = document.getElementById('register-name').value;
-            const email = document.getElementById('register-email').value;
-            const pass = document.getElementById('register-password').value;
-            
-            await Auth.signUp(name, email, pass);
-            
-            if (document.getElementById('register-form')) {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
+            await Auth.signUp(document.getElementById('register-name').value, document.getElementById('register-email').value, document.getElementById('register-password').value);
+            if (document.getElementById('register-form')) { btn.textContent = orig; btn.disabled = false; }
         });
-
-        document.getElementById('go-to-login').addEventListener('click', (e) => {
-            e.preventDefault();
-            App.loadLogin();
-        });
+        document.getElementById('go-to-login').addEventListener('click', (e) => { e.preventDefault(); App.loadLogin(); });
     },
 
-    // AQUI OCORREU A MÁGICA: BOTAO DE SAIR E PERFIL CLICÁVEL
     renderSidebarProfile: () => {
         const container = document.getElementById('sidebar-profile');
-        if(container && Auth.user) {
-            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURI(Auth.user.full_name || 'U')}&background=0c4a6e&color=fff`;
-            
+        if (container && Auth.user) {
+            const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(Auth.user.full_name || 'U')}&background=0c4a6e&color=fff`;
             container.innerHTML = `
-                <div style="display:flex; align-items:center; justify-content:space-between; width: 100%;">
-                    <div style="display:flex; align-items:center; gap: 12px; cursor: pointer; flex: 1; overflow: hidden;" onclick="App.showProfileModal()" title="Ver meu perfil">
-                        <img src="${avatarUrl}" alt="Avatar" class="avatar" style="flex-shrink:0;">
-                        <div class="profile-info" style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">
-                            <div class="name" style="font-size: 13px;">${Auth.user.full_name || 'Usuário'}</div>
-                            <div class="role" style="font-size: 11px; text-transform: capitalize; color: var(--accent-color);">${Auth.user.role || 'Usuário'}</div>
-                        </div>
-                    </div>
-                    <button class="btn-logout" onclick="Auth.signOut()" title="Sair do Sistema" style="display:flex; align-items:center; gap: 4px; padding: 6px 10px; background: rgba(239, 68, 68, 0.1); color: var(--danger-color); border-radius: 6px; border: 1px solid rgba(239, 68, 68, 0.2); margin-left: 8px;">
-                        <i data-lucide="log-out" style="width: 14px;"></i> <span style="font-size: 12px; font-weight: 600;">Sair</span>
-                    </button>
+                <img src="${avatarUrl}" alt="Avatar" class="avatar">
+                <div class="profile-info">
+                    <div class="name" title="${escapeHtml(Auth.user.full_name)}">${escapeHtml(Auth.user.full_name)}</div>
+                    <div class="role">${escapeHtml(Auth.user.role) || 'Usuário'}</div>
                 </div>
-            `;
+                <button class="btn-logout" onclick="Auth.signOut()" title="Sair do Sistema">
+                    <i data-lucide="log-out"></i>
+                </button>`;
             if (typeof lucide !== 'undefined') lucide.createIcons();
         }
     },
@@ -585,9 +771,7 @@ const App = {
     updateActiveNavLink: (route) => {
         document.querySelectorAll('.sidebar-menu ul li').forEach(li => li.classList.remove('active'));
         const link = document.querySelector(`.sidebar-menu a[href="${route}"]`);
-        if(link) {
-            link.parentElement.classList.add('active');
-        }
+        if (link) link.parentElement.classList.add('active');
     }
 };
 

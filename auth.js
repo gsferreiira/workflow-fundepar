@@ -5,23 +5,25 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const Auth = {
     user: null, 
-    isInitialized: false, // Trava de performance
 
     init: async () => {
-        supabaseClient.auth.onAuthStateChange(async (event, session) => {
-            if (session && session.user) {
-                // Se já carregou o app e é só um refresh do Supabase, ignora para não travar a tela
-                if (Auth.isInitialized && Auth.user && Auth.user.id === session.user.id) {
-                    return; 
-                }
+        // Verifica sessão imediatamente para não deixar tela em branco
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+            await Auth.fetchProfile(session.user);
+            App.showAppView();
+        } else {
+            App.showAuthView();
+        }
 
+        // Escuta mudanças posteriores (login / logout)
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN' && session) {
                 await Auth.fetchProfile(session.user);
-                Auth.isInitialized = true;
-                App.showAppView(); 
-            } else {
+                App.showAppView();
+            } else if (event === 'SIGNED_OUT') {
                 Auth.user = null;
-                Auth.isInitialized = false;
-                App.showAuthView(); 
+                App.showAuthView();
             }
         });
     },
@@ -53,21 +55,22 @@ const Auth = {
             return null;
         }
 
-        UI.showToast('Cadastro realizado!', 'success');
+        UI.showToast('Cadastro realizado! Se o e-mail for válido, confirme na sua caixa de entrada.', 'success');
         return data.user;
     },
 
     signIn: async (email, password) => {
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+
         if (error) {
             UI.showToast('Erro no login: ' + error.message, 'danger');
             return null;
         }
+
         return data.user;
     },
 
     signOut: async () => {
-        Auth.isInitialized = false;
         await supabaseClient.auth.signOut();
         UI.showToast('Logout realizado com sucesso!', 'success');
     }
