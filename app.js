@@ -1401,6 +1401,7 @@ App.scanner = {
     _animFrame: null,
     _detector: null,
     _zxingReader: null,
+    _ocrInterval: null,
     _handled: false,
 
     open: async () => {
@@ -1443,6 +1444,7 @@ App.scanner = {
         App.scanner._detector = new BarcodeDetector({ formats: formats.length ? formats : ['code_128', 'ean_13', 'qr_code'] });
 
         App.scanner._loopNative(video);
+        App.scanner._startOCR(video);
     },
 
     _loopNative: async (video) => {
@@ -1457,6 +1459,26 @@ App.scanner = {
             } catch (e) {}
         }
         App.scanner._animFrame = requestAnimationFrame(() => App.scanner._loopNative(video));
+    },
+
+    // ── Caminho 3: OCR via Tesseract (patrimonial numbers) ────────────────
+    _startOCR: (video) => {
+        App.scanner._ocrInterval = setInterval(async () => {
+            if (App.scanner._handled) return;
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            try {
+                const result = await Tesseract.recognize(canvas, 'eng', {
+                    tessedit_char_whitelist: '0123456789.',
+                });
+                const text = result.data.text || '';
+                const match = text.match(/\b\d{3}\.\d{3}\.\d{3}\.\d{3}\b/);
+                if (match) { App.scanner._onSuccess(match[0]); }
+            } catch (err) { console.log('OCR erro:', err); }
+        }, 1500);
     },
 
     // ── Caminho 2: ZXing (fallback Firefox/Safari) ─────────────────────
@@ -1483,6 +1505,10 @@ App.scanner = {
         if (App.scanner._animFrame) {
             cancelAnimationFrame(App.scanner._animFrame);
             App.scanner._animFrame = null;
+        }
+        if (App.scanner._ocrInterval) {
+            clearInterval(App.scanner._ocrInterval);
+            App.scanner._ocrInterval = null;
         }
         if (App.scanner._zxingReader) {
             try { App.scanner._zxingReader.reset(); } catch (e) {}
