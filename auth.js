@@ -16,11 +16,17 @@ const Auth = {
             App.showAuthView();
         }
 
-        // Escuta mudanças posteriores (login / logout)
+        // Escuta mudanças posteriores (login / logout / redefinição de senha)
         supabaseClient.auth.onAuthStateChange(async (event, session) => {
             if (event === 'SIGNED_IN' && session) {
                 await Auth.fetchProfile(session.user);
                 App.showAppView();
+            } else if (event === 'PASSWORD_RECOVERY' && session) {
+                // Usuário clicou no link de redefinição de senha no email
+                await Auth.fetchProfile(session.user);
+                App.showAppView();
+                window.location.hash = '#perfil';
+                App.handleRoute();
             } else if (event === 'SIGNED_OUT') {
                 Auth.user = null;
                 App.showAuthView();
@@ -109,7 +115,8 @@ const Auth = {
         },
 
         resetPassword: async (email) => {
-            const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+            const redirectTo = window.location.origin + window.location.pathname;
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
             if (error) { UI.showToast('Erro ao enviar email de redefinição: ' + error.message, 'danger'); return false; }
             return true;
         }

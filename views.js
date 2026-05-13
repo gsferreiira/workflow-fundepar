@@ -1139,9 +1139,10 @@ const Views = {
                                     ${otherStatuses.map(s => `<button class="btn-move-status" onclick="App.modules.workflow.moveTicket('${escapeHtml(ticket.id)}','${s}')"><i data-lucide="${moveIcons[s]}"></i> ${moveLabels[s]}</button>`).join('')}
                                 </div>
                             ` : ''}
+                            ${(Auth.user?.role === 'admin' || Auth.user?.role === 'tecnico' || ticket.requester_id === Auth.user?.id) ? `
                             <button id="btn-delete-ticket" class="btn-danger" onclick="App.modules.workflow.deleteTicket('${escapeHtml(ticket.id)}')">
                                 <i data-lucide="trash-2"></i> Excluir Chamado
-                            </button>
+                            </button>` : ''}
                         </div>
                     </div>
                 </div>
