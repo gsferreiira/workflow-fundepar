@@ -739,6 +739,24 @@ const Views = {
         `,
 
         /* ── SALAS ───────────────────────────────────────────────────── */
+        _salasRows: (salas) => salas.length === 0
+            ? '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma sala cadastrada no sistema.</td></tr>'
+            : salas.map(sala => `
+                <tr>
+                    <td style="color:var(--text-secondary);font-weight:600;">${escapeHtml(sala.room_number) || '—'}</td>
+                    <td><strong>${escapeHtml(sala.name)}</strong></td>
+                    <td>${escapeHtml(sala.coordinator) || '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td>${escapeHtml(sala.description) || '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td><span class="badge-status ${sala.status ? escapeHtml(sala.status.toLowerCase().replace(/\s+/g,'_')) : 'ativa'}">${escapeHtml(sala.status) || 'Ativa'}</span></td>
+                    <td>
+                        <div class="table-actions">
+                            <button class="btn-table-action edit" onclick="App.modules.salas.editRoom('${escapeHtml(sala.id)}')"><i data-lucide="pencil"></i> Editar</button>
+                            <button class="btn-table-action delete" onclick="App.modules.salas.deleteRoom(this,'${escapeHtml(sala.id)}')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `).join(''),
+
         salas: (salas) => `
             <div class="view-header">
                 <div>
@@ -746,6 +764,17 @@ const Views = {
                     <p>Cadastre os ambientes onde os chamados podem ocorrer.</p>
                 </div>
                 <button class="btn-primary" onclick="App.modules.salas.showCreateModal()"><i data-lucide="plus"></i> Cadastrar Sala</button>
+            </div>
+            <div class="filter-bar fade-in">
+                <div class="filter-row" style="justify-content:flex-end;">
+                    <div class="filter-group" style="flex:0;min-width:210px;">
+                        <label class="filter-label">Ordenar por</label>
+                        <select id="salas-sort" class="form-control filter-control" onchange="App.modules.salas.applySort(this.value)">
+                            <option value="nome">Nome (A–Z)</option>
+                            <option value="numero">Nº da Sala (crescente)</option>
+                        </select>
+                    </div>
+                </div>
             </div>
             <div class="table-card fade-in">
                 <table class="data-table">
@@ -758,22 +787,7 @@ const Views = {
                         <th style="width:130px;">Ações</th>
                     </tr></thead>
                     <tbody id="salas-tbody">
-                        ${salas.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma sala cadastrada no sistema.</td></tr>' : ''}
-                        ${salas.map(sala => `
-                            <tr data-search="${escapeHtml(((sala.name||'') + ' ' + (sala.room_number||'') + ' ' + (sala.coordinator||'')).toLowerCase())}">
-                                <td style="color:var(--text-secondary);font-weight:600;">${escapeHtml(sala.room_number) || '—'}</td>
-                                <td><strong>${escapeHtml(sala.name)}</strong></td>
-                                <td>${escapeHtml(sala.coordinator) || '<span style="color:var(--text-secondary)">—</span>'}</td>
-                                <td>${escapeHtml(sala.description) || '<span style="color:var(--text-secondary)">—</span>'}</td>
-                                <td><span class="badge-status ${sala.status ? escapeHtml(sala.status.toLowerCase().replace(/\s+/g,'_')) : 'ativa'}">${escapeHtml(sala.status) || 'Ativa'}</span></td>
-                                <td>
-                                    <div class="table-actions">
-                                        <button class="btn-table-action edit" onclick="App.modules.salas.editRoom('${escapeHtml(sala.id)}')"><i data-lucide="pencil"></i> Editar</button>
-                                        <button class="btn-table-action delete" onclick="App.modules.salas.deleteRoom(this,'${escapeHtml(sala.id)}')"><i data-lucide="trash-2"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `).join('')}
+                        ${Views.app._salasRows(salas)}
                     </tbody>
                 </table>
             </div>
