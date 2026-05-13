@@ -302,8 +302,10 @@ textarea.form-control { resize: vertical; }
     .hidden-desktop { display: flex; }
 
     /* Sidebar deslizante */
-    .sidebar { position: fixed; transform: translateX(-100%); z-index: 1000; height: 100vh; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 25px -5px rgba(0,0,0,0.1); width: 280px; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+    .sidebar { position: fixed; transform: translateX(-100%); z-index: 1000; height: 100vh; height: 100dvh; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 25px -5px rgba(0,0,0,0.1); width: 280px; overflow-y: scroll; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
     .sidebar.open { transform: translateX(0); }
+    /* margin-top:auto impede o overflow em flex no mobile; troca por padding */
+    .sidebar .sidebar-profile { margin-top: 32px; flex-shrink: 0; }
     .sidebar-menu a { padding: 12px 16px; font-size: 15px; min-height: 48px; display: flex; align-items: center; }
 
     /* Topbar */
@@ -433,6 +435,10 @@ textarea.form-control { resize: vertical; }
 .pagination-btn:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ── SCANNER ───────────────────────────────────────────────────────── */
-#qr-reader video { border-radius: 0 !important; }
-#qr-reader__scan_region { background: transparent !important; }
-#qr-reader__dashboard { display: none !important; }
+.scanner-viewport { position: relative; background: #000; border-radius: 10px; overflow: hidden; margin: 12px 0; aspect-ratio: 4/3; max-height: 260px; }
+#scanner-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scanner-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.scanner-frame { position: relative; width: 82%; height: 90px; border: 2px solid rgba(14,165,233,.9); border-radius: 6px; box-shadow: 0 0 0 9999px rgba(0,0,0,.45); overflow: hidden; }
+.scanner-line { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent 0%, #0ea5e9 50%, transparent 100%); animation: scan-sweep 1.4s ease-in-out infinite; }
+.scanner-corners::before, .scanner-corners::after { content: ''; position: absolute; width: 18px; height: 18px; border-color: #0ea5e9; border-style: solid; }
+@keyframes scan-sweep { 0% { top: 0; } 50% { top: calc(100% - 2px); } 100% { top: 0; } }

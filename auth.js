@@ -77,5 +77,41 @@ const Auth = {
     signOut: async () => {
         await supabaseClient.auth.signOut();
         UI.showToast('Logout realizado com sucesso!', 'success');
+    },
+
+    // ── Operações Admin ────────────────────────────────────────────────
+    admin: {
+        createUser: async (full_name, email, role = 'usuario') => {
+            const DEFAULT_PASSWORD = 'Fundepar26';
+
+            // Cliente temporário sem persistir sessão — não afeta a sessão do admin
+            const tempClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+                auth: { autoRefreshToken: false, persistSession: false }
+            });
+
+            const { data, error } = await tempClient.auth.signUp({
+                email,
+                password: DEFAULT_PASSWORD,
+                options: { data: { full_name } }
+            });
+            if (error) { UI.showToast('Erro ao criar usuário: ' + error.message, 'danger'); return null; }
+
+            // Cria o perfil com role usando a sessão do admin (protegido por RLS)
+            const { error: profileError } = await supabaseClient.from('profiles').upsert({
+                id: data.user.id,
+                full_name,
+                email,
+                role
+            }, { onConflict: 'id' });
+            if (profileError) { UI.showToast('Usuário criado, mas erro no perfil: ' + profileError.message, 'warning'); }
+
+            return data.user;
+        },
+
+        resetPassword: async (email) => {
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
+            if (error) { UI.showToast('Erro ao enviar email de redefinição: ' + error.message, 'danger'); return false; }
+            return true;
+        }
     }
 };
