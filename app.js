@@ -214,9 +214,15 @@ const App = {
                     btn.disabled = true;
                     btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Excluindo...';
                     if (typeof lucide !== 'undefined') lucide.createIcons();
-                    const { error } = await supabaseClient.from('tickets').delete().eq('id', ticketId);
+                    const { data: deleted, error } = await supabaseClient
+                        .from('tickets').delete().eq('id', ticketId).select('id');
                     if (error) {
                         UI.showToast('Erro ao excluir: ' + error.message, 'danger');
+                        btn.disabled = false; delete btn.dataset.confirming;
+                        btn.innerHTML = '<i data-lucide="trash-2"></i> Excluir Chamado';
+                        if (typeof lucide !== 'undefined') lucide.createIcons();
+                    } else if (!deleted || deleted.length === 0) {
+                        UI.showToast('Sem permissão para excluir este chamado.', 'danger');
                         btn.disabled = false; delete btn.dataset.confirming;
                         btn.innerHTML = '<i data-lucide="trash-2"></i> Excluir Chamado';
                         if (typeof lucide !== 'undefined') lucide.createIcons();
