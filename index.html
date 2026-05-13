@@ -11,8 +11,10 @@
 
     <!-- SDK Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- SheetJS (exportar Excel) -->
+    <!-- SheetJS (exportar/importar Excel) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Html5-QrCode (scanner de código de barras) -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     
     <!-- Scripts da aplicação -->
     <script defer src="auth.js"></script> 
@@ -66,13 +68,24 @@
                         </button>
                         <div class="search-bar">
                             <i data-lucide="search"></i>
-                            <input type="text" placeholder="Pesquisar chamados, salas...">
+                            <input type="text" id="global-search" placeholder="Pesquisar..." oninput="App.globalSearch(this.value)">
                         </div>
                     </div>
                     <div class="topbar-actions">
-                        <button class="btn-icon"><i data-lucide="bell"></i><span class="badge"></span></button>
+                        <button class="btn-icon" onclick="App.scanner.open()" title="Escanear patrimônio">
+                            <i data-lucide="scan-line"></i>
+                        </button>
+                        <button id="dark-mode-btn" class="btn-icon" onclick="App.darkMode.toggle()" title="Alternar tema">
+                            <i data-lucide="moon"></i>
+                        </button>
+                        <button id="notif-btn" class="btn-icon" onclick="App.notifications.toggle()" title="Notificações">
+                            <i data-lucide="bell"></i>
+                            <span id="notif-badge" style="display:none;"></span>
+                        </button>
                     </div>
                 </header>
+                <div id="notifications-panel" class="notifications-panel hidden"></div>
+                <div id="notifications-backdrop" class="notifications-backdrop" onclick="App.notifications.close()"></div>
 
                 <div id="view-content" class="view-content fade-in"></div>
             </main>

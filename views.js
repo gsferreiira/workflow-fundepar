@@ -61,7 +61,7 @@ const Views = {
 
     app: {
         /* ── DASHBOARD ───────────────────────────────────────────────── */
-        dashboard: (stats) => `
+        dashboard: (stats, recentMovements, chartData) => `
             <div class="view-header">
                 <div>
                     <h2>Olá, ${escapeHtml(Auth.user.full_name) || 'Usuário'}</h2>
@@ -86,6 +86,73 @@ const Views = {
                     <div><div class="value">${stats.totalEquipment || 0}</div><div class="label">Equipamentos</div></div>
                 </div>
             </div>
+            ${chartData && chartData.length > 0 ? (() => {
+                const max = Math.max(...chartData.map(c => c.count), 1);
+                return `
+            <div class="dashboard-section fade-in" style="margin-bottom:28px;">
+                <div class="dashboard-section-header">
+                    <h3><i data-lucide="bar-chart-2" style="width:16px;vertical-align:middle;margin-right:6px;"></i>Movimentações por Mês</h3>
+                    <span style="font-size:13px;color:var(--text-secondary);">Últimos 6 meses</span>
+                </div>
+                <div class="table-card" style="padding:20px 24px 16px;">
+                    <div class="chart-wrap">
+                        <div class="chart-bars">
+                            ${chartData.map(c => `
+                                <div class="chart-col${c.count === 0 ? ' chart-zero' : ''}" title="${c.count} movimentação${c.count !== 1 ? 'ões' : ''} em ${c.label}">
+                                    <div class="chart-col-val">${c.count > 0 ? c.count : ''}</div>
+                                    <div class="chart-bar" style="height:${Math.round((c.count / max) * 88) + 4}px;"></div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div style="display:flex;gap:8px;margin-top:2px;">
+                            ${chartData.map(c => `<div class="chart-col-label" style="flex:1;text-align:center;">${c.label}</div>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            })() : ''}
+            ${recentMovements && recentMovements.length > 0 ? `
+            <div class="dashboard-section fade-in">
+                <div class="dashboard-section-header">
+                    <h3><i data-lucide="arrow-right-left" style="width:16px;vertical-align:middle;margin-right:6px;"></i>Movimentações Recentes</h3>
+                    <a href="#movimentacoes" class="dashboard-section-link" onclick="App.handleRoute()">Ver todas <i data-lucide="arrow-right" style="width:13px;vertical-align:middle;"></i></a>
+                </div>
+                <div class="table-card" style="padding:0;">
+                    <table class="data-table" style="min-width:500px;">
+                        <thead><tr>
+                            <th>Equipamento</th>
+                            <th>De</th>
+                            <th>Para</th>
+                            <th>Responsável</th>
+                            <th>Data</th>
+                        </tr></thead>
+                        <tbody>
+                            ${recentMovements.map(m => `
+                                <tr>
+                                    <td><strong>${m.equipment ? escapeHtml(m.equipment.name) : '—'}</strong></td>
+                                    <td style="color:var(--text-secondary);">
+                                        <span style="display:flex;align-items:center;gap:4px;">
+                                            <i data-lucide="map-pin" style="width:12px;flex-shrink:0;"></i>
+                                            ${m.origin ? escapeHtml(m.origin.name) : '—'}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span style="display:flex;align-items:center;gap:4px;color:var(--accent-color);">
+                                            <i data-lucide="map-pin" style="width:12px;flex-shrink:0;"></i>
+                                            ${m.destination ? escapeHtml(m.destination.name) : '—'}
+                                        </span>
+                                    </td>
+                                    <td style="color:var(--text-secondary);">${m.profiles ? escapeHtml(m.profiles.full_name) : '—'}</td>
+                                    <td style="color:var(--text-secondary);white-space:nowrap;font-size:13px;">
+                                        ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
+                                        <span style="opacity:.6;"> ${new Date(m.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>` : ''}
         `,
 
         /* ── EQUIPAMENTOS ────────────────────────────────────────────── */
@@ -104,10 +171,10 @@ const Views = {
                         <th>Cadastrado em</th>
                         <th style="width:130px;">Ações</th>
                     </tr></thead>
-                    <tbody>
+                    <tbody id="equipamentos-tbody">
                         ${equipamentos.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento cadastrado.</td></tr>' : ''}
                         ${equipamentos.map(eq => `
-                            <tr>
+                            <tr data-search="${escapeHtml(eq.name.toLowerCase())}">
                                 <td><strong>${escapeHtml(eq.name)}</strong></td>
                                 <td style="color:var(--text-secondary);">${new Date(eq.created_at).toLocaleDateString('pt-BR')}</td>
                                 <td>
@@ -166,7 +233,42 @@ const Views = {
         `,
 
         /* ── MOVIMENTAÇÕES ───────────────────────────────────────────── */
-        movimentacoes: (movimentacoes) => `
+        movimentacoesRows: (rows) => rows.length === 0
+            ? `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma movimentação encontrada.</td></tr>`
+            : rows.map(m => `
+                <tr>
+                    <td><strong>${m.equipment ? escapeHtml(m.equipment.name) : '—'}</strong></td>
+                    <td style="color:var(--text-secondary)">${escapeHtml(m.serial_number) || '—'}</td>
+                    <td style="color:var(--text-secondary)">${escapeHtml(m.asset_number) || '—'}</td>
+                    <td>
+                        <span style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
+                            <i data-lucide="map-pin" style="width:12px;flex-shrink:0"></i>
+                            ${m.origin ? escapeHtml(m.origin.name) : '—'}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="display:flex;align-items:center;gap:4px;color:var(--accent-color)">
+                            <i data-lucide="map-pin" style="width:12px;flex-shrink:0"></i>
+                            ${m.destination ? escapeHtml(m.destination.name) : '—'}
+                        </span>
+                    </td>
+                    <td>${m.profiles ? escapeHtml(m.profiles.full_name) : '—'}</td>
+                    <td>${escapeHtml(m.received_by) || '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td style="color:var(--text-secondary);white-space:nowrap;">
+                        ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
+                        <span style="font-size:12px;opacity:.7"> ${new Date(m.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                    </td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                            <button class="btn-table-action edit" title="Editar" onclick="App.modules.movimentacoes.showEditModal('${escapeHtml(m.id)}')"><i data-lucide="pencil"></i></button>
+                            <button class="btn-table-action delete" title="Excluir" onclick="App.modules.movimentacoes.delete(this,'${escapeHtml(m.id)}')"><i data-lucide="trash-2"></i></button>
+                            ${m.is_edited ? `<button class="badge-edited" onclick="App.modules.movimentacoes.showEditInfo('${escapeHtml(m.id)}')" title="Ver histórico de edições"><i data-lucide="history"></i> Editado</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join(''),
+
+        movimentacoes: (movimentacoes, equipment, rooms, profiles) => `
             <div class="view-header">
                 <div>
                     <h2>Movimentações de Patrimônio</h2>
@@ -177,7 +279,60 @@ const Views = {
                             onclick="App.modules.movimentacoes.exportExcel()">
                         <i data-lucide="file-spreadsheet"></i> Exportar Excel
                     </button>
+                    ${Auth.user?.role === 'admin' ? `
+                    <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                            onclick="App.modules.movimentacoes.openImportPicker()">
+                        <i data-lucide="upload"></i> Importar Excel
+                    </button>
+                    <input type="file" id="import-file-input" accept=".xlsx,.xls,.csv" style="display:none"
+                           onchange="App.modules.movimentacoes.handleImportFile(this)">` : ''}
                     <button class="btn-primary" onclick="App.modules.movimentacoes.showCreateModal()"><i data-lucide="plus"></i> Registrar Movimentação</button>
+                </div>
+            </div>
+            <div class="filter-bar fade-in">
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label class="filter-label">De</label>
+                        <input type="date" id="filter-date-from" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Até</label>
+                        <input type="date" id="filter-date-to" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Equipamento</label>
+                        <select id="filter-equipment" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                            <option value="">Todos equipamentos</option>
+                            ${equipment.map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Origem</label>
+                        <select id="filter-origin" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                            <option value="">Todas origens</option>
+                            ${rooms.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Destino</label>
+                        <select id="filter-dest" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                            <option value="">Todos destinos</option>
+                            ${rooms.map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Responsável</label>
+                        <select id="filter-responsible" class="form-control filter-control" onchange="App.modules.movimentacoes.applyFilters()">
+                            <option value="">Todos responsáveis</option>
+                            ${profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <span id="filter-result-count" class="filter-count">${movimentacoes.length} resultado${movimentacoes.length !== 1 ? 's' : ''}</span>
+                    <button class="btn-filter-clear" onclick="App.modules.movimentacoes.clearFilters()">
+                        <i data-lucide="x"></i> Limpar filtros
+                    </button>
                 </div>
             </div>
             <div class="table-card fade-in">
@@ -193,46 +348,115 @@ const Views = {
                         <th>Data / Hora</th>
                         <th style="width:120px;">Ações</th>
                     </tr></thead>
-                    <tbody>
-                        ${movimentacoes.length === 0 ? '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma movimentação registrada.</td></tr>' : ''}
-                        ${movimentacoes.map(m => `
-                            <tr>
-                                <td><strong>${m.equipment ? escapeHtml(m.equipment.name) : '—'}</strong></td>
-                                <td style="color:var(--text-secondary)">${escapeHtml(m.serial_number) || '—'}</td>
-                                <td style="color:var(--text-secondary)">${escapeHtml(m.asset_number) || '—'}</td>
-                                <td>
-                                    <span style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
-                                        <i data-lucide="map-pin" style="width:12px;flex-shrink:0"></i>
-                                        ${m.origin ? escapeHtml(m.origin.name) : '—'}
-                                    </span>
-                                </td>
-                                <td>
-                                    <span style="display:flex;align-items:center;gap:4px;color:var(--accent-color)">
-                                        <i data-lucide="map-pin" style="width:12px;flex-shrink:0"></i>
-                                        ${m.destination ? escapeHtml(m.destination.name) : '—'}
-                                    </span>
-                                </td>
-                                <td>${m.profiles ? escapeHtml(m.profiles.full_name) : '—'}</td>
-                                <td>${escapeHtml(m.received_by) || '<span style="color:var(--text-secondary)">—</span>'}</td>
-                                <td style="color:var(--text-secondary);white-space:nowrap;">
-                                    ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
-                                    <span style="font-size:12px;opacity:.7"> ${new Date(m.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
-                                </td>
-                                <td>
-                                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                                        <button class="btn-table-action edit" title="Editar" onclick="App.modules.movimentacoes.showEditModal('${escapeHtml(m.id)}')"><i data-lucide="pencil"></i></button>
-                                        <button class="btn-table-action delete" title="Excluir" onclick="App.modules.movimentacoes.delete(this,'${escapeHtml(m.id)}')"><i data-lucide="trash-2"></i></button>
-                                        ${m.is_edited ? `<button class="badge-edited" onclick="App.modules.movimentacoes.showEditInfo('${escapeHtml(m.id)}')" title="Ver histórico de edições"><i data-lucide="history"></i> Editado</button>` : ''}
-                                    </div>
-                                </td>
-                            </tr>
-                        `).join('')}
+                    <tbody id="movimentacoes-tbody">
+                        ${Views.app.movimentacoesRows(movimentacoes.slice(0, 25))}
                     </tbody>
                 </table>
             </div>
+            <div id="mov-pagination">
+                ${Views.app.movimentacoesPagination(1, movimentacoes.length, 25)}
+            </div>
         `,
 
-        movimentacaoModal: (equipment, rooms) => {
+        movimentacoesPagination: (page, total, pageSize) => {
+            const totalPages = Math.ceil(total / pageSize);
+            if (totalPages <= 1) return '';
+            const from = (page - 1) * pageSize + 1;
+            const to   = Math.min(page * pageSize, total);
+            return `
+            <div class="pagination fade-in">
+                <span class="pagination-info">${from}–${to} de ${total}</span>
+                <div class="pagination-controls">
+                    <button class="pagination-btn" ${page <= 1 ? 'disabled' : ''} onclick="App.modules.movimentacoes.prevPage()">
+                        <i data-lucide="chevron-left" style="width:15px;"></i> Anterior
+                    </button>
+                    <span class="pagination-pages">Página ${page} de ${totalPages}</span>
+                    <button class="pagination-btn" ${page >= totalPages ? 'disabled' : ''} onclick="App.modules.movimentacoes.nextPage()">
+                        Próxima <i data-lucide="chevron-right" style="width:15px;"></i>
+                    </button>
+                </div>
+            </div>`;
+        },
+
+        importPreviewModal: (rows) => {
+            const total   = rows.length;
+            const ok      = rows.filter(r => r.status === 'ok').length;
+            const warn    = rows.filter(r => r.status === 'warn').length;
+            const err     = rows.filter(r => r.status === 'error').length;
+            return `
+            <div class="modal-overlay" id="import-preview-modal">
+                <div class="modal-content" style="max-width:900px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3>Prévia da Importação</h3>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">
+                                ${total} linha${total !== 1 ? 's' : ''} &nbsp;·&nbsp;
+                                <span style="color:#16a34a;font-weight:600;">${ok} prontas</span>&nbsp;·&nbsp;
+                                <span style="color:#d97706;font-weight:600;">${warn} com aviso</span>&nbsp;·&nbsp;
+                                <span style="color:var(--danger-color);font-weight:600;">${err} com erro</span>
+                            </div>
+                        </div>
+                        <button class="modal-close" type="button" onclick="document.getElementById('import-preview-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+                        Linhas com <strong>erro</strong> (equipamento ou destino não encontrado) serão ignoradas.
+                        Linhas com <strong>aviso</strong> têm campos opcionais em branco e serão importadas assim mesmo.
+                    </p>
+                    <div style="max-height:55vh;overflow-y:auto;border:1px solid var(--border-color);border-radius:10px;">
+                        <table class="data-table" style="min-width:700px;">
+                            <thead><tr>
+                                <th style="width:36px;"></th>
+                                <th>Equipamento</th>
+                                <th>Nº Patrimônio</th>
+                                <th>Origem</th>
+                                <th>Destino</th>
+                                <th>Recebedor</th>
+                                <th>Data / Hora</th>
+                            </tr></thead>
+                            <tbody>
+                                ${rows.map((r, i) => `
+                                    <tr style="${r.status === 'error' ? 'opacity:.5;' : ''}">
+                                        <td>
+                                            ${r.status === 'ok'    ? `<span style="color:#16a34a;font-size:16px;" title="Pronta">✓</span>` : ''}
+                                            ${r.status === 'warn'  ? `<span style="color:#d97706;font-size:16px;" title="${escapeHtml(r.warnings.join(', '))}">⚠</span>` : ''}
+                                            ${r.status === 'error' ? `<span style="color:var(--danger-color);font-size:16px;" title="${escapeHtml(r.errors.join(', '))}">✗</span>` : ''}
+                                        </td>
+                                        <td>
+                                            <strong>${escapeHtml(r.equipmentName)}</strong>
+                                            ${!r.equipmentId ? `<div style="font-size:11px;color:var(--danger-color);">Não encontrado</div>` : ''}
+                                        </td>
+                                        <td style="color:var(--text-secondary)">${escapeHtml(r.assetNumber) || '—'}</td>
+                                        <td style="color:var(--text-secondary)">
+                                            ${escapeHtml(r.originName) || '<span style="opacity:.4">—</span>'}
+                                            ${r.originName && !r.originId ? `<div style="font-size:11px;color:#d97706;">Não encontrada</div>` : ''}
+                                        </td>
+                                        <td>
+                                            ${escapeHtml(r.destName) || '<span style="color:var(--danger-color)">Não informado</span>'}
+                                            ${r.destName && !r.destId ? `<div style="font-size:11px;color:var(--danger-color);">Não encontrada</div>` : ''}
+                                        </td>
+                                        <td style="color:var(--text-secondary)">${escapeHtml(r.receivedBy) || '—'}</td>
+                                        <td style="color:var(--text-secondary);white-space:nowrap;">${r.movedAtDisplay || '<span style="opacity:.4">Agora</span>'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;flex-wrap:wrap;gap:12px;">
+                        <span style="font-size:13px;color:var(--text-secondary);">${ok + warn} linha${(ok+warn) !== 1 ? 's' : ''} serão importadas · ${err} serão ignoradas</span>
+                        <div style="display:flex;gap:10px;">
+                            <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                                    onclick="document.getElementById('import-preview-modal').remove()">Cancelar</button>
+                            <button class="btn-primary" ${(ok + warn) === 0 ? 'disabled' : ''}
+                                    onclick="App.modules.movimentacoes.confirmImport()">
+                                <i data-lucide="check"></i> Confirmar Importação (${ok + warn})
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        },
+
+        movimentacaoModal: (equipment, rooms, prefillAsset = null) => {
             const now = new Date();
             return `
                 <div class="modal-overlay" id="movimentacao-modal">
@@ -266,7 +490,7 @@ const Views = {
                                 </div>
                                 <div class="form-group">
                                     <label>Nº Patrimônio <span style="color:var(--text-secondary);font-weight:400">(Opcional)</span></label>
-                                    <input type="text" id="mov-asset-number" class="form-control" placeholder="Ex: PAT-00123">
+                                    <input type="text" id="mov-asset-number" class="form-control" placeholder="Ex: PAT-00123" value="${prefillAsset ? escapeHtml(prefillAsset) : ''}">
                                 </div>
                             </div>
 
@@ -326,20 +550,41 @@ const Views = {
         },
 
         /* ── RASTREIO ────────────────────────────────────────────────── */
-        rastreio: (data) => `
+        rastreio: (data, rooms) => `
             <div class="view-header">
                 <div>
                     <h2>Rastreio de Patrimônio</h2>
                     <p>Localização atual de cada equipamento com base na última movimentação.</p>
                 </div>
+                <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                        onclick="App.modules.rastreio.exportExcel()">
+                    <i data-lucide="file-spreadsheet"></i> Exportar Excel
+                </button>
+            </div>
+            <div class="filter-bar fade-in">
+                <div class="filter-row">
+                    <div class="filter-group" style="flex:2;min-width:200px;">
+                        <label class="filter-label">Pesquisar</label>
+                        <input type="text" id="rastreio-search" class="form-control filter-control"
+                               placeholder="Nome do equipamento, nº patrimônio ou série..."
+                               oninput="App.modules.rastreio.applyFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Sala Atual</label>
+                        <select id="rastreio-filter-room" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
+                            <option value="">Todas as salas</option>
+                            ${(rooms || []).map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <span id="rastreio-result-count" class="filter-count">${data.length} equipamento${data.length !== 1 ? 's' : ''}</span>
+                    <button class="btn-filter-clear" onclick="document.getElementById('rastreio-search').value='';document.getElementById('rastreio-filter-room').value='';App.modules.rastreio.applyFilters()">
+                        <i data-lucide="x"></i> Limpar filtros
+                    </button>
+                </div>
             </div>
             <div class="table-card fade-in">
-                <div class="search-inline">
-                    <i data-lucide="search"></i>
-                    <input type="text" id="rastreio-search"
-                           placeholder="Pesquisar por nome do equipamento ou nº patrimônio..."
-                           oninput="App.modules.rastreio.filter(this.value)">
-                </div>
                 <table class="data-table">
                     <thead><tr>
                         <th>Equipamento</th>
@@ -349,6 +594,7 @@ const Views = {
                         <th>Responsável</th>
                         <th>Com quem está</th>
                         <th>Última Movimentação</th>
+                        <th style="width:60px;"></th>
                     </tr></thead>
                     <tbody id="rastreio-tbody">
                         ${Views.app._rastreioRows(data)}
@@ -358,9 +604,9 @@ const Views = {
         `,
 
         _rastreioRows: (data) => {
-            if (data.length === 0) return `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento rastreado. Registre movimentações para começar.</td></tr>`;
+            if (data.length === 0) return `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento encontrado.</td></tr>`;
             return data.map(d => `
-                <tr data-search="${escapeHtml(((d.equipment?.name||'') + ' ' + (d.asset_number||'')).toLowerCase())}">
+                <tr>
                     <td><strong>${d.equipment ? escapeHtml(d.equipment.name) : '—'}</strong></td>
                     <td>${escapeHtml(d.asset_number) || '<span style="color:var(--text-secondary)">—</span>'}</td>
                     <td style="color:var(--text-secondary);">${escapeHtml(d.serial_number) || '—'}</td>
@@ -371,9 +617,72 @@ const Views = {
                         ${new Date(d.moved_at).toLocaleDateString('pt-BR')}
                         <span style="font-size:12px;opacity:.7;"> ${new Date(d.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
                     </td>
+                    <td>
+                        <button class="btn-table-action edit" title="Ver histórico de movimentações"
+                                onclick="App.modules.rastreio.showHistory('${escapeHtml(d.equipment_id)}','${escapeHtml(d.equipment?.name||'')}')">
+                            <i data-lucide="history"></i>
+                        </button>
+                    </td>
                 </tr>
             `).join('');
         },
+
+        rastreioHistoryModal: (equipmentName, movements) => `
+            <div class="modal-overlay" id="rastreio-history-modal">
+                <div class="modal-content" style="max-width:720px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3>${escapeHtml(equipmentName)}</h3>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">Histórico completo de movimentações</div>
+                        </div>
+                        <button class="modal-close" type="button" onclick="document.getElementById('rastreio-history-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <div style="max-height:60vh;overflow-y:auto;border:1px solid var(--border-color);border-radius:10px;">
+                        <table class="data-table" style="min-width:560px;">
+                            <thead><tr>
+                                <th>De</th>
+                                <th>Para</th>
+                                <th>Responsável</th>
+                                <th>Recebedor</th>
+                                <th>Data</th>
+                            </tr></thead>
+                            <tbody>
+                                ${movements.length === 0
+                                    ? `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma movimentação registrada.</td></tr>`
+                                    : movements.map((m, i) => `
+                                        <tr>
+                                            <td style="color:var(--text-secondary);">
+                                                <span style="display:flex;align-items:center;gap:4px;">
+                                                    <i data-lucide="map-pin" style="width:12px;flex-shrink:0;"></i>
+                                                    ${m.origin_room ? escapeHtml(m.origin_room.name) : '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span style="display:flex;align-items:center;gap:4px;color:var(--accent-color);font-weight:600;">
+                                                    <i data-lucide="map-pin" style="width:12px;flex-shrink:0;"></i>
+                                                    ${m.destination_room ? escapeHtml(m.destination_room.name) : '—'}
+                                                </span>
+                                                ${i === 0 ? `<span style="font-size:10px;background:rgba(14,165,233,.1);color:var(--accent-color);padding:2px 6px;border-radius:99px;margin-left:4px;font-weight:700;">ATUAL</span>` : ''}
+                                            </td>
+                                            <td>${m.profile ? escapeHtml(m.profile.full_name) : '—'}</td>
+                                            <td style="color:var(--text-secondary);">${escapeHtml(m.received_by) || '—'}</td>
+                                            <td style="color:var(--text-secondary);white-space:nowrap;">
+                                                ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
+                                                <span style="font-size:12px;opacity:.7;"> ${new Date(m.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                                            </td>
+                                        </tr>
+                                    `).join('')
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+                        <span style="font-size:13px;color:var(--text-secondary);">${movements.length} movimentaç${movements.length !== 1 ? 'ões' : 'ão'} registrada${movements.length !== 1 ? 's' : ''}</span>
+                        <button class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('rastreio-history-modal').remove()">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        `,
 
         /* ── MAPA DE SALAS ───────────────────────────────────────────── */
         mapaSalas: (rooms) => `
@@ -406,7 +715,7 @@ const Views = {
                                     <div class="room-map-item">
                                         <i data-lucide="package" style="width:15px;color:var(--accent-color);flex-shrink:0;"></i>
                                         <div class="room-map-item-info">
-                                            <div class="room-map-item-name">${item.equipment ? escapeHtml(item.equipment.name) : '—'}</div>
+                                            <div class="room-map-item-name">${escapeHtml(item.name) || '—'}</div>
                                             <div class="room-map-item-sub">
                                                 ${item.asset_number ? `PAT: ${escapeHtml(item.asset_number)}` : ''}
                                                 ${item.asset_number && item.received_by ? ' · ' : ''}
@@ -448,10 +757,10 @@ const Views = {
                         <th>Status</th>
                         <th style="width:130px;">Ações</th>
                     </tr></thead>
-                    <tbody>
+                    <tbody id="salas-tbody">
                         ${salas.length === 0 ? '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhuma sala cadastrada no sistema.</td></tr>' : ''}
                         ${salas.map(sala => `
-                            <tr>
+                            <tr data-search="${escapeHtml(((sala.name||'') + ' ' + (sala.room_number||'') + ' ' + (sala.coordinator||'')).toLowerCase())}">
                                 <td style="color:var(--text-secondary);font-weight:600;">${escapeHtml(sala.room_number) || '—'}</td>
                                 <td><strong>${escapeHtml(sala.name)}</strong></td>
                                 <td>${escapeHtml(sala.coordinator) || '<span style="color:var(--text-secondary)">—</span>'}</td>
@@ -557,10 +866,10 @@ const Views = {
                         <th>Ingresso</th>
                         <th style="width:110px;">Ações</th>
                     </tr></thead>
-                    <tbody>
+                    <tbody id="usuarios-tbody">
                         ${usuarios.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum usuário cadastrado.</td></tr>' : ''}
                         ${usuarios.map(u => `
-                            <tr>
+                            <tr data-search="${escapeHtml(((u.full_name||'') + ' ' + (u.email||'')).toLowerCase())}">
                                 <td>
                                     <div style="display:flex;align-items:center;gap:10px;">
                                         <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(u.full_name||'U')}&background=0c4a6e&color=fff&size=32" style="width:32px;height:32px;border-radius:50%;flex-shrink:0;">
@@ -960,6 +1269,181 @@ const Views = {
                     </div>
                 </div>
             </div>
-        `
+        `,
+
+        /* ── NOTIFICATIONS PANEL ─────────────────────────────────────── */
+        notificationsPanel: (items) => `
+            <div class="notif-header">
+                <h4>Notificações</h4>
+                <button class="btn-icon" style="width:30px;height:30px;" onclick="App.notifications.close()"><i data-lucide="x"></i></button>
+            </div>
+            <div class="notif-list">
+                ${items.length === 0
+                    ? `<div class="notif-empty"><i data-lucide="bell-off" style="width:32px;height:32px;opacity:.3;display:block;margin:0 auto 12px;"></i>Nenhuma atividade ainda.</div>`
+                    : items.map(item => {
+                        const lastSeen = localStorage.getItem('notif_last_seen') ? new Date(localStorage.getItem('notif_last_seen')) : null;
+                        const isNew = !lastSeen || item.date > lastSeen;
+                        return `
+                        <div class="notif-item${isNew ? ' unread' : ''}">
+                            <div class="notif-icon ${item.type}">
+                                <i data-lucide="${item.type === 'movement' ? 'arrow-right-left' : 'package'}" style="width:15px;"></i>
+                            </div>
+                            <div class="notif-body">
+                                <div class="notif-msg"><strong>${escapeHtml(item.actor)}</strong> ${item.text}</div>
+                                <div class="notif-time">${App.notifications._relativeTime(item.date)}</div>
+                                <span class="notif-detail-btn" onclick="App.notifications.showDetail('${escapeHtml(item.id)}')">
+                                    <i data-lucide="eye" style="width:12px;"></i> Ver detalhes
+                                </span>
+                            </div>
+                        </div>`;
+                    }).join('')
+                }
+            </div>
+        `,
+
+        /* ── SCANNER ─────────────────────────────────────────────────── */
+        scannerModal: () => `
+            <div class="modal-overlay" id="scanner-modal">
+                <div class="modal-content" style="max-width:400px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3>Escanear Patrimônio</h3>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">Aponte a câmera para o código de barras</div>
+                        </div>
+                        <button class="modal-close" type="button" onclick="App.scanner.close()"><i data-lucide="x"></i></button>
+                    </div>
+                    <div style="background:#000;border-radius:10px;overflow:hidden;margin:12px 0;position:relative;min-height:200px;">
+                        <div id="qr-reader" style="width:100%;"></div>
+                        <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;">
+                            <div style="width:80%;height:80px;border:2px solid rgba(14,165,233,.8);border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);"></div>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin-bottom:14px;">
+                        Posicione o código de barras dentro da área azul
+                    </p>
+                    <button class="btn-primary" style="background:#e2e8f0;color:#475569;width:100%;" onclick="App.scanner.close()">
+                        <i data-lucide="x"></i> Cancelar
+                    </button>
+                </div>
+            </div>
+        `,
+
+        scanResultModal: (m, assetNumber) => `
+            <div class="modal-overlay" id="scan-result-modal">
+                <div class="modal-content" style="max-width:460px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3>Patrimônio Encontrado</h3>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">PAT: <strong>${escapeHtml(assetNumber)}</strong></div>
+                        </div>
+                        <button class="modal-close" type="button" onclick="document.getElementById('scan-result-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:14px;margin-top:4px;">
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div style="background:rgba(99,102,241,.1);color:#6366f1;padding:12px;border-radius:10px;flex-shrink:0;"><i data-lucide="package" style="width:22px;"></i></div>
+                            <div>
+                                <div style="font-size:16px;font-weight:700;">${escapeHtml(m.equipment?.name || '—')}</div>
+                                ${m.serial_number ? `<div style="font-size:12px;color:var(--text-secondary);">Série: ${escapeHtml(m.serial_number)}</div>` : ''}
+                            </div>
+                        </div>
+                        <div style="background:var(--bg-main);border-radius:10px;padding:14px;">
+                            <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Localização Atual</div>
+                            <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--accent-color);">
+                                <i data-lucide="map-pin" style="width:16px;flex-shrink:0;"></i>
+                                ${escapeHtml(m.destination_room?.name || '—')}
+                            </div>
+                            ${m.profile ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;display:flex;align-items:center;gap:5px;"><i data-lucide="user" style="width:13px;"></i> Responsável: ${escapeHtml(m.profile.full_name)}</div>` : ''}
+                            ${m.received_by ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;display:flex;align-items:center;gap:5px;"><i data-lucide="user-check" style="width:13px;"></i> Com: ${escapeHtml(m.received_by)}</div>` : ''}
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;opacity:.7;">
+                                Última movimentação: ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:10px;margin-top:20px;">
+                        <button class="btn-primary" style="background:#e2e8f0;color:#475569;flex:1;" onclick="document.getElementById('scan-result-modal').remove()">Fechar</button>
+                        <button class="btn-primary" style="flex:1;" onclick="document.getElementById('scan-result-modal').remove();App.modules.movimentacoes.showCreateModal('${escapeHtml(assetNumber)}')">
+                            <i data-lucide="arrow-right-left"></i> Nova Movimentação
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `,
+
+        notificationDetailModal: (item) => {
+            const m = item.data;
+            if (item.type === 'movement') {
+                return `
+                <div class="modal-overlay" id="notif-detail-modal">
+                    <div class="modal-content" style="max-width:480px;">
+                        <div class="modal-header">
+                            <div>
+                                <h3>Detalhes da Movimentação</h3>
+                                <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">${new Date(m.moved_at).toLocaleString('pt-BR')}</div>
+                            </div>
+                            <button class="modal-close" type="button" onclick="document.getElementById('notif-detail-modal').remove()"><i data-lucide="x"></i></button>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:14px;margin-top:4px;">
+                            <div style="display:flex;align-items:center;gap:10px;">
+                                <div style="background:rgba(99,102,241,.1);color:#6366f1;padding:10px;border-radius:10px;"><i data-lucide="package" style="width:20px;"></i></div>
+                                <div>
+                                    <div style="font-size:12px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Equipamento</div>
+                                    <div style="font-size:15px;font-weight:700;">${escapeHtml(m.equipment?.name || '—')}</div>
+                                    ${m.asset_number ? `<div style="font-size:12px;color:var(--text-secondary);">PAT: ${escapeHtml(m.asset_number)}</div>` : ''}
+                                    ${m.serial_number ? `<div style="font-size:12px;color:var(--text-secondary);">Série: ${escapeHtml(m.serial_number)}</div>` : ''}
+                                </div>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 40px 1fr;align-items:center;gap:8px;background:var(--bg-main);border-radius:10px;padding:14px;">
+                                <div>
+                                    <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Origem</div>
+                                    <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:5px;"><i data-lucide="map-pin" style="width:13px;color:var(--text-secondary);"></i>${escapeHtml(m.origin_room?.name || '—')}</div>
+                                </div>
+                                <div style="text-align:center;color:var(--accent-color);"><i data-lucide="arrow-right" style="width:18px;"></i></div>
+                                <div>
+                                    <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Destino</div>
+                                    <div style="font-size:14px;font-weight:700;color:var(--accent-color);display:flex;align-items:center;gap:5px;"><i data-lucide="map-pin" style="width:13px;"></i>${escapeHtml(m.destination_room?.name || '—')}</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                                <div style="flex:1;min-width:130px;">
+                                    <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Responsável</div>
+                                    <div style="font-size:14px;">${escapeHtml(item.actor)}</div>
+                                </div>
+                                ${m.received_by ? `
+                                <div style="flex:1;min-width:130px;">
+                                    <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Recebedor</div>
+                                    <div style="font-size:14px;">${escapeHtml(m.received_by)}</div>
+                                </div>` : ''}
+                            </div>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;margin-top:24px;">
+                            <button class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('notif-detail-modal').remove()">Fechar</button>
+                        </div>
+                    </div>
+                </div>`;
+            } else {
+                return `
+                <div class="modal-overlay" id="notif-detail-modal">
+                    <div class="modal-content" style="max-width:420px;">
+                        <div class="modal-header">
+                            <div>
+                                <h3>Equipamento Cadastrado</h3>
+                                <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">${new Date(m.created_at).toLocaleString('pt-BR')}</div>
+                            </div>
+                            <button class="modal-close" type="button" onclick="document.getElementById('notif-detail-modal').remove()"><i data-lucide="x"></i></button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px;background:var(--bg-main);border-radius:10px;padding:16px;margin-top:8px;">
+                            <div style="background:rgba(99,102,241,.1);color:#6366f1;padding:12px;border-radius:10px;flex-shrink:0;"><i data-lucide="package" style="width:24px;"></i></div>
+                            <div>
+                                <div style="font-size:16px;font-weight:700;">${escapeHtml(m.name)}</div>
+                                <div style="font-size:13px;color:var(--text-secondary);margin-top:3px;">Cadastrado por <strong>${escapeHtml(item.actor)}</strong></div>
+                            </div>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;margin-top:24px;">
+                            <button class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('notif-detail-modal').remove()">Fechar</button>
+                        </div>
+                    </div>
+                </div>`;
+            }
+        }
     }
 };
