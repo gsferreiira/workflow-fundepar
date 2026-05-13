@@ -856,6 +856,10 @@ const Views = {
                     <h2>Controle de Usuários</h2>
                     <p>Gerencie os colaboradores e níveis de acesso do sistema.</p>
                 </div>
+                ${currentUserRole === 'admin' ? `
+                <button class="btn-primary" onclick="App.modules.usuarios.showCreateModal()">
+                    <i data-lucide="user-plus"></i> Novo Usuário
+                </button>` : ''}
             </div>
             <div class="table-card fade-in">
                 <table class="data-table">
@@ -864,7 +868,7 @@ const Views = {
                         <th>E-mail</th>
                         <th>Nível de Acesso</th>
                         <th>Ingresso</th>
-                        <th style="width:110px;">Ações</th>
+                        <th style="width:130px;">Ações</th>
                     </tr></thead>
                     <tbody id="usuarios-tbody">
                         ${usuarios.length === 0 ? '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum usuário cadastrado.</td></tr>' : ''}
@@ -879,7 +883,7 @@ const Views = {
                                 </td>
                                 <td style="color:var(--text-secondary);font-size:13px;">${escapeHtml(u.email) || '—'}</td>
                                 <td>
-                                    <select class="role-select" onchange="App.modules.usuarios.updateRole('${escapeHtml(u.id)}',this.value)">
+                                    <select class="role-select" onchange="App.modules.usuarios.updateRole('${escapeHtml(u.id)}',this.value)" ${u.id === currentUserId || currentUserRole !== 'admin' ? 'disabled' : ''}>
                                         <option value="usuario" ${u.role==='usuario'||!u.role?'selected':''}>Usuário</option>
                                         <option value="tecnico" ${u.role==='tecnico'?'selected':''}>Técnico</option>
                                         <option value="admin"   ${u.role==='admin'?'selected':''}>Admin</option>
@@ -888,14 +892,52 @@ const Views = {
                                 <td style="color:var(--text-secondary);white-space:nowrap;">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
                                 <td>
                                     <div class="table-actions">
-                                        ${currentUserRole === 'admin' && u.id !== currentUserId && u.role !== 'admin' ? `<button class="btn-table-action edit" title="Editar usuário" onclick="App.modules.usuarios.editUsuario('${escapeHtml(u.id)}')"><i data-lucide="pencil"></i></button>` : ''}
-                                        ${u.id !== currentUserId ? `<button class="btn-table-action delete" title="Excluir usuário" onclick="App.modules.usuarios.deleteUsuario(this,'${escapeHtml(u.id)}')"><i data-lucide="trash-2"></i></button>` : ''}
+                                        ${currentUserRole === 'admin' && u.id !== currentUserId ? `<button class="btn-table-action edit" title="Editar usuário" onclick="App.modules.usuarios.editUsuario('${escapeHtml(u.id)}')"><i data-lucide="pencil"></i></button>` : ''}
+                                        ${currentUserRole === 'admin' && u.id !== currentUserId ? `<button class="btn-table-action" style="color:var(--warning-color);" title="Enviar email de redefinição de senha" onclick="App.modules.usuarios.resetSenha(this,'${escapeHtml(u.id)}','${escapeHtml(u.full_name||u.email||'')}','${escapeHtml(u.email||'')}')"><i data-lucide="key-round"></i></button>` : ''}
+                                        ${currentUserRole === 'admin' && u.id !== currentUserId ? `<button class="btn-table-action delete" title="Excluir usuário" onclick="App.modules.usuarios.deleteUsuario(this,'${escapeHtml(u.id)}')"><i data-lucide="trash-2"></i></button>` : ''}
                                     </div>
                                 </td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+            </div>
+        `,
+
+        usuarioCreateModal: () => `
+            <div class="modal-overlay" id="usuario-create-modal">
+                <div class="modal-content" style="max-width:440px;">
+                    <div class="modal-header">
+                        <h3>Novo Usuário</h3>
+                        <button class="modal-close" type="button" onclick="document.getElementById('usuario-create-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <form id="form-create-usuario" onsubmit="App.modules.usuarios.createUsuario(event)">
+                        <div class="form-group">
+                            <label>Nome Completo <span style="color:var(--danger-color)">*</span></label>
+                            <input type="text" id="create-usuario-name" class="form-control" required placeholder="Nome completo do colaborador...">
+                        </div>
+                        <div class="form-group">
+                            <label>E-mail <span style="color:var(--danger-color)">*</span></label>
+                            <input type="email" id="create-usuario-email" class="form-control" required placeholder="email@fundepar.pr.gov.br">
+                        </div>
+                        <div class="form-group">
+                            <label>Nível de Acesso</label>
+                            <select id="create-usuario-role" class="form-control">
+                                <option value="usuario">Usuário</option>
+                                <option value="tecnico">Técnico</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <div style="background:var(--bg-main);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
+                            <i data-lucide="lock-keyhole" style="width:15px;height:15px;flex-shrink:0;"></i>
+                            Senha inicial: <strong style="color:var(--text-primary);">Fundepar26</strong>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:4px;">
+                            <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('usuario-create-modal').remove()">Cancelar</button>
+                            <button type="submit" class="btn-primary"><i data-lucide="user-plus"></i> Criar Usuário</button>
+                        </div>
+                    </form>
+                </div>
             </div>
         `,
 
@@ -1312,14 +1354,16 @@ const Views = {
                         </div>
                         <button class="modal-close" type="button" onclick="App.scanner.close()"><i data-lucide="x"></i></button>
                     </div>
-                    <div style="background:#000;border-radius:10px;overflow:hidden;margin:12px 0;position:relative;min-height:200px;">
-                        <div id="qr-reader" style="width:100%;"></div>
-                        <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;">
-                            <div style="width:80%;height:80px;border:2px solid rgba(14,165,233,.8);border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);"></div>
+                    <div class="scanner-viewport">
+                        <video id="scanner-video" autoplay playsinline muted></video>
+                        <div class="scanner-overlay">
+                            <div class="scanner-frame">
+                                <div class="scanner-line"></div>
+                            </div>
                         </div>
                     </div>
-                    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin-bottom:14px;">
-                        Posicione o código de barras dentro da área azul
+                    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin:0 0 14px;">
+                        Posicione o código de barras dentro da área marcada
                     </p>
                     <button class="btn-primary" style="background:#e2e8f0;color:#475569;width:100%;" onclick="App.scanner.close()">
                         <i data-lucide="x"></i> Cancelar

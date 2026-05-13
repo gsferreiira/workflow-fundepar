@@ -352,6 +352,31 @@ const App = {
                 else { UI.showToast('Permissão atualizada!', 'success'); }
             },
 
+            showCreateModal: () => {
+                if (Auth.user?.role !== 'admin') { UI.showToast('Acesso restrito a administradores.', 'danger'); return; }
+                document.getElementById('modal-root').innerHTML = Views.app.usuarioCreateModal();
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            createUsuario: async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn.innerHTML; btn.disabled = true;
+                btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Criando...';
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+
+                const full_name = document.getElementById('create-usuario-name').value.trim();
+                const email     = document.getElementById('create-usuario-email').value.trim();
+                const role      = document.getElementById('create-usuario-role').value;
+
+                const user = await Auth.admin.createUser(full_name, email, role);
+                if (!user) { btn.disabled = false; btn.innerHTML = orig; if (typeof lucide !== 'undefined') lucide.createIcons(); return; }
+
+                document.getElementById('usuario-create-modal').remove();
+                UI.showToast(`Usuário "${full_name}" criado com senha padrão Fundepar26.`, 'success');
+                App.modules.usuarios.init();
+            },
+
             editUsuario: (userId) => {
                 const u = App.modules.usuarios._list.find(u => u.id === userId);
                 if (!u) return;
@@ -373,6 +398,28 @@ const App = {
                 document.getElementById('usuario-edit-modal').remove();
                 UI.showToast('Usuário atualizado!', 'success');
                 App.modules.usuarios.init();
+            },
+
+            resetSenha: async (btn, userId, userName, userEmail) => {
+                if (btn.dataset.confirming) {
+                    btn.disabled = true; btn.textContent = '...';
+                    const ok = await Auth.admin.resetPassword(userEmail);
+                    if (ok) {
+                        UI.showToast(`Email de redefinição de senha enviado para "${userName}".`, 'success');
+                    }
+                    btn.disabled = false; delete btn.dataset.confirming;
+                    btn.innerHTML = '<i data-lucide="key-round"></i>';
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                } else {
+                    btn.dataset.confirming = '1'; btn.textContent = 'Confirmar?';
+                    setTimeout(() => {
+                        if (btn.dataset.confirming) {
+                            delete btn.dataset.confirming;
+                            btn.innerHTML = '<i data-lucide="key-round"></i>';
+                            if (typeof lucide !== 'undefined') lucide.createIcons();
+                        }
+                    }, 3000);
+                }
             },
 
             deleteUsuario: async (btn, userId) => {
@@ -1321,54 +1368,115 @@ App.notifications = {
 };
 
 /* ── BARCODE SCANNER ────────────────────────────────────────────────── */
+// Motor de leitura:
+//   1. BarcodeDetector API (nativo Chrome/Edge/Android) — hardware-accelerated, ~60fps
+//   2. ZXing BrowserMultiFormatReader (fallback Firefox/Safari)
 App.scanner = {
-    _instance: null,
-    _handled: false,  // guard: evita disparar _onSuccess duas vezes
+    _stream: null,
+    _animFrame: null,
+    _detector: null,
+    _zxingReader: null,
+    _handled: false,
 
     open: async () => {
-        if (typeof Html5Qrcode === 'undefined') {
-            UI.showToast('Biblioteca do scanner não carregada. Verifique a conexão.', 'danger');
-            return;
-        }
         App.scanner._handled = false;
         document.getElementById('modal-root').innerHTML = Views.app.scannerModal();
         if (typeof lucide !== 'undefined') lucide.createIcons();
 
-        // Pequeno delay para garantir que o DOM renderizou o #qr-reader
-        await new Promise(r => setTimeout(r, 80));
-
-        try {
-            App.scanner._instance = new Html5Qrcode('qr-reader');
-            await App.scanner._instance.start(
-                { facingMode: 'environment' },
-                {
-                    fps: 10,
-                    // qrbox responsivo: 85% da largura do container, altura generosa para barras 1D
-                    qrbox: (w, h) => ({ width: Math.round(w * 0.85), height: Math.round(Math.min(h * 0.5, 160)) })
-                },
-                App.scanner._onSuccess,
-                () => {}  // ignora erros de frame (câmera tentando decodificar)
-            );
-        } catch (err) {
-            UI.showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger');
+        if (typeof BarcodeDetector !== 'undefined') {
+            await App.scanner._startNative();
+        } else if (typeof ZXing !== 'undefined' && ZXing.BrowserMultiFormatReader) {
+            App.scanner._startZXing();
+        } else {
+            UI.showToast('Scanner não suportado neste navegador. Use Chrome ou Edge.', 'warning');
             App.scanner.close();
         }
     },
 
-    close: async () => {
-        if (App.scanner._instance) {
-            try { await App.scanner._instance.stop(); App.scanner._instance.clear(); } catch (e) {}
-            App.scanner._instance = null;
+    // ── Caminho 1: BarcodeDetector nativo ──────────────────────────────
+    _startNative: async () => {
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+        } catch (err) {
+            UI.showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger');
+            App.scanner.close();
+            return;
         }
+        App.scanner._stream = stream;
+
+        const video = document.getElementById('scanner-video');
+        if (!video) { App.scanner.close(); return; }
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+
+        const wanted = ['code_128', 'code_39', 'code_93', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code', 'itf', 'codabar', 'data_matrix'];
+        const supported = await BarcodeDetector.getSupportedFormats().catch(() => []);
+        const formats = supported.length ? supported.filter(f => wanted.includes(f)) : wanted;
+        App.scanner._detector = new BarcodeDetector({ formats: formats.length ? formats : ['code_128', 'ean_13', 'qr_code'] });
+
+        App.scanner._loopNative(video);
+    },
+
+    _loopNative: async (video) => {
+        if (App.scanner._handled) return;
+        if (video.readyState >= 2) {
+            try {
+                const results = await App.scanner._detector.detect(video);
+                if (results.length > 0) {
+                    App.scanner._onSuccess(results[0].rawValue);
+                    return;
+                }
+            } catch (e) {}
+        }
+        App.scanner._animFrame = requestAnimationFrame(() => App.scanner._loopNative(video));
+    },
+
+    // ── Caminho 2: ZXing (fallback Firefox/Safari) ─────────────────────
+    _startZXing: () => {
+        try {
+            const reader = new ZXing.BrowserMultiFormatReader();
+            App.scanner._zxingReader = reader;
+            // decodeFromVideoDevice inicia a câmera e decodifica continuamente
+            reader.decodeFromVideoDevice(undefined, 'scanner-video', (result, err) => {
+                if (result && !App.scanner._handled) {
+                    App.scanner._onSuccess(result.getText());
+                }
+            }).catch(() => {
+                UI.showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger');
+                App.scanner.close();
+            });
+        } catch (e) {
+            UI.showToast('Erro ao iniciar scanner.', 'danger');
+            App.scanner.close();
+        }
+    },
+
+    close: () => {
+        if (App.scanner._animFrame) {
+            cancelAnimationFrame(App.scanner._animFrame);
+            App.scanner._animFrame = null;
+        }
+        if (App.scanner._zxingReader) {
+            try { App.scanner._zxingReader.reset(); } catch (e) {}
+            App.scanner._zxingReader = null;
+        }
+        if (App.scanner._stream) {
+            App.scanner._stream.getTracks().forEach(t => t.stop());
+            App.scanner._stream = null;
+        }
+        App.scanner._detector = null;
         const modal = document.getElementById('scanner-modal');
         if (modal) modal.remove();
     },
 
     _onSuccess: async (decoded) => {
-        if (App.scanner._handled) return;  // guard contra disparo duplo
+        if (App.scanner._handled) return;
         App.scanner._handled = true;
+        App.scanner.close();
 
-        await App.scanner.close();
         const assetNumber = decoded.trim();
         UI.showToast(`Código lido: ${assetNumber}`, 'success');
 
