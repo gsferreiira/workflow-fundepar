@@ -271,10 +271,29 @@ const App = {
 
         /* ── SALAS ──────────────────────────────────────────────────── */
         salas: {
+            _salas: [],
+
             init: async () => {
                 const { data: salas, error } = await supabaseClient.from('rooms').select('*').order('name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
-                document.getElementById('view-content').innerHTML = Views.app.salas(salas);
+                App.modules.salas._salas = salas || [];
+                document.getElementById('view-content').innerHTML = Views.app.salas(App.modules.salas._salas);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            applySort: (order) => {
+                const salas = [...App.modules.salas._salas];
+                if (order === 'numero') {
+                    salas.sort((a, b) => {
+                        if (!a.room_number && !b.room_number) return 0;
+                        if (!a.room_number) return 1;
+                        if (!b.room_number) return -1;
+                        return a.room_number.localeCompare(b.room_number, 'pt-BR', { numeric: true });
+                    });
+                } else {
+                    salas.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+                }
+                document.getElementById('salas-tbody').innerHTML = Views.app._salasRows(salas);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
             showCreateModal: () => {
