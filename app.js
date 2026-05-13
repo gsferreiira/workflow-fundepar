@@ -45,8 +45,10 @@ const App = {
     showAppView: () => {
         document.getElementById('auth-container').classList.add('hidden');
         document.getElementById('app-container').classList.remove('hidden');
+        App.darkMode.init();
         App.renderSidebarProfile();
         App.handleRoute();
+        App.notifications.init();
     },
 
     handleRoute: () => {
@@ -84,18 +86,59 @@ const App = {
         /* ── DASHBOARD ──────────────────────────────────────────────── */
         dashboard: {
             init: async () => {
+                const sixMonthsAgo = new Date();
+                sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+                sixMonthsAgo.setDate(1);
+                sixMonthsAgo.setHours(0, 0, 0, 0);
+
                 const [
                     { count: totalOpen },
                     { count: totalResolved },
                     { count: totalRooms },
-                    { count: totalEquipment }
+                    { count: totalEquipment },
+                    { data: recentMovements },
+                    { data: rooms },
+                    { data: profilesList },
+                    { data: chartMovements }
                 ] = await Promise.all([
                     supabaseClient.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'aberto'),
                     supabaseClient.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'resolvido'),
                     supabaseClient.from('rooms').select('*', { count: 'exact', head: true }),
-                    supabaseClient.from('equipment').select('*', { count: 'exact', head: true })
+                    supabaseClient.from('equipment').select('*', { count: 'exact', head: true }),
+                    supabaseClient.from('asset_movements')
+                        .select('*, equipment(name)')
+                        .order('moved_at', { ascending: false })
+                        .limit(8),
+                    supabaseClient.from('rooms').select('id, name'),
+                    supabaseClient.from('profiles').select('id, full_name'),
+                    supabaseClient.from('asset_movements')
+                        .select('moved_at')
+                        .gte('moved_at', sixMonthsAgo.toISOString())
                 ]);
-                document.getElementById('view-content').innerHTML = Views.app.dashboard({ totalOpen, totalResolved, totalRooms, totalEquipment });
+
+                const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
+                const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
+                const recent = (recentMovements || []).map(m => ({
+                    ...m,
+                    origin:      roomMap[m.origin_room_id]      || null,
+                    destination: roomMap[m.destination_room_id] || null,
+                    profiles:    profileMap[m.moved_by]         || null
+                }));
+
+                // Build monthly chart data (last 6 months)
+                const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+                const chartData = [];
+                for (let i = 5; i >= 0; i--) {
+                    const d = new Date(); d.setMonth(d.getMonth() - i); d.setDate(1);
+                    chartData.push({ label: monthNames[d.getMonth()], year: d.getFullYear(), month: d.getMonth(), count: 0 });
+                }
+                (chartMovements || []).forEach(m => {
+                    const d = new Date(m.moved_at);
+                    const entry = chartData.find(c => c.month === d.getMonth() && c.year === d.getFullYear());
+                    if (entry) entry.count++;
+                });
+
+                document.getElementById('view-content').innerHTML = Views.app.dashboard({ totalOpen, totalResolved, totalRooms, totalEquipment }, recent, chartData);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             }
         },
@@ -419,7 +462,7 @@ const App = {
                     created_by: Auth.user.id
                 }]);
                 if (error) { UI.showToast('Erro ao cadastrar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
-                else { document.getElementById('equipamento-modal').remove(); UI.showToast('Equipamento cadastrado!', 'success'); App.modules.equipamentos.init(); }
+                else { document.getElementById('equipamento-modal').remove(); UI.showToast('Equipamento cadastrado!', 'success'); App.modules.equipamentos.init(); App.notifications.init(); }
             },
 
             editEquipamento: async (id) => {
@@ -468,15 +511,16 @@ const App = {
         /* ── RASTREIO ───────────────────────────────────────────────── */
         rastreio: {
             _data: [],
+            _filteredData: [],
 
             init: async () => {
                 const [
-                    { data: locations, error },
+                    { data: movements, error },
                     { data: rooms },
                     { data: profilesList }
                 ] = await Promise.all([
-                    supabaseClient.from('equipment_locations')
-                        .select('*, equipment(name)')
+                    supabaseClient.from('asset_movements')
+                        .select('equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by')
                         .order('moved_at', { ascending: false }),
                     supabaseClient.from('rooms').select('id, name'),
                     supabaseClient.from('profiles').select('id, full_name')
@@ -487,23 +531,94 @@ const App = {
                 const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
                 const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
 
-                const data = (locations || []).map(l => ({
-                    ...l,
-                    room:    roomMap[l.current_room_id] || null,
-                    profile: profileMap[l.moved_by]    || null
-                }));
+                // Keep only the most recent movement per equipment
+                const seen = new Set();
+                const data = [];
+                (movements || []).forEach(m => {
+                    if (seen.has(m.equipment_id)) return;
+                    seen.add(m.equipment_id);
+                    data.push({
+                        ...m,
+                        room:    roomMap[m.destination_room_id] || null,
+                        profile: profileMap[m.moved_by]        || null
+                    });
+                });
 
-                App.modules.rastreio._data = data;
-                document.getElementById('view-content').innerHTML = Views.app.rastreio(data);
+                App.modules.rastreio._data         = data;
+                App.modules.rastreio._filteredData = data;
+
+                const uniqueRooms = Object.values(
+                    Object.fromEntries(data.filter(d => d.room).map(d => [d.destination_room_id, d.room]))
+                ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+                document.getElementById('view-content').innerHTML = Views.app.rastreio(data, uniqueRooms);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
-            filter: (term) => {
-                const q = term.toLowerCase().trim();
-                document.querySelectorAll('#rastreio-tbody tr[data-search]').forEach(row => {
-                    row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+            applyFilters: () => {
+                const term   = (document.getElementById('rastreio-search')?.value || '').toLowerCase().trim();
+                const roomId = document.getElementById('rastreio-filter-room')?.value || '';
+
+                const filtered = App.modules.rastreio._data.filter(d => {
+                    if (roomId && d.destination_room_id !== roomId) return false;
+                    if (term) {
+                        const haystack = ((d.equipment?.name || '') + ' ' + (d.asset_number || '') + ' ' + (d.serial_number || '')).toLowerCase();
+                        if (!haystack.includes(term)) return false;
+                    }
+                    return true;
                 });
-            }
+
+                App.modules.rastreio._filteredData = filtered;
+
+                const tbody = document.getElementById('rastreio-tbody');
+                if (tbody) {
+                    tbody.innerHTML = Views.app._rastreioRows(filtered);
+                    if (typeof lucide !== 'undefined') lucide.createIcons();
+                }
+
+                const countEl = document.getElementById('rastreio-result-count');
+                if (countEl) countEl.textContent = `${filtered.length} equipamento${filtered.length !== 1 ? 's' : ''}`;
+            },
+
+            exportExcel: () => {
+                if (typeof XLSX === 'undefined') { UI.showToast('Biblioteca não carregada.', 'danger'); return; }
+                const rows = App.modules.rastreio._filteredData;
+                if (rows.length === 0) { UI.showToast('Nenhum equipamento para exportar.', 'warning'); return; }
+
+                const wsData = [
+                    ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Responsável', 'Com quem está', 'Última Movimentação'],
+                    ...rows.map(d => [
+                        d.equipment?.name  || '—',
+                        d.asset_number     || '—',
+                        d.serial_number    || '—',
+                        d.room?.name       || '—',
+                        d.profile?.full_name || '—',
+                        d.received_by      || '—',
+                        new Date(d.moved_at).toLocaleString('pt-BR')
+                    ])
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Rastreio');
+                XLSX.writeFile(wb, `rastreio_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                UI.showToast('Arquivo exportado!', 'success');
+            },
+
+            showHistory: async (equipmentId, equipmentName) => {
+                const { data: movements, error } = await supabaseClient
+                    .from('asset_movements')
+                    .select('*, origin_room:origin_room_id(name), destination_room:destination_room_id(name), profile:moved_by(full_name)')
+                    .eq('equipment_id', equipmentId)
+                    .order('moved_at', { ascending: false });
+
+                if (error) { UI.showToast('Erro ao carregar histórico.', 'danger'); return; }
+                document.getElementById('modal-root').innerHTML = Views.app.rastreioHistoryModal(equipmentName, movements || []);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            filter: (term) => { App.modules.rastreio.applyFilters(); }
         },
 
         /* ── MOVIMENTAÇÕES ──────────────────────────────────────────── */
@@ -511,13 +626,181 @@ const App = {
             _equipment: [],
             _rooms: [],
             _lastData: [],
+            _filteredData: [],
+            _importRows: [],
+            _page: 1,
+            _pageSize: 25,
+
+            renderPage: () => {
+                const mod   = App.modules.movimentacoes;
+                const start = (mod._page - 1) * mod._pageSize;
+                const slice = mod._filteredData.slice(start, start + mod._pageSize);
+
+                const tbody = document.getElementById('movimentacoes-tbody');
+                if (tbody) { tbody.innerHTML = Views.app.movimentacoesRows(slice); if (typeof lucide !== 'undefined') lucide.createIcons(); }
+
+                const pag = document.getElementById('mov-pagination');
+                if (pag) { pag.innerHTML = Views.app.movimentacoesPagination(mod._page, mod._filteredData.length, mod._pageSize); if (typeof lucide !== 'undefined') lucide.createIcons(); }
+
+                const countEl = document.getElementById('filter-result-count');
+                if (countEl) countEl.textContent = `${mod._filteredData.length} resultado${mod._filteredData.length !== 1 ? 's' : ''}`;
+            },
+
+            prevPage: () => { if (App.modules.movimentacoes._page > 1) { App.modules.movimentacoes._page--; App.modules.movimentacoes.renderPage(); window.scrollTo(0, 0); } },
+            nextPage: () => {
+                const mod = App.modules.movimentacoes;
+                if (mod._page < Math.ceil(mod._filteredData.length / mod._pageSize)) { mod._page++; mod.renderPage(); window.scrollTo(0, 0); }
+            },
+
+            openImportPicker: () => {
+                const input = document.getElementById('import-file-input');
+                if (input) { input.value = ''; input.click(); }
+            },
+
+            handleImportFile: async (input) => {
+                if (Auth.user?.role !== 'admin') { UI.showToast('Acesso restrito a administradores.', 'danger'); return; }
+                const file = input.files[0];
+                if (!file) return;
+
+                if (typeof XLSX === 'undefined') { UI.showToast('Biblioteca não carregada.', 'danger'); return; }
+
+                // Fetch equipment and rooms for lookup
+                const [{ data: equipment }, { data: rooms }] = await Promise.all([
+                    supabaseClient.from('equipment').select('id, name'),
+                    supabaseClient.from('rooms').select('id, name')
+                ]);
+
+                const normalize = s => (s || '').toString().trim().toLowerCase();
+                const eqByName   = Object.fromEntries((equipment || []).map(e => [normalize(e.name), e]));
+                const roomByName = Object.fromEntries((rooms     || []).map(r => [normalize(r.name), r]));
+
+                // Parse file
+                const buf  = await file.arrayBuffer();
+                const wb   = XLSX.read(buf, { type: 'array', cellDates: true });
+                const ws   = wb.Sheets[wb.SheetNames[0]];
+                const raw  = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+                const parseDate = (val) => {
+                    if (!val) return null;
+                    if (val instanceof Date) return val;
+                    // DD/MM/AAAA or DD/MM/AAAA HH:MM
+                    const s = val.toString().trim();
+                    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+                    if (m) return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0));
+                    const d = new Date(s);
+                    return isNaN(d) ? null : d;
+                };
+
+                const rows = raw.map((row, i) => {
+                    const equipmentName = (row['Equipamento'] || '').toString().trim();
+                    const serialNumber  = (row['Nº Série']    || '').toString().trim() || null;
+                    const assetNumber   = (row['Nº Patrimônio']|| '').toString().trim() || null;
+                    const originName    = (row['Origem']      || '').toString().trim();
+                    const destName      = (row['Destino']     || '').toString().trim();
+                    const receivedBy    = (row['Recebedor']   || '').toString().trim() || null;
+                    const dateRaw       = row['Data / Hora'];
+                    const movedAt       = parseDate(dateRaw);
+
+                    const eq     = eqByName[normalize(equipmentName)];
+                    const origin = originName ? roomByName[normalize(originName)] : null;
+                    const dest   = destName   ? roomByName[normalize(destName)]   : null;
+
+                    const errors   = [];
+                    const warnings = [];
+
+                    if (!equipmentName)    errors.push('Equipamento não informado');
+                    else if (!eq)          errors.push('Equipamento não encontrado no cadastro');
+                    if (!destName)         errors.push('Destino não informado');
+                    else if (!dest)        errors.push('Sala de destino não encontrada no cadastro');
+                    if (originName && !origin) warnings.push('Sala de origem não encontrada — ficará em branco');
+                    if (!movedAt)              warnings.push('Data inválida ou ausente — será usada a data/hora atual');
+
+                    const status = errors.length > 0 ? 'error' : warnings.length > 0 ? 'warn' : 'ok';
+
+                    return {
+                        equipmentName, serialNumber, assetNumber,
+                        originName, destName, receivedBy,
+                        equipmentId:   eq?.id     || null,
+                        originId:      origin?.id || null,
+                        destId:        dest?.id   || null,
+                        movedAt,
+                        movedAtDisplay: movedAt ? movedAt.toLocaleString('pt-BR') : null,
+                        status, errors, warnings
+                    };
+                });
+
+                App.modules.movimentacoes._importRows = rows;
+                document.getElementById('modal-root').innerHTML = Views.app.importPreviewModal(rows);
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            confirmImport: async () => {
+                const rows = App.modules.movimentacoes._importRows.filter(r => r.status !== 'error');
+                if (rows.length === 0) { UI.showToast('Nenhuma linha válida para importar.', 'warning'); return; }
+
+                const btn = document.querySelector('#import-preview-modal .btn-primary:last-child');
+                if (btn) { btn.disabled = true; btn.textContent = 'Importando...'; }
+
+                const inserts = rows.map(r => ({
+                    equipment_id:        r.equipmentId,
+                    serial_number:       r.serialNumber  || null,
+                    asset_number:        r.assetNumber   || null,
+                    origin_room_id:      r.originId      || null,
+                    destination_room_id: r.destId,
+                    moved_by:            Auth.user.id,
+                    received_by:         r.receivedBy    || null,
+                    moved_at:            r.movedAt ? r.movedAt.toISOString() : new Date().toISOString()
+                }));
+
+                const { error } = await supabaseClient.from('asset_movements').insert(inserts);
+
+                if (error) {
+                    UI.showToast('Erro ao importar: ' + error.message, 'danger');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar Importação'; }
+                    return;
+                }
+
+                document.getElementById('import-preview-modal').remove();
+                UI.showToast(`${rows.length} movimentaç${rows.length !== 1 ? 'ões importadas' : 'ão importada'} com sucesso!`, 'success');
+                App.modules.movimentacoes.init();
+            },
+
+            applyFilters: () => {
+                const dateFrom    = document.getElementById('filter-date-from')?.value;
+                const dateTo      = document.getElementById('filter-date-to')?.value;
+                const equipmentId = document.getElementById('filter-equipment')?.value;
+                const originId    = document.getElementById('filter-origin')?.value;
+                const destId      = document.getElementById('filter-dest')?.value;
+                const responsible = document.getElementById('filter-responsible')?.value;
+
+                const filtered = App.modules.movimentacoes._lastData.filter(m => {
+                    const d = new Date(m.moved_at);
+                    if (dateFrom && d < new Date(dateFrom + 'T00:00:00')) return false;
+                    if (dateTo   && d > new Date(dateTo   + 'T23:59:59')) return false;
+                    if (equipmentId && m.equipment_id      !== equipmentId) return false;
+                    if (originId    && m.origin_room_id    !== originId)    return false;
+                    if (destId      && m.destination_room_id !== destId)    return false;
+                    if (responsible && m.moved_by          !== responsible)  return false;
+                    return true;
+                });
+
+                App.modules.movimentacoes._filteredData = filtered;
+                App.modules.movimentacoes._page = 1;
+                App.modules.movimentacoes.renderPage();
+            },
+
+            clearFilters: () => {
+                ['filter-date-from','filter-date-to','filter-equipment','filter-origin','filter-dest','filter-responsible']
+                    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+                App.modules.movimentacoes.applyFilters();
+            },
 
             exportExcel: () => {
                 if (typeof XLSX === 'undefined') {
                     UI.showToast('Biblioteca de exportação não carregada.', 'danger');
                     return;
                 }
-                const rows = App.modules.movimentacoes._lastData;
+                const rows = App.modules.movimentacoes._filteredData;
                 if (rows.length === 0) {
                     UI.showToast('Nenhuma movimentação para exportar.', 'warning');
                     return;
@@ -578,19 +861,27 @@ const App = {
                     editedBy:    profileMap[m.edited_by]        || null
                 }));
 
-                App.modules.movimentacoes._lastData = movimentacoes;
-                document.getElementById('view-content').innerHTML = Views.app.movimentacoes(movimentacoes);
+                App.modules.movimentacoes._lastData     = movimentacoes;
+                App.modules.movimentacoes._filteredData = movimentacoes;
+                App.modules.movimentacoes._page         = 1;
+
+                // Unique equipment list for filter dropdown
+                const eqMap = new Map();
+                movimentacoes.forEach(m => { if (m.equipment_id && m.equipment?.name) eqMap.set(m.equipment_id, { id: m.equipment_id, name: m.equipment.name }); });
+                const uniqueEquipment = [...eqMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+                document.getElementById('view-content').innerHTML = Views.app.movimentacoes(movimentacoes, uniqueEquipment, rooms || [], profilesList || []);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
-            showCreateModal: async () => {
+            showCreateModal: async (prefillAsset = null) => {
                 const [{ data: equipment }, { data: rooms }] = await Promise.all([
                     supabaseClient.from('equipment').select('id, name').order('name'),
                     supabaseClient.from('rooms').select('id, name').order('name')
                 ]);
                 App.modules.movimentacoes._equipment = equipment || [];
                 App.modules.movimentacoes._rooms     = rooms     || [];
-                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoModal(equipment || [], rooms || []);
+                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoModal(equipment || [], rooms || [], prefillAsset);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
@@ -750,6 +1041,7 @@ const App = {
                 document.getElementById('movimentacao-modal').remove();
                 UI.showToast('Movimentação registrada!', 'success');
                 App.modules.movimentacoes.init();
+                App.notifications.init();
             }
         },
 
@@ -760,25 +1052,31 @@ const App = {
             init: async () => {
                 const [
                     { data: rooms, error },
-                    { data: locations }
+                    { data: movements }
                 ] = await Promise.all([
                     supabaseClient.from('rooms').select('*').order('name'),
-                    supabaseClient.from('equipment_locations')
-                        .select('*, equipment(name)')
+                    supabaseClient.from('asset_movements')
+                        .select('equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id')
+                        .order('moved_at', { ascending: false })
                 ]);
 
                 if (error) { UI.showToast(error.message, 'danger'); return; }
 
+                // Para cada equipamento, manter apenas o movimento mais recente (lista já está ordenada DESC)
+                const seen = new Set();
                 const locationsByRoom = {};
-                (locations || []).forEach(loc => {
-                    const rid = loc.current_room_id;
+                (movements || []).forEach(m => {
+                    if (seen.has(m.equipment_id)) return;
+                    seen.add(m.equipment_id);
+                    const rid = m.destination_room_id;
+                    if (!rid) return;
                     if (!locationsByRoom[rid]) locationsByRoom[rid] = [];
                     locationsByRoom[rid].push({
-                        name:          loc.equipment?.name || '—',
-                        asset_number:  loc.asset_number    || null,
-                        serial_number: loc.serial_number   || null,
-                        received_by:   loc.received_by     || null,
-                        moved_at:      loc.moved_at        || null
+                        name:          m.equipment?.name || '—',
+                        asset_number:  m.asset_number    || null,
+                        serial_number: m.serial_number   || null,
+                        received_by:   m.received_by     || null,
+                        moved_at:      m.moved_at        || null
                     });
                 });
 
@@ -894,6 +1192,263 @@ const Autocomplete = {
         if (hiddenId) { const h = document.getElementById(hiddenId); if (h) h.value = value; }
         const list = document.getElementById(id + '-list');
         if (list) list.classList.remove('open');
+    }
+};
+
+/* ── DARK MODE ─────────────────────────────────────────────────────── */
+App.darkMode = {
+    init: () => {
+        if (localStorage.getItem('dark_mode') === '1') {
+            document.body.classList.add('dark');
+            App.darkMode._icon(true);
+        }
+    },
+    toggle: () => {
+        const dark = document.body.classList.toggle('dark');
+        localStorage.setItem('dark_mode', dark ? '1' : '0');
+        App.darkMode._icon(dark);
+    },
+    _icon: (dark) => {
+        const btn = document.getElementById('dark-mode-btn');
+        if (!btn) return;
+        btn.innerHTML = `<i data-lucide="${dark ? 'sun' : 'moon'}"></i>`;
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+};
+
+/* ── NOTIFICATIONS ──────────────────────────────────────────────────── */
+App.notifications = {
+    _data: [],
+
+    _relativeTime: (date) => {
+        const diff = Date.now() - date;
+        const min = Math.floor(diff / 60000);
+        const h   = Math.floor(diff / 3600000);
+        const d   = Math.floor(diff / 86400000);
+        if (min < 1)  return 'Agora mesmo';
+        if (min < 60) return `${min} min atrás`;
+        if (h < 24)   return `${h}h atrás`;
+        if (d < 7)    return `${d}d atrás`;
+        return date.toLocaleDateString('pt-BR');
+    },
+
+    init: async () => {
+        const [
+            { data: movements },
+            { data: equipment },
+            { data: profiles }
+        ] = await Promise.all([
+            supabaseClient.from('asset_movements')
+                .select('id, equipment(name), moved_by, moved_at, destination_room:destination_room_id(name), origin_room:origin_room_id(name), asset_number, serial_number, received_by')
+                .order('moved_at', { ascending: false })
+                .limit(15),
+            supabaseClient.from('equipment')
+                .select('id, name, created_by, created_at')
+                .order('created_at', { ascending: false })
+                .limit(10),
+            supabaseClient.from('profiles').select('id, full_name')
+        ]);
+
+        const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]));
+        const lastSeen   = localStorage.getItem('notif_last_seen') ? new Date(localStorage.getItem('notif_last_seen')) : null;
+
+        const items = [
+            ...(movements || []).map(m => ({
+                id:    'mov_' + m.id,
+                refId: m.id,
+                type:  'movement',
+                actor: profileMap[m.moved_by]?.full_name || 'Alguém',
+                text:  `registrou movimentação de <strong>${escapeHtml(m.equipment?.name || 'equipamento')}</strong> para <strong>${escapeHtml(m.destination_room?.name || '—')}</strong>`,
+                date:  new Date(m.moved_at),
+                data:  m
+            })),
+            ...(equipment || []).map(e => ({
+                id:    'eq_' + e.id,
+                refId: e.id,
+                type:  'equipment',
+                actor: profileMap[e.created_by]?.full_name || 'Alguém',
+                text:  `cadastrou o equipamento <strong>${escapeHtml(e.name)}</strong>`,
+                date:  new Date(e.created_at),
+                data:  e
+            }))
+        ].sort((a, b) => b.date - a.date).slice(0, 25);
+
+        App.notifications._data = items;
+
+        const unseen = lastSeen ? items.filter(i => i.date > lastSeen).length : items.length;
+        const badge  = document.getElementById('notif-badge');
+        if (badge) {
+            badge.textContent = unseen > 9 ? '9+' : String(unseen);
+            badge.style.display = unseen > 0 ? '' : 'none';
+        }
+    },
+
+    toggle: () => {
+        const panel = document.getElementById('notifications-panel');
+        if (!panel) return;
+        panel.classList.contains('hidden') ? App.notifications.open() : App.notifications.close();
+    },
+
+    open: () => {
+        const panel    = document.getElementById('notifications-panel');
+        const backdrop = document.getElementById('notifications-backdrop');
+        if (!panel) return;
+
+        localStorage.setItem('notif_last_seen', new Date().toISOString());
+        const badge = document.getElementById('notif-badge');
+        if (badge) badge.style.display = 'none';
+
+        panel.innerHTML = Views.app.notificationsPanel(App.notifications._data);
+        panel.classList.remove('hidden');
+        if (backdrop) backdrop.classList.add('active');
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    },
+
+    close: () => {
+        const panel    = document.getElementById('notifications-panel');
+        const backdrop = document.getElementById('notifications-backdrop');
+        if (panel)    panel.classList.add('hidden');
+        if (backdrop) backdrop.classList.remove('active');
+    },
+
+    showDetail: (id) => {
+        App.notifications.close();
+        const item = App.notifications._data.find(i => i.id === id);
+        if (!item) return;
+        document.getElementById('modal-root').innerHTML = Views.app.notificationDetailModal(item);
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+    }
+};
+
+/* ── BARCODE SCANNER ────────────────────────────────────────────────── */
+App.scanner = {
+    _instance: null,
+    _handled: false,  // guard: evita disparar _onSuccess duas vezes
+
+    open: async () => {
+        if (typeof Html5Qrcode === 'undefined') {
+            UI.showToast('Biblioteca do scanner não carregada. Verifique a conexão.', 'danger');
+            return;
+        }
+        App.scanner._handled = false;
+        document.getElementById('modal-root').innerHTML = Views.app.scannerModal();
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+
+        // Pequeno delay para garantir que o DOM renderizou o #qr-reader
+        await new Promise(r => setTimeout(r, 80));
+
+        try {
+            App.scanner._instance = new Html5Qrcode('qr-reader');
+            await App.scanner._instance.start(
+                { facingMode: 'environment' },
+                {
+                    fps: 10,
+                    // qrbox responsivo: 85% da largura do container, altura generosa para barras 1D
+                    qrbox: (w, h) => ({ width: Math.round(w * 0.85), height: Math.round(Math.min(h * 0.5, 160)) })
+                },
+                App.scanner._onSuccess,
+                () => {}  // ignora erros de frame (câmera tentando decodificar)
+            );
+        } catch (err) {
+            UI.showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger');
+            App.scanner.close();
+        }
+    },
+
+    close: async () => {
+        if (App.scanner._instance) {
+            try { await App.scanner._instance.stop(); App.scanner._instance.clear(); } catch (e) {}
+            App.scanner._instance = null;
+        }
+        const modal = document.getElementById('scanner-modal');
+        if (modal) modal.remove();
+    },
+
+    _onSuccess: async (decoded) => {
+        if (App.scanner._handled) return;  // guard contra disparo duplo
+        App.scanner._handled = true;
+
+        await App.scanner.close();
+        const assetNumber = decoded.trim();
+        UI.showToast(`Código lido: ${assetNumber}`, 'success');
+
+        const { data: movements } = await supabaseClient
+            .from('asset_movements')
+            .select('*, equipment(name), destination_room:destination_room_id(name), origin_room:origin_room_id(name), profile:moved_by(full_name)')
+            .eq('asset_number', assetNumber)
+            .order('moved_at', { ascending: false })
+            .limit(1);
+
+        if (movements && movements.length > 0) {
+            document.getElementById('modal-root').innerHTML = Views.app.scanResultModal(movements[0], assetNumber);
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        } else {
+            await App.modules.movimentacoes.showCreateModal(assetNumber);
+            UI.showToast(`PAT "${assetNumber}" não encontrado — preencha a movimentação.`, 'warning');
+        }
+    }
+};
+
+// Filtra a tabela da tela atual conforme o usuário digita na barra de busca do topbar
+App.globalSearch = (term) => {
+    const route = window.location.hash || '#dashboard';
+    const q = term.toLowerCase().trim();
+
+    if (route === '#movimentacoes') {
+        const dateFrom = document.getElementById('filter-date-from')?.value;
+        const dateTo   = document.getElementById('filter-date-to')?.value;
+        const eqId     = document.getElementById('filter-equipment')?.value;
+        const origId   = document.getElementById('filter-origin')?.value;
+        const destId   = document.getElementById('filter-dest')?.value;
+        const respId   = document.getElementById('filter-responsible')?.value;
+
+        const filtered = App.modules.movimentacoes._lastData.filter(m => {
+            const d = new Date(m.moved_at);
+            if (dateFrom && d < new Date(dateFrom + 'T00:00:00')) return false;
+            if (dateTo   && d > new Date(dateTo   + 'T23:59:59')) return false;
+            if (eqId   && m.equipment_id        !== eqId)   return false;
+            if (origId && m.origin_room_id       !== origId) return false;
+            if (destId && m.destination_room_id  !== destId) return false;
+            if (respId && m.moved_by             !== respId) return false;
+            if (q) {
+                const hay = [m.equipment?.name, m.serial_number, m.asset_number, m.origin?.name, m.destination?.name, m.profiles?.full_name]
+                    .filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+        App.modules.movimentacoes._filteredData = filtered;
+        App.modules.movimentacoes._page = 1;
+        App.modules.movimentacoes.renderPage();
+
+    } else if (route === '#rastreio') {
+        const roomId = document.getElementById('rastreio-filter-room')?.value || '';
+        const filtered = App.modules.rastreio._data.filter(d => {
+            if (roomId && d.destination_room_id !== roomId) return false;
+            if (q) {
+                const hay = ((d.equipment?.name || '') + ' ' + (d.asset_number || '') + ' ' + (d.serial_number || '')).toLowerCase();
+                if (!hay.includes(q)) return false;
+            }
+            return true;
+        });
+        App.modules.rastreio._filteredData = filtered;
+        const tbody = document.getElementById('rastreio-tbody');
+        if (tbody) { tbody.innerHTML = Views.app._rastreioRows(filtered); if (typeof lucide !== 'undefined') lucide.createIcons(); }
+        const countEl = document.getElementById('rastreio-result-count');
+        if (countEl) countEl.textContent = `${filtered.length} equipamento${filtered.length !== 1 ? 's' : ''}`;
+
+    } else if (route === '#equipamentos') {
+        document.querySelectorAll('#equipamentos-tbody tr[data-search]').forEach(row => {
+            row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+        });
+    } else if (route === '#salas') {
+        document.querySelectorAll('#salas-tbody tr[data-search]').forEach(row => {
+            row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+        });
+    } else if (route === '#usuarios') {
+        document.querySelectorAll('#usuarios-tbody tr[data-search]').forEach(row => {
+            row.style.display = !q || row.dataset.search.includes(q) ? '' : 'none';
+        });
     }
 };
 
