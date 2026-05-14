@@ -1975,6 +1975,7 @@ const App = {
     /* ── MAPA DE SALAS ──────────────────────────────────────────── */
     mapaSalas: {
       _rooms: [],
+      _filteredRooms: [],
 
       init: async () => {
         const [{ data: rooms, error }, { data: movements }] = await Promise.all(
@@ -2025,8 +2026,58 @@ const App = {
         }));
 
         App.modules.mapaSalas._rooms = roomsWithItems;
+        App.modules.mapaSalas._filteredRooms = roomsWithItems;
         document.getElementById("view-content").innerHTML =
           Views.app.mapaSalas(roomsWithItems);
+        if (typeof lucide !== "undefined") lucide.createIcons();
+      },
+
+      applyFilters: () => {
+        const normalizeSearch = (value) =>
+          (value || "")
+            .toString()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+        const term = normalizeSearch(
+          document.getElementById("mapa-salas-search")?.value || "",
+        ).trim();
+
+        const filtered = App.modules.mapaSalas._rooms.filter((room) => {
+          if (!term) return true;
+          const people = [
+            room.coordinator,
+            ...(room.items || []).map((item) => item.received_by),
+          ]
+            .filter(Boolean)
+            .join(" ");
+          return [room.name, room.room_number, people].some((value) =>
+            normalizeSearch(value).includes(term),
+          );
+        });
+
+        App.modules.mapaSalas._filteredRooms = filtered;
+        document
+          .querySelectorAll("#mapa-salas-grid .room-map-card")
+          .forEach((card) => {
+            card.style.display =
+              !term || normalizeSearch(card.dataset.search).includes(term)
+                ? ""
+                : "none";
+          });
+
+        const emptyEl = document.getElementById("mapa-salas-empty-filter");
+        if (emptyEl) {
+          emptyEl.style.display = term && filtered.length === 0 ? "" : "none";
+        }
+        const emptyStateEl = document.getElementById("mapa-salas-empty-state");
+        if (emptyStateEl) emptyStateEl.style.display = term ? "none" : "";
+
+        const countEl = document.getElementById("mapa-salas-result-count");
+        if (countEl) {
+          countEl.textContent = `${filtered.length} sala${filtered.length !== 1 ? "s" : ""}`;
+        }
+
         if (typeof lucide !== "undefined") lucide.createIcons();
       },
 

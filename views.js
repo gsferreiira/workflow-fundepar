@@ -959,12 +959,30 @@ const Views = {
                     <p>Visualize quais equipamentos estão em cada sala.</p>
                 </div>
             </div>
-            <div class="room-map-grid fade-in">
-                ${rooms.length === 0 ? `<p style="color:var(--text-secondary);grid-column:1/-1;text-align:center;padding:40px;">Nenhuma sala cadastrada.</p>` : ""}
+            <div class="filter-bar fade-in">
+                <div class="filter-row">
+                    <div class="filter-group" style="flex:2;min-width:220px;">
+                        <label class="filter-label">Pesquisar</label>
+                        <input type="text" id="mapa-salas-search" class="form-control filter-control"
+                               placeholder="Nome da pessoa ou número da sala..."
+                               oninput="App.modules.mapaSalas.applyFilters()">
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <span id="mapa-salas-result-count" class="filter-count">${rooms.length} sala${rooms.length !== 1 ? "s" : ""}</span>
+                    <button class="btn-filter-clear" onclick="const e=document.getElementById('mapa-salas-search');if(e)e.value='';App.modules.mapaSalas.applyFilters()">
+                        <i data-lucide="x"></i> Limpar pesquisa
+                    </button>
+                </div>
+            </div>
+            <div id="mapa-salas-grid" class="room-map-grid fade-in">
+                ${rooms.length === 0 ? `<p id="mapa-salas-empty-state" style="color:var(--text-secondary);grid-column:1/-1;text-align:center;padding:40px;">Nenhuma sala cadastrada.</p>` : ""}
+                <p id="mapa-salas-empty-filter" style="display:none;color:var(--text-secondary);grid-column:1/-1;text-align:center;padding:40px;">Nenhuma sala encontrada.</p>
                 ${rooms
                   .map(
                     (room) => `
                     <div class="room-map-card room-map-card--clickable" onclick="App.modules.mapaSalas.showRoomDetail('${escapeHtml(room.id)}')"
+                         data-search="${escapeHtml([room.name, room.room_number, room.coordinator, ...(room.items || []).map((item) => item.received_by)].filter(Boolean).join(" ").toLowerCase())}"
                          title="Clique para ver todos os equipamentos">
                         <div class="room-map-header">
                             <div class="room-map-header-top">
