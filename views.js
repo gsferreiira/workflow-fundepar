@@ -662,9 +662,26 @@ const Views = {
                                 </div>
                             </div>
 
+                            <div class="form-2col">
+                                <div class="form-group">
+                                    <label>Data / Hora</label>
+                                    <input type="text" class="form-control" readonly value="${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}">
+                                </div>
+                                <div class="form-group">
+                                    <label>Estado do Item</label>
+                                    <select id="mov-item-status" class="form-control">
+                                        <option value="">Não informado</option>
+                                        <option value="novo">Novo</option>
+                                        <option value="bom">Bom</option>
+                                        <option value="regular">Regular</option>
+                                        <option value="inservível">Inservível</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <div class="form-group">
-                                <label>Data / Hora</label>
-                                <input type="text" class="form-control" readonly value="${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}">
+                                <label>Comentário <span style="color:var(--text-secondary);font-weight:400;">(Opcional)</span></label>
+                                <textarea id="mov-comentario" class="form-control" rows="2" placeholder="Ex: Tela com risco vertical, cabo danificado..."></textarea>
                             </div>
 
                             <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:8px;">

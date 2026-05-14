@@ -621,9 +621,9 @@ const App = {
                     { data: rooms },
                     { data: profilesList }
                 ] = await Promise.all([
-                    supabaseClient.from('equipment').select('*').order('name'),
+                    supabaseClient.from('equipment').select('id, name, categoria, status, observacao').order('name'),
                     supabaseClient.from('asset_movements')
-                        .select('equipment_id, asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by')
+                        .select('equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by')
                         .order('moved_at', { ascending: false }),
                     supabaseClient.from('rooms').select('id, name'),
                     supabaseClient.from('profiles').select('id, full_name')
@@ -634,29 +634,47 @@ const App = {
                 const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
                 const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
 
-                // Última movimentação por equipment_id
-                const latestMov = {};
+                // Deduplica por patrimônio físico (asset_number), não por tipo.
+                // Mesma lógica do mapa de salas — movimentos já vêm ordenados DESC.
+                const seen = new Set();
+                const data = [];
                 (movements || []).forEach(m => {
-                    if (!latestMov[m.equipment_id]) latestMov[m.equipment_id] = m;
+                    const key = m.asset_number
+                        ? `pat_${m.asset_number}`
+                        : m.serial_number
+                            ? `eq_${m.equipment_id}_ser_${m.serial_number}`
+                            : `eq_${m.equipment_id}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    data.push({
+                        equipment_id:        m.equipment_id,
+                        equipment:           m.equipment,
+                        categoria:           m.equipment?.categoria  || null,
+                        status:              m.equipment?.status     || null,
+                        observacao:          m.equipment?.observacao || null,
+                        asset_number:        m.asset_number          || null,
+                        serial_number:       m.serial_number         || null,
+                        received_by:         m.received_by           || null,
+                        moved_at:            m.moved_at              || null,
+                        destination_room_id: m.destination_room_id   || null,
+                        moved_by:            m.moved_by              || null,
+                        room:    roomMap[m.destination_room_id]      || null,
+                        profile: profileMap[m.moved_by]              || null,
+                    });
                 });
 
-                const data = (allEquipment || []).map(eq => {
-                    const mov = latestMov[eq.id] || null;
-                    return {
-                        equipment_id:        eq.id,
-                        equipment:           { name: eq.name },
-                        categoria:           eq.categoria  || null,
-                        status:              eq.status     || null,
-                        observacao:          eq.observacao || null,
-                        asset_number:        mov?.asset_number        || null,
-                        serial_number:       mov?.serial_number       || null,
-                        received_by:         mov?.received_by         || null,
-                        moved_at:            mov?.moved_at            || null,
-                        destination_room_id: mov?.destination_room_id || null,
-                        moved_by:            mov?.moved_by            || null,
-                        room:    mov ? (roomMap[mov.destination_room_id]    || null) : null,
-                        profile: mov ? (profileMap[mov.moved_by]            || null) : null,
-                    };
+                // Adiciona equipamentos que nunca foram movimentados
+                const movedIds = new Set(data.map(d => d.equipment_id));
+                (allEquipment || []).forEach(eq => {
+                    if (movedIds.has(eq.id)) return;
+                    data.push({
+                        equipment_id: eq.id, equipment: { name: eq.name },
+                        categoria: eq.categoria || null, status: eq.status || null,
+                        observacao: eq.observacao || null,
+                        asset_number: null, serial_number: null, received_by: null,
+                        moved_at: null, destination_room_id: null, moved_by: null,
+                        room: null, profile: null,
+                    });
                 });
 
                 App.modules.rastreio._data         = data;
@@ -1195,6 +1213,9 @@ const App = {
                     }
                 }
 
+                const itemStatus = document.getElementById('mov-item-status').value || null;
+                const comentario = document.getElementById('mov-comentario').value.trim() || null;
+
                 const { error } = await supabaseClient.from('asset_movements').insert([{
                     equipment_id:        equipmentId,
                     serial_number:       serialNumber,
@@ -1203,8 +1224,15 @@ const App = {
                     destination_room_id: destRoom.id,
                     moved_by:            Auth.user.id,
                     received_by:         receivedBy,
-                    moved_at:            movedAt
+                    moved_at:            movedAt,
+                    item_status:         itemStatus,
+                    comentario:          comentario
                 }]);
+
+                // Atualiza status do equipamento se informado
+                if (!error && itemStatus) {
+                    await supabaseClient.from('equipment').update({ status: itemStatus }).eq('id', equipmentId);
+                }
 
                 if (error) { UI.showToast('Erro ao registrar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; return; }
 
