@@ -9,6 +9,26 @@ const escapeHtml = (str) => {
         .replace(/"/g, '&quot;');
 };
 
+// Formata número de patrimônio como 000.000.000.000
+const formatAssetNumber = (raw) => {
+    if (!raw) return '';
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.length === 12) {
+        return `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}.${digits.slice(9,12)}`;
+    }
+    return String(raw);
+};
+
+// Máscara progressiva para campos de patrimônio
+const maskAssetNumber = (e) => {
+    const input = e.target || e;
+    const digits = input.value.replace(/\D/g, '').slice(0, 12);
+    if (digits.length <= 3)       input.value = digits;
+    else if (digits.length <= 6)  input.value = `${digits.slice(0,3)}.${digits.slice(3)}`;
+    else if (digits.length <= 9)  input.value = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6)}`;
+    else                          input.value = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}.${digits.slice(9)}`;
+};
+
 const Views = {
     auth: {
         login: () => `
@@ -156,7 +176,10 @@ const Views = {
         `,
 
         /* ── EQUIPAMENTOS ────────────────────────────────────────────── */
-        equipamentos: (equipamentos) => `
+        equipamentos: (equipamentos) => {
+            const categorias = [...new Set(equipamentos.filter(e => e.categoria).map(e => e.categoria))].sort();
+            const statusOpts = ['novo','bom','regular','inservível'];
+            return `
             <div class="view-header">
                 <div>
                     <h2>Equipamentos</h2>
@@ -164,35 +187,87 @@ const Views = {
                 </div>
                 <button class="btn-primary" onclick="App.modules.equipamentos.showCreateModal()"><i data-lucide="plus"></i> Cadastrar Equipamento</button>
             </div>
+            <div class="filter-bar fade-in">
+                <div class="filter-row">
+                    <div class="filter-group" style="flex:2;min-width:180px;">
+                        <label class="filter-label">Pesquisar</label>
+                        <input type="text" id="equip-search" class="form-control filter-control" placeholder="Nome ou observação..."
+                               oninput="App.modules.equipamentos.applyFilters()">
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Categoria</label>
+                        <select id="equip-filter-cat" class="form-control filter-control" onchange="App.modules.equipamentos.applyFilters()">
+                            <option value="">Todas</option>
+                            ${categorias.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Status</label>
+                        <select id="equip-filter-status" class="form-control filter-control" onchange="App.modules.equipamentos.applyFilters()">
+                            <option value="">Todos</option>
+                            ${statusOpts.map(s => `<option value="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <span id="equip-result-count" class="filter-count">${equipamentos.length} equipamento${equipamentos.length !== 1 ? 's' : ''}</span>
+                    <button class="btn-filter-clear" onclick="['equip-search','equip-filter-cat','equip-filter-status'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});App.modules.equipamentos.applyFilters()">
+                        <i data-lucide="x"></i> Limpar
+                    </button>
+                </div>
+            </div>
             <div class="table-card fade-in">
                 <table class="data-table">
                     <thead><tr>
                         <th>Nome do Equipamento</th>
+                        <th>Categoria</th>
+                        <th>Status</th>
+                        <th>Observação</th>
                         <th>Cadastrado em</th>
                         <th style="width:130px;">Ações</th>
                     </tr></thead>
                     <tbody id="equipamentos-tbody">
-                        ${equipamentos.length === 0 ? '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento cadastrado.</td></tr>' : ''}
-                        ${equipamentos.map(eq => `
-                            <tr data-search="${escapeHtml(eq.name.toLowerCase())}">
-                                <td><strong>${escapeHtml(eq.name)}</strong></td>
-                                <td style="color:var(--text-secondary);">${new Date(eq.created_at).toLocaleDateString('pt-BR')}</td>
-                                <td>
-                                    <div class="table-actions">
-                                        <button class="btn-table-action edit" onclick="App.modules.equipamentos.editEquipamento('${escapeHtml(eq.id)}')"><i data-lucide="pencil"></i> Editar</button>
-                                        <button class="btn-table-action delete" onclick="App.modules.equipamentos.deleteEquipamento(this,'${escapeHtml(eq.id)}')"><i data-lucide="trash-2"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                        `).join('')}
+                        ${Views.app._equipamentosRows(equipamentos)}
                     </tbody>
                 </table>
             </div>
-        `,
+        `; },
+
+        _equipamentosRows: (rows) => {
+            if (rows.length === 0) return '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento encontrado.</td></tr>';
+            return rows.map(eq => `
+                <tr data-search="${escapeHtml((eq.name+' '+(eq.categoria||'')+' '+(eq.observacao||'')).toLowerCase())}">
+                    <td><strong>${escapeHtml(eq.name)}</strong></td>
+                    <td>${eq.categoria ? `<span style="background:rgba(99,102,241,.1);color:#6366f1;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(eq.categoria)}</span>` : '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td>${Views.app._statusBadge(eq.status)}</td>
+                    <td style="color:var(--text-secondary);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(eq.observacao||'')}">${escapeHtml(eq.observacao) || '—'}</td>
+                    <td style="color:var(--text-secondary);">${new Date(eq.created_at).toLocaleDateString('pt-BR')}</td>
+                    <td>
+                        <div class="table-actions">
+                            <button class="btn-table-action edit" onclick="App.modules.equipamentos.editEquipamento('${escapeHtml(eq.id)}')"><i data-lucide="pencil"></i> Editar</button>
+                            <button class="btn-table-action delete" onclick="App.modules.equipamentos.deleteEquipamento(this,'${escapeHtml(eq.id)}')"><i data-lucide="trash-2"></i></button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        },
+
+        _statusBadge: (status) => {
+            const map = {
+                'novo':       { bg:'rgba(16,185,129,.12)',  color:'#059669' },
+                'bom':        { bg:'rgba(59,130,246,.12)',  color:'#2563eb' },
+                'regular':    { bg:'rgba(245,158,11,.12)', color:'#d97706' },
+                'inservível': { bg:'rgba(239,68,68,.12)',   color:'#dc2626' },
+            };
+            const s = (status||'').toLowerCase();
+            const c = map[s] || { bg:'rgba(0,0,0,.06)', color:'var(--text-secondary)' };
+            const label = status ? status.charAt(0).toUpperCase()+status.slice(1) : '—';
+            return `<span style="background:${c.bg};color:${c.color};padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(label)}</span>`;
+        },
 
         equipamentoModal: () => `
             <div class="modal-overlay" id="equipamento-modal">
-                <div class="modal-content">
+                <div class="modal-content" style="max-width:520px;">
                     <div class="modal-header">
                         <h3>Cadastrar Equipamento</h3>
                         <button class="modal-close" type="button" onclick="document.getElementById('equipamento-modal').remove()"><i data-lucide="x"></i></button>
@@ -202,7 +277,32 @@ const Views = {
                             <label>Nome do Equipamento <span style="color:var(--danger-color)">*</span></label>
                             <input type="text" id="equip-name" class="form-control" required placeholder="Ex: Notebook Dell Latitude 5520">
                         </div>
-                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:24px;">
+                        <div class="form-2col">
+                            <div class="form-group">
+                                <label>Categoria</label>
+                                <input type="text" id="equip-categoria" class="form-control" placeholder="Ex: Computador, Monitor, Switch..." list="equip-cat-list">
+                                <datalist id="equip-cat-list">
+                                    <option value="Computador"><option value="Notebook"><option value="Monitor">
+                                    <option value="Switch"><option value="Roteador"><option value="Impressora">
+                                    <option value="Projetor"><option value="Teclado"><option value="Mouse">
+                                    <option value="Servidor"><option value="No-break"><option value="Câmera">
+                                </datalist>
+                            </div>
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select id="equip-status" class="form-control">
+                                    <option value="bom">Bom</option>
+                                    <option value="novo">Novo</option>
+                                    <option value="regular">Regular</option>
+                                    <option value="inservível">Inservível</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Observação <span style="color:var(--text-secondary);font-weight:400;">(Opcional)</span></label>
+                            <textarea id="equip-observacao" class="form-control" rows="2" placeholder="Ex: Tela com risco vertical, bateria fraca..."></textarea>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:16px;">
                             <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('equipamento-modal').remove()">Cancelar</button>
                             <button type="submit" class="btn-primary">Cadastrar</button>
                         </div>
@@ -213,7 +313,7 @@ const Views = {
 
         equipamentoEditModal: (eq) => `
             <div class="modal-overlay" id="equipamento-edit-modal">
-                <div class="modal-content">
+                <div class="modal-content" style="max-width:520px;">
                     <div class="modal-header">
                         <h3>Editar Equipamento</h3>
                         <button class="modal-close" type="button" onclick="document.getElementById('equipamento-edit-modal').remove()"><i data-lucide="x"></i></button>
@@ -223,7 +323,31 @@ const Views = {
                             <label>Nome do Equipamento <span style="color:var(--danger-color)">*</span></label>
                             <input type="text" id="edit-equip-name" class="form-control" required value="${escapeHtml(eq.name)}">
                         </div>
-                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:24px;">
+                        <div class="form-2col">
+                            <div class="form-group">
+                                <label>Categoria</label>
+                                <input type="text" id="edit-equip-categoria" class="form-control" value="${escapeHtml(eq.categoria||'')}" placeholder="Ex: Computador, Monitor..." list="edit-cat-list">
+                                <datalist id="edit-cat-list">
+                                    <option value="Computador"><option value="Notebook"><option value="Monitor">
+                                    <option value="Switch"><option value="Roteador"><option value="Impressora">
+                                    <option value="Projetor"><option value="Teclado"><option value="Mouse">
+                                    <option value="Servidor"><option value="No-break"><option value="Câmera">
+                                </datalist>
+                            </div>
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select id="edit-equip-status" class="form-control">
+                                    ${['bom','novo','regular','inservível'].map(s =>
+                                        `<option value="${s}" ${eq.status===s?'selected':''}>${s.charAt(0).toUpperCase()+s.slice(1)}</option>`
+                                    ).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Observação <span style="color:var(--text-secondary);font-weight:400;">(Opcional)</span></label>
+                            <textarea id="edit-equip-observacao" class="form-control" rows="2" placeholder="Ex: Tela com risco vertical...">${escapeHtml(eq.observacao||'')}</textarea>
+                        </div>
+                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:16px;">
                             <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('equipamento-edit-modal').remove()">Cancelar</button>
                             <button type="submit" class="btn-primary">Salvar Alterações</button>
                         </div>
@@ -239,7 +363,7 @@ const Views = {
                 <tr>
                     <td><strong>${m.equipment ? escapeHtml(m.equipment.name) : '—'}</strong></td>
                     <td style="color:var(--text-secondary)">${escapeHtml(m.serial_number) || '—'}</td>
-                    <td style="color:var(--text-secondary)">${escapeHtml(m.asset_number) || '—'}</td>
+                    <td style="color:var(--text-secondary)">${formatAssetNumber(m.asset_number) || '—'}</td>
                     <td>
                         <span style="display:flex;align-items:center;gap:4px;color:var(--text-secondary)">
                             <i data-lucide="map-pin" style="width:12px;flex-shrink:0"></i>
@@ -425,7 +549,7 @@ const Views = {
                                             <strong>${escapeHtml(r.equipmentName)}</strong>
                                             ${!r.equipmentId ? `<div style="font-size:11px;color:var(--danger-color);">Não encontrado</div>` : ''}
                                         </td>
-                                        <td style="color:var(--text-secondary)">${escapeHtml(r.assetNumber) || '—'}</td>
+                                        <td style="color:var(--text-secondary)">${formatAssetNumber(r.assetNumber) || '—'}</td>
                                         <td style="color:var(--text-secondary)">
                                             ${escapeHtml(r.originName) || '<span style="opacity:.4">—</span>'}
                                             ${r.originName && !r.originId ? `<div style="font-size:11px;color:#d97706;">Não encontrada</div>` : ''}
@@ -456,7 +580,7 @@ const Views = {
             </div>`;
         },
 
-        movimentacaoModal: (equipment, rooms, prefillAsset = null) => {
+        movimentacaoModal: (equipment, rooms, prefillAsset = null, prefillOriginId = null, prefillOriginName = null) => {
             const now = new Date();
             return `
                 <div class="modal-overlay" id="movimentacao-modal">
@@ -490,16 +614,20 @@ const Views = {
                                 </div>
                                 <div class="form-group">
                                     <label>Nº Patrimônio <span style="color:var(--text-secondary);font-weight:400">(Opcional)</span></label>
-                                    <input type="text" id="mov-asset-number" class="form-control" placeholder="Ex: PAT-00123" value="${prefillAsset ? escapeHtml(prefillAsset) : ''}">
+                                    <input type="text" id="mov-asset-number" class="form-control" placeholder="Ex: 000.000.000.000"
+                                           value="${prefillAsset ? escapeHtml(formatAssetNumber(prefillAsset)) : ''}"
+                                           oninput="maskAssetNumber(event)"
+                                           onblur="App.modules.movimentacoes.lookupAndFillOrigin(this.value)">
                                 </div>
                             </div>
 
                             <div class="form-2col">
                                 <div class="form-group">
                                     <label>Origem <span style="color:var(--danger-color)">*</span></label>
-                                    <input type="hidden" id="mov-origin-id">
+                                    <input type="hidden" id="mov-origin-id" value="${prefillOriginId ? escapeHtml(prefillOriginId) : ''}">
                                     <div class="autocomplete-wrapper" id="wrap-mov-origin">
                                         <input type="text" class="form-control" required placeholder="Toque para ver as salas..." autocomplete="off"
+                                               value="${prefillOriginName ? escapeHtml(prefillOriginName) : ''}"
                                                onfocus="Autocomplete.show('wrap-mov-origin')"
                                                onblur="Autocomplete.hide('wrap-mov-origin')"
                                                oninput="Autocomplete.filter('wrap-mov-origin')">
@@ -550,11 +678,11 @@ const Views = {
         },
 
         /* ── RASTREIO ────────────────────────────────────────────────── */
-        rastreio: (data, rooms) => `
+        rastreio: (data, rooms, categorias) => `
             <div class="view-header">
                 <div>
                     <h2>Rastreio de Patrimônio</h2>
-                    <p>Localização atual de cada equipamento com base na última movimentação.</p>
+                    <p>Localização atual de todos os equipamentos cadastrados.</p>
                 </div>
                 <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
                         onclick="App.modules.rastreio.exportExcel()">
@@ -563,23 +691,50 @@ const Views = {
             </div>
             <div class="filter-bar fade-in">
                 <div class="filter-row">
-                    <div class="filter-group" style="flex:2;min-width:200px;">
+                    <div class="filter-group" style="flex:2;min-width:180px;">
                         <label class="filter-label">Pesquisar</label>
                         <input type="text" id="rastreio-search" class="form-control filter-control"
-                               placeholder="Nome do equipamento, nº patrimônio ou série..."
+                               placeholder="Nome, nº patrimônio, série, recebedor..."
                                oninput="App.modules.rastreio.applyFilters()">
                     </div>
                     <div class="filter-group">
                         <label class="filter-label">Sala Atual</label>
                         <select id="rastreio-filter-room" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
                             <option value="">Todas as salas</option>
+                            <option value="__sem_sala__">Sem localização</option>
                             ${(rooms || []).map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Categoria</label>
+                        <select id="rastreio-filter-cat" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
+                            <option value="">Todas</option>
+                            ${(categorias || []).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Status</label>
+                        <select id="rastreio-filter-status" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
+                            <option value="">Todos</option>
+                            ${['novo','bom','regular','inservível'].map(s =>
+                                `<option value="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label class="filter-label">Ordenar por</label>
+                        <select id="rastreio-sort" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
+                            <option value="az">Nome A–Z</option>
+                            <option value="za">Nome Z–A</option>
+                            <option value="pat">Nº Patrimônio</option>
+                            <option value="sala">Sala</option>
+                            <option value="cat">Categoria</option>
                         </select>
                     </div>
                 </div>
                 <div class="filter-actions">
                     <span id="rastreio-result-count" class="filter-count">${data.length} equipamento${data.length !== 1 ? 's' : ''}</span>
-                    <button class="btn-filter-clear" onclick="document.getElementById('rastreio-search').value='';document.getElementById('rastreio-filter-room').value='';App.modules.rastreio.applyFilters()">
+                    <button class="btn-filter-clear" onclick="['rastreio-search','rastreio-filter-room','rastreio-filter-cat','rastreio-filter-status'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});document.getElementById('rastreio-sort').value='az';App.modules.rastreio.applyFilters()">
                         <i data-lucide="x"></i> Limpar filtros
                     </button>
                 </div>
@@ -588,10 +743,10 @@ const Views = {
                 <table class="data-table">
                     <thead><tr>
                         <th>Equipamento</th>
+                        <th>Categoria</th>
+                        <th>Status</th>
                         <th>Nº Patrimônio</th>
-                        <th>Nº Série</th>
                         <th>Localização Atual</th>
-                        <th>Responsável</th>
                         <th>Com quem está</th>
                         <th>Última Movimentação</th>
                         <th style="width:60px;"></th>
@@ -607,18 +762,25 @@ const Views = {
             if (data.length === 0) return `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--text-secondary);">Nenhum equipamento encontrado.</td></tr>`;
             return data.map(d => `
                 <tr>
-                    <td><strong>${d.equipment ? escapeHtml(d.equipment.name) : '—'}</strong></td>
-                    <td>${escapeHtml(d.asset_number) || '<span style="color:var(--text-secondary)">—</span>'}</td>
-                    <td style="color:var(--text-secondary);">${escapeHtml(d.serial_number) || '—'}</td>
-                    <td><span class="location-tag"><i data-lucide="map-pin" style="width:13px;flex-shrink:0;"></i>${d.room ? escapeHtml(d.room.name) : '—'}</span></td>
-                    <td>${d.profile ? escapeHtml(d.profile.full_name) : '—'}</td>
+                    <td>
+                        <strong>${d.equipment ? escapeHtml(d.equipment.name) : '—'}</strong>
+                        ${d.observacao ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:2px;" title="${escapeHtml(d.observacao)}">${escapeHtml(d.observacao.slice(0,40))}${d.observacao.length>40?'…':''}</div>` : ''}
+                    </td>
+                    <td>${d.categoria ? `<span style="background:rgba(99,102,241,.1);color:#6366f1;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600;">${escapeHtml(d.categoria)}</span>` : '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td>${Views.app._statusBadge(d.status)}</td>
+                    <td>${formatAssetNumber(d.asset_number) || '<span style="color:var(--text-secondary)">—</span>'}</td>
+                    <td>${d.room
+                        ? `<span class="location-tag"><i data-lucide="map-pin" style="width:13px;flex-shrink:0;"></i>${escapeHtml(d.room.name)}</span>`
+                        : `<span style="color:var(--text-secondary);font-style:italic;font-size:13px;">Não localizado</span>`}
+                    </td>
                     <td>${escapeHtml(d.received_by) || '<span style="color:var(--text-secondary)">—</span>'}</td>
                     <td style="color:var(--text-secondary);white-space:nowrap;">
-                        ${new Date(d.moved_at).toLocaleDateString('pt-BR')}
-                        <span style="font-size:12px;opacity:.7;"> ${new Date(d.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                        ${d.moved_at
+                            ? `${new Date(d.moved_at).toLocaleDateString('pt-BR')}<span style="font-size:12px;opacity:.7;"> ${new Date(d.moved_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>`
+                            : '<span style="font-style:italic;font-size:13px;">Nunca movimentado</span>'}
                     </td>
                     <td>
-                        <button class="btn-table-action edit" title="Ver histórico de movimentações"
+                        <button class="btn-table-action edit" title="Ver histórico"
                                 onclick="App.modules.rastreio.showHistory('${escapeHtml(d.equipment_id)}','${escapeHtml(d.equipment?.name||'')}')">
                             <i data-lucide="history"></i>
                         </button>
@@ -711,19 +873,26 @@ const Views = {
                         <div class="room-map-body">
                             ${room.items.length === 0
                                 ? `<div class="room-map-empty"><i data-lucide="package-open" style="width:24px;height:24px;opacity:.4;display:block;margin:0 auto 8px;"></i>Sem equipamentos</div>`
-                                : room.items.map(item => `
-                                    <div class="room-map-item">
-                                        <i data-lucide="package" style="width:15px;color:var(--accent-color);flex-shrink:0;"></i>
-                                        <div class="room-map-item-info">
-                                            <div class="room-map-item-name">${escapeHtml(item.name) || '—'}</div>
-                                            <div class="room-map-item-sub">
-                                                ${item.asset_number ? `PAT: ${escapeHtml(item.asset_number)}` : ''}
-                                                ${item.asset_number && item.received_by ? ' · ' : ''}
-                                                ${item.received_by ? `<i data-lucide="user" style="width:10px;vertical-align:middle;"></i> ${escapeHtml(item.received_by)}` : ''}
+                                : (() => {
+                                    const preview = room.items.slice(0, 2);
+                                    const extra   = room.items.length - 2;
+                                    return preview.map(item => `
+                                        <div class="room-map-item">
+                                            <i data-lucide="package" style="width:15px;color:var(--accent-color);flex-shrink:0;"></i>
+                                            <div class="room-map-item-info">
+                                                <div class="room-map-item-name">${escapeHtml(item.name) || '—'}</div>
+                                                <div class="room-map-item-sub">
+                                                    ${item.asset_number ? `PAT: ${formatAssetNumber(item.asset_number)}` : ''}
+                                                    ${item.asset_number && item.received_by ? ' · ' : ''}
+                                                    ${item.received_by ? `<i data-lucide="user" style="width:10px;vertical-align:middle;"></i> ${escapeHtml(item.received_by)}` : ''}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                `).join('')
+                                    `).join('') + (extra > 0 ? `
+                                        <div style="font-size:12px;color:var(--accent-color);font-weight:600;margin-top:6px;text-align:center;">
+                                            + ${extra} equipamento${extra !== 1 ? 's' : ''} — clique para ver todos
+                                        </div>` : '');
+                                })()
                             }
                         </div>
                         ${room.coordinator || room.description ? `
@@ -1172,7 +1341,13 @@ const Views = {
                             <h3>${escapeHtml(room.name)}</h3>
                             ${room.room_number ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">Sala ${escapeHtml(room.room_number)}</div>` : ''}
                         </div>
-                        <button class="modal-close" type="button" onclick="document.getElementById('sala-detail-modal').remove()"><i data-lucide="x"></i></button>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);padding:7px 12px;"
+                                    onclick="App.modules.mapaSalas.exportExcel('${escapeHtml(room.id)}')">
+                                <i data-lucide="file-spreadsheet"></i> Exportar Excel
+                            </button>
+                            <button class="modal-close" type="button" onclick="document.getElementById('sala-detail-modal').remove()"><i data-lucide="x"></i></button>
+                        </div>
                     </div>
                     ${(room.coordinator || room.description) ? `
                     <div style="display:flex;gap:16px;flex-wrap:wrap;padding:12px 0 16px;border-bottom:1px solid var(--border-color);margin-bottom:16px;">
@@ -1193,7 +1368,7 @@ const Views = {
                                 : room.items.map(item => `
                                     <tr>
                                         <td><strong>${escapeHtml(item.name)}</strong></td>
-                                        <td>${escapeHtml(item.asset_number) || '<span style="color:var(--text-secondary)">—</span>'}</td>
+                                        <td>${formatAssetNumber(item.asset_number) || '<span style="color:var(--text-secondary)">—</span>'}</td>
                                         <td style="color:var(--text-secondary);">${escapeHtml(item.serial_number) || '—'}</td>
                                         <td>${escapeHtml(item.received_by) || '<span style="color:var(--text-secondary)">—</span>'}</td>
                                         <td style="color:var(--text-secondary);white-space:nowrap;">
@@ -1233,7 +1408,7 @@ const Views = {
                             </div>
                             <div class="form-group">
                                 <label>Nº Patrimônio</label>
-                                <input type="text" id="edit-mov-asset" class="form-control" value="${escapeHtml(movement.asset_number || '')}" placeholder="Ex: PAT-00123">
+                                <input type="text" id="edit-mov-asset" class="form-control" value="${formatAssetNumber(movement.asset_number)}" placeholder="Ex: 000.000.000.000" oninput="maskAssetNumber(event)">
                             </div>
                         </div>
                         <div class="form-2col">
@@ -1392,8 +1567,8 @@ const Views = {
                 <div class="modal-content" style="max-width:460px;">
                     <div class="modal-header">
                         <div>
-                            <h3>Patrimônio Encontrado</h3>
-                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">PAT: <strong>${escapeHtml(assetNumber)}</strong></div>
+                            <h3>Máquina Localizada</h3>
+                            <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;">PAT: <strong>${escapeHtml(formatAssetNumber(assetNumber))}</strong></div>
                         </div>
                         <button class="modal-close" type="button" onclick="document.getElementById('scan-result-modal').remove()"><i data-lucide="x"></i></button>
                     </div>
@@ -1405,23 +1580,27 @@ const Views = {
                                 ${m.serial_number ? `<div style="font-size:12px;color:var(--text-secondary);">Série: ${escapeHtml(m.serial_number)}</div>` : ''}
                             </div>
                         </div>
-                        <div style="background:var(--bg-main);border-radius:10px;padding:14px;">
-                            <div style="font-size:11px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">Localização Atual</div>
-                            <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--accent-color);">
-                                <i data-lucide="map-pin" style="width:16px;flex-shrink:0;"></i>
+                        <div style="background:rgba(12,74,110,.07);border:1.5px solid var(--accent-color);border-radius:12px;padding:16px;">
+                            <div style="font-size:11px;color:var(--accent-color);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Localização atual</div>
+                            <div style="display:flex;align-items:center;gap:8px;font-size:17px;font-weight:800;color:var(--accent-color);">
+                                <i data-lucide="map-pin" style="width:18px;flex-shrink:0;"></i>
                                 ${escapeHtml(m.destination_room?.name || '—')}
                             </div>
-                            ${m.profile ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:6px;display:flex;align-items:center;gap:5px;"><i data-lucide="user" style="width:13px;"></i> Responsável: ${escapeHtml(m.profile.full_name)}</div>` : ''}
+                            ${m.profile ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:8px;display:flex;align-items:center;gap:5px;"><i data-lucide="user" style="width:13px;"></i> Responsável: ${escapeHtml(m.profile.full_name)}</div>` : ''}
                             ${m.received_by ? `<div style="font-size:13px;color:var(--text-secondary);margin-top:4px;display:flex;align-items:center;gap:5px;"><i data-lucide="user-check" style="width:13px;"></i> Com: ${escapeHtml(m.received_by)}</div>` : ''}
-                            <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;opacity:.7;">
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:8px;opacity:.7;">
                                 Última movimentação: ${new Date(m.moved_at).toLocaleDateString('pt-BR')}
                             </div>
+                        </div>
+                        <div style="background:var(--bg-main);border-radius:10px;padding:14px;text-align:center;">
+                            <div style="font-size:14px;font-weight:600;color:var(--text-primary);">Deseja registrar uma movimentação?</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">A origem será preenchida automaticamente com a sala atual.</div>
                         </div>
                     </div>
                     <div style="display:flex;gap:10px;margin-top:20px;">
                         <button class="btn-primary" style="background:#e2e8f0;color:#475569;flex:1;" onclick="document.getElementById('scan-result-modal').remove()">Fechar</button>
-                        <button class="btn-primary" style="flex:1;" onclick="document.getElementById('scan-result-modal').remove();App.modules.movimentacoes.showCreateModal('${escapeHtml(assetNumber)}')">
-                            <i data-lucide="arrow-right-left"></i> Nova Movimentação
+                        <button class="btn-primary" style="flex:1;" onclick="document.getElementById('scan-result-modal').remove();App.modules.movimentacoes.showCreateModal('${escapeHtml(formatAssetNumber(assetNumber))}','${escapeHtml(m.destination_room?.id||'')}','${escapeHtml(m.destination_room?.name||'')}')">
+                            <i data-lucide="arrow-right-left"></i> Registrar Movimentação
                         </button>
                     </div>
                 </div>
@@ -1447,7 +1626,7 @@ const Views = {
                                 <div>
                                     <div style="font-size:12px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Equipamento</div>
                                     <div style="font-size:15px;font-weight:700;">${escapeHtml(m.equipment?.name || '—')}</div>
-                                    ${m.asset_number ? `<div style="font-size:12px;color:var(--text-secondary);">PAT: ${escapeHtml(m.asset_number)}</div>` : ''}
+                                    ${m.asset_number ? `<div style="font-size:12px;color:var(--text-secondary);">PAT: ${formatAssetNumber(m.asset_number)}</div>` : ''}
                                     ${m.serial_number ? `<div style="font-size:12px;color:var(--text-secondary);">Série: ${escapeHtml(m.serial_number)}</div>` : ''}
                                 </div>
                             </div>

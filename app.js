@@ -514,12 +514,35 @@ const App = {
             init: async () => {
                 const { data: equipamentos, error } = await supabaseClient.from('equipment').select('*').order('name');
                 if (error) { UI.showToast(error.message, 'danger'); return; }
-                document.getElementById('view-content').innerHTML = Views.app.equipamentos(equipamentos);
+                App.modules.equipamentos._list = equipamentos || [];
+                document.getElementById('view-content').innerHTML = Views.app.equipamentos(equipamentos || []);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
             showCreateModal: () => {
                 document.getElementById('modal-root').innerHTML = Views.app.equipamentoModal();
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            _list: [],
+
+            applyFilters: () => {
+                const term     = (document.getElementById('equip-search')?.value    || '').toLowerCase().trim();
+                const cat      = document.getElementById('equip-filter-cat')?.value    || '';
+                const status   = document.getElementById('equip-filter-status')?.value || '';
+                const filtered = App.modules.equipamentos._list.filter(eq => {
+                    if (cat    && (eq.categoria||'') !== cat)    return false;
+                    if (status && (eq.status||'')    !== status) return false;
+                    if (term) {
+                        const hay = ((eq.name||'')+' '+(eq.categoria||'')+' '+(eq.observacao||'')).toLowerCase();
+                        if (!hay.includes(term)) return false;
+                    }
+                    return true;
+                });
+                const tbody = document.getElementById('equipamentos-tbody');
+                if (tbody) tbody.innerHTML = Views.app._equipamentosRows(filtered);
+                const cnt = document.getElementById('equip-result-count');
+                if (cnt) cnt.textContent = `${filtered.length} equipamento${filtered.length !== 1 ? 's' : ''}`;
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
@@ -530,7 +553,10 @@ const App = {
                 btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
                 const { error } = await supabaseClient.from('equipment').insert([{
-                    name:       document.getElementById('equip-name').value,
+                    name:       document.getElementById('equip-name').value.trim(),
+                    categoria:  document.getElementById('equip-categoria').value.trim() || null,
+                    status:     document.getElementById('equip-status').value || 'bom',
+                    observacao: document.getElementById('equip-observacao').value.trim() || null,
                     created_by: Auth.user.id
                 }]);
                 if (error) { UI.showToast('Erro ao cadastrar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
@@ -551,7 +577,10 @@ const App = {
                 btn.innerHTML = '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Salvando...';
                 if (typeof lucide !== 'undefined') lucide.createIcons();
                 const { error } = await supabaseClient.from('equipment').update({
-                    name: document.getElementById('edit-equip-name').value
+                    name:       document.getElementById('edit-equip-name').value.trim(),
+                    categoria:  document.getElementById('edit-equip-categoria').value.trim() || null,
+                    status:     document.getElementById('edit-equip-status').value || 'bom',
+                    observacao: document.getElementById('edit-equip-observacao').value.trim() || null,
                 }).eq('id', id);
                 if (error) { UI.showToast('Erro ao atualizar: ' + error.message, 'danger'); btn.disabled = false; btn.textContent = orig; }
                 else { document.getElementById('equipamento-edit-modal').remove(); UI.showToast('Equipamento atualizado!', 'success'); App.modules.equipamentos.init(); }
@@ -587,12 +616,14 @@ const App = {
 
             init: async () => {
                 const [
-                    { data: movements, error },
+                    { data: allEquipment, error },
+                    { data: movements },
                     { data: rooms },
                     { data: profilesList }
                 ] = await Promise.all([
+                    supabaseClient.from('equipment').select('*').order('name'),
                     supabaseClient.from('asset_movements')
-                        .select('equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by')
+                        .select('equipment_id, asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by')
                         .order('moved_at', { ascending: false }),
                     supabaseClient.from('rooms').select('id, name'),
                     supabaseClient.from('profiles').select('id, full_name')
@@ -603,17 +634,29 @@ const App = {
                 const roomMap    = Object.fromEntries((rooms        || []).map(r => [r.id, r]));
                 const profileMap = Object.fromEntries((profilesList || []).map(p => [p.id, p]));
 
-                // Keep only the most recent movement per equipment
-                const seen = new Set();
-                const data = [];
+                // Última movimentação por equipment_id
+                const latestMov = {};
                 (movements || []).forEach(m => {
-                    if (seen.has(m.equipment_id)) return;
-                    seen.add(m.equipment_id);
-                    data.push({
-                        ...m,
-                        room:    roomMap[m.destination_room_id] || null,
-                        profile: profileMap[m.moved_by]        || null
-                    });
+                    if (!latestMov[m.equipment_id]) latestMov[m.equipment_id] = m;
+                });
+
+                const data = (allEquipment || []).map(eq => {
+                    const mov = latestMov[eq.id] || null;
+                    return {
+                        equipment_id:        eq.id,
+                        equipment:           { name: eq.name },
+                        categoria:           eq.categoria  || null,
+                        status:              eq.status     || null,
+                        observacao:          eq.observacao || null,
+                        asset_number:        mov?.asset_number        || null,
+                        serial_number:       mov?.serial_number       || null,
+                        received_by:         mov?.received_by         || null,
+                        moved_at:            mov?.moved_at            || null,
+                        destination_room_id: mov?.destination_room_id || null,
+                        moved_by:            mov?.moved_by            || null,
+                        room:    mov ? (roomMap[mov.destination_room_id]    || null) : null,
+                        profile: mov ? (profileMap[mov.moved_by]            || null) : null,
+                    };
                 });
 
                 App.modules.rastreio._data         = data;
@@ -623,31 +666,42 @@ const App = {
                     Object.fromEntries(data.filter(d => d.room).map(d => [d.destination_room_id, d.room]))
                 ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
-                document.getElementById('view-content').innerHTML = Views.app.rastreio(data, uniqueRooms);
+                const categorias = [...new Set(data.filter(d => d.categoria).map(d => d.categoria))].sort();
+
+                document.getElementById('view-content').innerHTML = Views.app.rastreio(data, uniqueRooms, categorias);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
             applyFilters: () => {
-                const term   = (document.getElementById('rastreio-search')?.value || '').toLowerCase().trim();
-                const roomId = document.getElementById('rastreio-filter-room')?.value || '';
+                const term      = (document.getElementById('rastreio-search')?.value         || '').toLowerCase().trim();
+                const roomId    =  document.getElementById('rastreio-filter-room')?.value    || '';
+                const categoria =  document.getElementById('rastreio-filter-cat')?.value     || '';
+                const status    =  document.getElementById('rastreio-filter-status')?.value  || '';
+                const sort      =  document.getElementById('rastreio-sort')?.value           || 'az';
 
-                const filtered = App.modules.rastreio._data.filter(d => {
-                    if (roomId && d.destination_room_id !== roomId) return false;
+                let filtered = App.modules.rastreio._data.filter(d => {
+                    if (roomId === '__sem_sala__') { if (d.room) return false; }
+                    else if (roomId && d.destination_room_id !== roomId) return false;
+                    if (categoria && (d.categoria||'') !== categoria) return false;
+                    if (status    && (d.status   ||'') !== status)    return false;
                     if (term) {
-                        const haystack = ((d.equipment?.name || '') + ' ' + (d.asset_number || '') + ' ' + (d.serial_number || '')).toLowerCase();
-                        if (!haystack.includes(term)) return false;
+                        const hay = [(d.equipment?.name||''),(d.asset_number||''),(d.serial_number||''),(d.categoria||''),(d.received_by||''),(d.observacao||'')]
+                            .join(' ').toLowerCase();
+                        if (!hay.includes(term)) return false;
                     }
                     return true;
                 });
 
+                if      (sort === 'az')  filtered.sort((a,b) => (a.equipment?.name||'').localeCompare(b.equipment?.name||'', 'pt-BR'));
+                else if (sort === 'za')  filtered.sort((a,b) => (b.equipment?.name||'').localeCompare(a.equipment?.name||'', 'pt-BR'));
+                else if (sort === 'pat') filtered.sort((a,b) => (a.asset_number||'zzz').localeCompare(b.asset_number||'zzz','pt-BR',{numeric:true}));
+                else if (sort === 'sala') filtered.sort((a,b) => (a.room?.name||'zzz').localeCompare(b.room?.name||'zzz','pt-BR'));
+                else if (sort === 'cat') filtered.sort((a,b) => (a.categoria||'zzz').localeCompare(b.categoria||'zzz','pt-BR'));
+
                 App.modules.rastreio._filteredData = filtered;
 
                 const tbody = document.getElementById('rastreio-tbody');
-                if (tbody) {
-                    tbody.innerHTML = Views.app._rastreioRows(filtered);
-                    if (typeof lucide !== 'undefined') lucide.createIcons();
-                }
-
+                if (tbody) { tbody.innerHTML = Views.app._rastreioRows(filtered); if (typeof lucide !== 'undefined') lucide.createIcons(); }
                 const countEl = document.getElementById('rastreio-result-count');
                 if (countEl) countEl.textContent = `${filtered.length} equipamento${filtered.length !== 1 ? 's' : ''}`;
             },
@@ -658,20 +712,22 @@ const App = {
                 if (rows.length === 0) { UI.showToast('Nenhum equipamento para exportar.', 'warning'); return; }
 
                 const wsData = [
-                    ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Responsável', 'Com quem está', 'Última Movimentação'],
+                    ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Última Movimentação', 'Observação'],
                     ...rows.map(d => [
-                        d.equipment?.name  || '—',
-                        d.asset_number     || '—',
-                        d.serial_number    || '—',
-                        d.room?.name       || '—',
-                        d.profile?.full_name || '—',
-                        d.received_by      || '—',
-                        new Date(d.moved_at).toLocaleString('pt-BR')
+                        d.equipment?.name                  || '—',
+                        d.categoria                        || '—',
+                        d.status                           || '—',
+                        formatAssetNumber(d.asset_number)  || '—',
+                        d.serial_number                    || '—',
+                        d.room?.name                       || 'Não localizado',
+                        d.received_by                      || '—',
+                        d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca movimentado',
+                        d.observacao                       || '—',
                     ])
                 ];
 
                 const ws = XLSX.utils.aoa_to_sheet(wsData);
-                ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }];
+                ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 }];
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'Rastreio');
                 XLSX.writeFile(wb, `rastreio_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -879,24 +935,24 @@ const App = {
                 }
 
                 const wsData = [
-                    ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Data / Hora'],
+                    ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora'],
                     ...rows.map(m => [
                         m.equipment?.name        || '—',
                         m.serial_number          || '—',
-                        m.asset_number           || '—',
+                        formatAssetNumber(m.asset_number) || '—',
                         m.origin?.name           || '—',
                         m.destination?.name      || '—',
                         m.profiles?.full_name    || '—',
+                        m.received_by            || '—',
                         new Date(m.moved_at).toLocaleString('pt-BR')
                     ])
                 ];
 
                 const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-                // Largura das colunas
                 ws['!cols'] = [
                     { wch: 30 }, { wch: 18 }, { wch: 18 },
-                    { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 20 }
+                    { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }
                 ];
 
                 const wb = XLSX.utils.book_new();
@@ -946,15 +1002,39 @@ const App = {
                 if (typeof lucide !== 'undefined') lucide.createIcons();
             },
 
-            showCreateModal: async (prefillAsset = null) => {
+            showCreateModal: async (prefillAsset = null, prefillOriginId = null, prefillOriginName = null) => {
                 const [{ data: equipment }, { data: rooms }] = await Promise.all([
                     supabaseClient.from('equipment').select('id, name').order('name'),
                     supabaseClient.from('rooms').select('id, name').order('name')
                 ]);
                 App.modules.movimentacoes._equipment = equipment || [];
                 App.modules.movimentacoes._rooms     = rooms     || [];
-                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoModal(equipment || [], rooms || [], prefillAsset);
+                document.getElementById('modal-root').innerHTML = Views.app.movimentacaoModal(equipment || [], rooms || [], prefillAsset, prefillOriginId, prefillOriginName);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            lookupAndFillOrigin: async (rawValue) => {
+                const digits = (rawValue || '').replace(/\D/g, '');
+                if (digits.length !== 12) return;
+                const assetNumber = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}.${digits.slice(9,12)}`;
+
+                const originIdInput   = document.getElementById('mov-origin-id');
+                const originTextInput = document.querySelector('#wrap-mov-origin input[type="text"]');
+                if (!originIdInput || originIdInput.value) return; // já preenchido, não sobrescrever
+
+                const { data } = await supabaseClient
+                    .from('asset_movements')
+                    .select('destination_room_id, destination_room:destination_room_id(id, name)')
+                    .eq('asset_number', assetNumber)
+                    .order('moved_at', { ascending: false })
+                    .limit(1);
+
+                if (data && data.length > 0 && data[0].destination_room) {
+                    const room = data[0].destination_room;
+                    originIdInput.value = room.id;
+                    if (originTextInput) originTextInput.value = room.name;
+                    UI.showToast(`Origem preenchida automaticamente: ${room.name}`, 'success');
+                }
             },
 
             showEditModal: async (movId) => {
@@ -982,13 +1062,19 @@ const App = {
 
                 if (!originRoom) { UI.showToast('Selecione a sala de origem.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
                 if (!destRoom)   { UI.showToast('Selecione a sala de destino.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (originRoomId === destRoomId) { UI.showToast('A sala de origem e destino não podem ser iguais.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
                 if (!editReason) { UI.showToast('A justificativa é obrigatória.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
 
-                const movedAtVal = document.getElementById('edit-mov-date').value;
+                const movedAtVal   = document.getElementById('edit-mov-date').value;
+                const rawEditAsset = document.getElementById('edit-mov-asset').value.trim();
+                const editDigits   = rawEditAsset.replace(/\D/g, '');
+                const editAsset    = editDigits.length === 12
+                    ? `${editDigits.slice(0,3)}.${editDigits.slice(3,6)}.${editDigits.slice(6,9)}.${editDigits.slice(9,12)}`
+                    : rawEditAsset || null;
 
                 const { error } = await supabaseClient.from('asset_movements').update({
                     serial_number:       document.getElementById('edit-mov-serial').value.trim() || null,
-                    asset_number:        document.getElementById('edit-mov-asset').value.trim() || null,
+                    asset_number:        editAsset,
                     origin_room_id:      originRoom.id,
                     destination_room_id: destRoom.id,
                     received_by:         document.getElementById('edit-mov-received-by').value.trim() || null,
@@ -1080,11 +1166,34 @@ const App = {
                 const destRoom   = App.modules.movimentacoes._rooms.find(r => r.id === destRoomId);
 
                 if (!originRoom || !destRoom) { UI.showToast('Sala não encontrada. Tente novamente.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
+                if (originRoomId === destRoomId) { UI.showToast('A sala de origem e destino não podem ser iguais.', 'warning'); btn.disabled = false; btn.textContent = orig; return; }
 
                 const serialNumber = document.getElementById('mov-serial').value || null;
-                const assetNumber  = document.getElementById('mov-asset-number').value || null;
+                const rawAsset     = document.getElementById('mov-asset-number').value || '';
+                const assetDigits  = rawAsset.replace(/\D/g, '');
+                const assetNumber  = assetDigits.length === 12
+                    ? `${assetDigits.slice(0,3)}.${assetDigits.slice(3,6)}.${assetDigits.slice(6,9)}.${assetDigits.slice(9,12)}`
+                    : rawAsset || null;
                 const receivedBy   = document.getElementById('mov-received-by').value.trim() || null;
                 const movedAt      = new Date().toISOString();
+
+                // Validação: patrimônio já está no destino selecionado?
+                if (assetNumber) {
+                    const { data: lastMov } = await supabaseClient
+                        .from('asset_movements')
+                        .select('destination_room_id')
+                        .eq('asset_number', assetNumber)
+                        .order('moved_at', { ascending: false })
+                        .limit(1);
+
+                    if (lastMov && lastMov.length > 0) {
+                        if (lastMov[0].destination_room_id === destRoomId) {
+                            UI.showToast('Este patrimônio já está na sala de destino selecionada.', 'warning');
+                            btn.disabled = false; btn.textContent = orig;
+                            return;
+                        }
+                    }
+                }
 
                 const { error } = await supabaseClient.from('asset_movements').insert([{
                     equipment_id:        equipmentId,
@@ -1134,12 +1243,19 @@ const App = {
 
                 if (error) { UI.showToast(error.message, 'danger'); return; }
 
-                // Para cada equipamento, manter apenas o movimento mais recente (lista já está ordenada DESC)
+                // Deduplica por patrimônio individual (asset_number), não por tipo de equipamento.
+                // Chave: asset_number se existir, senão equipment_id+serial_number, senão equipment_id.
+                // Movimentos já vêm ordenados DESC por moved_at, então o primeiro encontrado = mais recente.
                 const seen = new Set();
                 const locationsByRoom = {};
                 (movements || []).forEach(m => {
-                    if (seen.has(m.equipment_id)) return;
-                    seen.add(m.equipment_id);
+                    const key = m.asset_number
+                        ? `pat_${m.asset_number}`
+                        : m.serial_number
+                            ? `eq_${m.equipment_id}_ser_${m.serial_number}`
+                            : `eq_${m.equipment_id}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
                     const rid = m.destination_room_id;
                     if (!rid) return;
                     if (!locationsByRoom[rid]) locationsByRoom[rid] = [];
@@ -1167,6 +1283,32 @@ const App = {
                 if (!room) return;
                 document.getElementById('modal-root').innerHTML = Views.app.salaDetailModal(room);
                 if (typeof lucide !== 'undefined') lucide.createIcons();
+            },
+
+            exportExcel: (roomId) => {
+                if (typeof XLSX === 'undefined') { UI.showToast('Biblioteca não carregada.', 'danger'); return; }
+                const room = App.modules.mapaSalas._rooms.find(r => r.id === roomId);
+                if (!room) return;
+
+                const wsData = [
+                    ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+                    ...room.items.map(item => [
+                        item.name                           || '—',
+                        formatAssetNumber(item.asset_number) || '—',
+                        item.serial_number                  || '—',
+                        item.received_by                    || '—',
+                        item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—'
+                    ])
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }];
+                const wb = XLSX.utils.book_new();
+                const sheetName = room.name.slice(0, 31);
+                XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                const safeName = room.name.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 40);
+                XLSX.writeFile(wb, `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                UI.showToast(`Exportado: ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`, 'success');
             }
         }
     },
@@ -1528,12 +1670,17 @@ App.scanner = {
         App.scanner._handled = true;
         App.scanner.close();
 
-        const assetNumber = decoded.trim();
+        const raw = decoded.trim();
+        const digits = raw.replace(/\D/g, '');
+        const assetNumber = digits.length === 12
+            ? `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}.${digits.slice(9,12)}`
+            : raw;
+
         UI.showToast(`Código lido: ${assetNumber}`, 'success');
 
         const { data: movements } = await supabaseClient
             .from('asset_movements')
-            .select('*, equipment(name), destination_room:destination_room_id(name), origin_room:origin_room_id(name), profile:moved_by(full_name)')
+            .select('*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name), profile:moved_by(full_name)')
             .eq('asset_number', assetNumber)
             .order('moved_at', { ascending: false })
             .limit(1);
