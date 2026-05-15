@@ -920,11 +920,6 @@ App.modules.movimentacoes = {
       UI.showToast("Sala não encontrada. Tente novamente.", "warning");
       btn.disabled = false; btn.textContent = orig; return;
     }
-    if (originRoomId === destRoomId) {
-      UI.showToast("A sala de origem e destino não podem ser iguais.", "warning");
-      btn.disabled = false; btn.textContent = orig; return;
-    }
-
     const serialNumber = document.getElementById("mov-serial").value || null;
     const rawAsset = document.getElementById("mov-asset-number").value || "";
     const assetDigits = rawAsset.replace(/\D/g, "");
@@ -935,19 +930,31 @@ App.modules.movimentacoes = {
     const receivedBy = document.getElementById("mov-received-by").value.trim() || null;
     const movedAt = new Date().toISOString();
 
+    // Busca histórico do patrimônio para validações abaixo
+    let lastMov = null;
     if (assetNumber) {
-      const { data: lastMov } = await supabaseClient
+      const { data } = await supabaseClient
         .from("asset_movements")
         .select("destination_room_id")
         .eq("asset_number", assetNumber)
         .is("deleted_at", null)
         .order("moved_at", { ascending: false })
         .limit(1);
+      lastMov = data;
+    }
 
-      if (lastMov && lastMov.length > 0 && lastMov[0].destination_room_id === destRoomId) {
-        UI.showToast("Este patrimônio já está na sala de destino selecionada.", "warning");
+    // Origem = destino só é permitido se o patrimônio não tem nenhum registro anterior
+    if (originRoomId === destRoomId) {
+      const isPrimeiraMovimentacao = assetNumber && (!lastMov || lastMov.length === 0);
+      if (!isPrimeiraMovimentacao) {
+        UI.showToast("A sala de origem e destino não podem ser iguais.", "warning");
         btn.disabled = false; btn.textContent = orig; return;
       }
+    }
+
+    if (lastMov && lastMov.length > 0 && lastMov[0].destination_room_id === destRoomId) {
+      UI.showToast("Este patrimônio já está na sala de destino selecionada.", "warning");
+      btn.disabled = false; btn.textContent = orig; return;
     }
 
     const itemStatus = document.getElementById("mov-item-status").value || null;
