@@ -10,6 +10,8 @@ App.scanner = {
   _zxingReader: null,
   _ocrInterval: null,
   _handled: false,
+  _loteMode: false,
+  _video: null,
 
   open: async () => {
     App.scanner._handled = false;
@@ -55,6 +57,7 @@ App.scanner = {
       return;
     }
     video.srcObject = stream;
+    App.scanner._video = video;
     await video.play().catch(() => {});
 
     const wanted = [
@@ -159,10 +162,107 @@ App.scanner = {
     if (modal) modal.remove();
   },
 
+  openForLote: () => {
+    App.scanner._loteMode = true;
+    App.scanner._handled = false;
+    App.scanner._video = null;
+    document.getElementById("modal-root").innerHTML = Views.app.scannerLoteModal();
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    if (typeof BarcodeDetector !== "undefined") {
+      App.scanner._startNative();
+    } else if (typeof ZXing !== "undefined" && ZXing.BrowserMultiFormatReader) {
+      App.scanner._startZXing();
+    } else {
+      UI.showToast("Scanner não suportado neste navegador.", "warning");
+      App.scanner.closeLote();
+    }
+  },
+
+  closeLote: () => {
+    App.scanner._loteMode = false;
+    App.scanner.close();
+    App.modules.movimentacoes.restoreLoteModal();
+  },
+
+  _onLoteSuccess: async (assetNumber) => {
+    const mod = App.modules.movimentacoes;
+
+    // Evita duplicata no lote atual
+    if (mod._loteItems.some((item) => item.assetNumber === assetNumber)) {
+      UI.showToast(`PAT ${assetNumber} já foi adicionado.`, "warning");
+      App.scanner._handled = false;
+      if (App.scanner._video && App.scanner._detector) {
+        App.scanner._loopNative(App.scanner._video);
+      }
+      return;
+    }
+
+    // Busca equipamento pelo patrimônio (equipment_locations tem o dado mais recente)
+    let equipmentId = "";
+    let equipmentName = "";
+    const { data: loc } = await supabaseClient
+      .from("equipment_locations")
+      .select("equipment_id, equipment:equipment_id(name)")
+      .eq("asset_number", assetNumber)
+      .limit(1);
+
+    if (loc && loc.length > 0) {
+      equipmentId = loc[0].equipment_id || "";
+      equipmentName = loc[0].equipment?.name || "";
+    } else {
+      const { data: movs } = await supabaseClient
+        .from("asset_movements")
+        .select("equipment_id, equipment:equipment_id(name)")
+        .eq("asset_number", assetNumber)
+        .is("deleted_at", null)
+        .order("moved_at", { ascending: false })
+        .limit(1);
+      if (movs && movs.length > 0) {
+        equipmentId = movs[0].equipment_id || "";
+        equipmentName = movs[0].equipment?.name || "";
+      }
+    }
+
+    mod._loteUid++;
+    mod._loteItems.push({
+      uid: mod._loteUid,
+      equipmentId,
+      equipmentName,
+      assetNumber,
+      serialNumber: "",
+    });
+
+    const n = mod._loteItems.length;
+
+    // Atualiza contador e lista na UI do scanner
+    const counter = document.getElementById("lote-scan-counter");
+    if (counter) counter.textContent = `${n} item${n !== 1 ? "s" : ""} escaneado${n !== 1 ? "s" : ""}`;
+
+    const scannedList = document.getElementById("lote-scan-list");
+    if (scannedList) {
+      const el = document.createElement("div");
+      el.className = "lote-scan-item";
+      el.innerHTML = `<i data-lucide="check-circle-2" style="width:13px;color:var(--success-color);flex-shrink:0;"></i><span>${escapeHtml(assetNumber)}</span>${equipmentName ? `<span class="lote-scan-item-name"> — ${escapeHtml(equipmentName)}</span>` : `<span class="lote-scan-item-name lote-scan-item-unknown"> — equipamento não cadastrado</span>`}`;
+      scannedList.prepend(el);
+      if (typeof lucide !== "undefined") lucide.createIcons(el);
+    }
+
+    const concluirBtn = document.getElementById("lote-scan-concluir");
+    if (concluirBtn) concluirBtn.textContent = `Concluir (${n} item${n !== 1 ? "s" : ""})`;
+
+    UI.showToast(`+ ${assetNumber}${equipmentName ? " — " + equipmentName : ""}`, "success");
+
+    // Reseta para próxima leitura e reinicia o loop (BarcodeDetector para após cada sucesso)
+    App.scanner._handled = false;
+    if (App.scanner._loteMode && App.scanner._video && App.scanner._detector) {
+      App.scanner._loopNative(App.scanner._video);
+    }
+  },
+
   _onSuccess: async (decoded) => {
     if (App.scanner._handled) return;
     App.scanner._handled = true;
-    App.scanner.close();
 
     const raw = decoded.trim();
     const digits = raw.replace(/\D/g, "");
@@ -170,6 +270,11 @@ App.scanner = {
       digits.length === 12
         ? `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
         : raw;
+
+    if (App.scanner._loteMode) {
+      await App.scanner._onLoteSuccess(assetNumber);
+      return;
+    }
 
     UI.showToast(`Código lido: ${assetNumber}`, "success");
 

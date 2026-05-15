@@ -590,6 +590,298 @@ App.modules.movimentacoes = {
     App.modules.movimentacoes.init();
   },
 
+  /* ── MOVIMENTAÇÃO EM LOTE ──────────────────────────────────────── */
+  _loteItems: [],
+  _loteUid: 0,
+  _loteEquipment: [],
+  _loteRooms: [],
+  // Estado salvo antes de abrir o scanner (restaurado ao concluir)
+  _loteOriginId: "",
+  _loteOriginName: "",
+  _loteDestId: "",
+  _loteDestName: "",
+  _loteReceivedByVal: "",
+  _loteItemStatusVal: "",
+  _loteComentarioVal: "",
+
+  showCreateLoteModal: async () => {
+    const mod = App.modules.movimentacoes;
+    const [equipment, rooms] = await Promise.all([Store.equipment(), Store.rooms()]);
+    mod._loteEquipment = equipment;
+    mod._loteRooms = rooms;
+    mod._loteItems = [];
+    mod._loteUid = 0;
+    mod._loteOriginId = "";
+    mod._loteOriginName = "";
+    mod._loteDestId = "";
+    mod._loteDestName = "";
+    mod._loteReceivedByVal = "";
+    mod._loteItemStatusVal = "";
+    mod._loteComentarioVal = "";
+    document.getElementById("modal-root").innerHTML =
+      Views.app.movimentacaoLoteModal(equipment, rooms);
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    mod.addLoteItem();
+  },
+
+  _saveLoteAllState: () => {
+    const mod = App.modules.movimentacoes;
+    mod._saveLoteFormState();
+    mod._loteOriginId = document.getElementById("lote-origin-id")?.value || "";
+    mod._loteOriginName =
+      document.querySelector("#wrap-lote-origin input[type='text']")?.value || "";
+    mod._loteDestId = document.getElementById("lote-dest-id")?.value || "";
+    mod._loteDestName =
+      document.querySelector("#wrap-lote-dest input[type='text']")?.value || "";
+    mod._loteReceivedByVal =
+      document.getElementById("lote-received-by")?.value || "";
+    mod._loteItemStatusVal =
+      document.getElementById("lote-item-status")?.value || "";
+    mod._loteComentarioVal =
+      document.getElementById("lote-comentario")?.value || "";
+  },
+
+  openScannerForLote: () => {
+    App.modules.movimentacoes._saveLoteAllState();
+    App.scanner.openForLote();
+  },
+
+  restoreLoteModal: () => {
+    const mod = App.modules.movimentacoes;
+    document.getElementById("modal-root").innerHTML =
+      Views.app.movimentacaoLoteModal(mod._loteEquipment, mod._loteRooms, {
+        originId: mod._loteOriginId,
+        originName: mod._loteOriginName,
+        destId: mod._loteDestId,
+        destName: mod._loteDestName,
+        receivedBy: mod._loteReceivedByVal,
+        itemStatus: mod._loteItemStatusVal,
+        comentario: mod._loteComentarioVal,
+      });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    mod.renderLoteItems();
+  },
+
+  _loteItemRowHTML: (item) => {
+    const mod = App.modules.movimentacoes;
+    const eqList = mod._loteEquipment
+      .map(
+        (e) =>
+          `<div class="autocomplete-item" data-label="${escapeHtml(e.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-lote-equip-${item.uid}','${escapeHtml(e.id)}','${escapeHtml(e.name)}','lote-equip-id-${item.uid}')">${escapeHtml(e.name)}</div>`,
+      )
+      .join("");
+    return `
+      <div class="lote-item-row" id="lote-row-${item.uid}">
+        <div style="flex:2;min-width:0;">
+          <input type="hidden" id="lote-equip-id-${item.uid}" value="${escapeHtml(item.equipmentId || "")}">
+          <div class="autocomplete-wrapper" id="wrap-lote-equip-${item.uid}">
+            <input type="text" id="lote-equip-name-${item.uid}" class="form-control"
+                   value="${escapeHtml(item.equipmentName || "")}"
+                   placeholder="Equipamento *" autocomplete="off"
+                   onfocus="Autocomplete.show('wrap-lote-equip-${item.uid}')"
+                   onblur="Autocomplete.hide('wrap-lote-equip-${item.uid}')"
+                   oninput="Autocomplete.filter('wrap-lote-equip-${item.uid}')">
+            <div class="autocomplete-list" id="wrap-lote-equip-${item.uid}-list">${eqList}</div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <input type="text" id="lote-asset-${item.uid}" class="form-control"
+                 value="${escapeHtml(item.assetNumber || "")}"
+                 placeholder="Nº Patrimônio" oninput="maskAssetNumber(event)">
+        </div>
+        <div style="flex:1;min-width:0;">
+          <input type="text" id="lote-serial-${item.uid}" class="form-control"
+                 value="${escapeHtml(item.serialNumber || "")}"
+                 placeholder="Nº Série">
+        </div>
+        <button type="button"
+                onclick="App.modules.movimentacoes.removeLoteItem(${item.uid})"
+                style="background:none;border:none;color:var(--danger-color);cursor:pointer;padding:6px 4px;flex-shrink:0;"
+                title="Remover item">
+          <i data-lucide="trash-2" style="width:15px;height:15px;"></i>
+        </button>
+      </div>`;
+  },
+
+  _saveLoteFormState: () => {
+    App.modules.movimentacoes._loteItems.forEach((item) => {
+      item.equipmentId = document.getElementById(`lote-equip-id-${item.uid}`)?.value || "";
+      item.equipmentName = document.getElementById(`lote-equip-name-${item.uid}`)?.value || "";
+      item.assetNumber = document.getElementById(`lote-asset-${item.uid}`)?.value || "";
+      item.serialNumber = document.getElementById(`lote-serial-${item.uid}`)?.value || "";
+    });
+  },
+
+  renderLoteItems: () => {
+    const mod = App.modules.movimentacoes;
+    const container = document.getElementById("lote-items-list");
+    if (!container) return;
+    container.innerHTML = mod._loteItems
+      .map((item) => mod._loteItemRowHTML(item))
+      .join("");
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    const n = mod._loteItems.length;
+    const badge = document.getElementById("lote-count-badge");
+    if (badge) badge.textContent = `${n} item${n !== 1 ? "s" : ""}`;
+    const btn = document.getElementById("lote-submit-btn");
+    if (btn) {
+      btn.disabled = n === 0;
+      btn.textContent =
+        n > 0
+          ? `Registrar ${n} movimentaç${n !== 1 ? "ões" : "ão"}`
+          : "Adicione ao menos 1 item";
+    }
+  },
+
+  addLoteItem: () => {
+    const mod = App.modules.movimentacoes;
+    mod._saveLoteFormState();
+    mod._loteUid++;
+    mod._loteItems.push({
+      uid: mod._loteUid,
+      equipmentId: "",
+      equipmentName: "",
+      assetNumber: "",
+      serialNumber: "",
+    });
+    mod.renderLoteItems();
+  },
+
+  removeLoteItem: (uid) => {
+    const mod = App.modules.movimentacoes;
+    mod._saveLoteFormState();
+    mod._loteItems = mod._loteItems.filter((item) => item.uid !== uid);
+    mod.renderLoteItems();
+  },
+
+  createLote: async (e) => {
+    e.preventDefault();
+    const mod = App.modules.movimentacoes;
+    mod._saveLoteFormState();
+
+    const originRoomId = document.getElementById("lote-origin-id")?.value || "";
+    const destRoomId = document.getElementById("lote-dest-id")?.value || "";
+    const receivedBy =
+      document.getElementById("lote-received-by")?.value?.trim() || null;
+    const itemStatus =
+      document.getElementById("lote-item-status")?.value || null;
+    const comentario =
+      document.getElementById("lote-comentario")?.value?.trim() || null;
+
+    if (!originRoomId) {
+      UI.showToast("Selecione a sala de origem.", "warning");
+      return;
+    }
+    if (!destRoomId) {
+      UI.showToast("Selecione a sala de destino.", "warning");
+      return;
+    }
+    if (originRoomId === destRoomId) {
+      UI.showToast("Origem e destino não podem ser iguais.", "warning");
+      return;
+    }
+    if (mod._loteItems.some((item) => !item.equipmentId)) {
+      UI.showToast(
+        "Preencha ou remova os itens sem equipamento selecionado.",
+        "warning",
+      );
+      return;
+    }
+    if (mod._loteItems.length === 0) {
+      UI.showToast("Adicione ao menos um equipamento.", "warning");
+      return;
+    }
+
+    const originRoom = mod._loteRooms.find((r) => r.id === originRoomId);
+    const destRoom = mod._loteRooms.find((r) => r.id === destRoomId);
+    if (!originRoom || !destRoom) {
+      UI.showToast("Sala não encontrada.", "warning");
+      return;
+    }
+
+    const btn = document.getElementById("lote-submit-btn");
+    const origText = btn?.textContent;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML =
+        '<i data-lucide="loader-2" style="animation:spin 1s linear infinite;"></i> Registrando...';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    }
+
+    const movedAt = new Date().toISOString();
+    const inserts = mod._loteItems.map((item) => {
+      const digits = (item.assetNumber || "").replace(/\D/g, "");
+      const assetNumber =
+        digits.length === 12
+          ? `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
+          : item.assetNumber || null;
+      return {
+        equipment_id: item.equipmentId,
+        serial_number: item.serialNumber || null,
+        asset_number: assetNumber,
+        origin_room_id: originRoom.id,
+        destination_room_id: destRoom.id,
+        moved_by: Auth.user.id,
+        received_by: receivedBy,
+        moved_at: movedAt,
+        item_status: itemStatus || null,
+        comentario: comentario,
+      };
+    });
+
+    const { error } = await supabaseClient.from("asset_movements").insert(inserts);
+    if (error) {
+      UI.showToast("Erro ao registrar: " + error.message, "danger");
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+      return;
+    }
+
+    const locUpserts = inserts
+      .filter((r) => r.asset_number)
+      .map((r) => ({
+        equipment_id: r.equipment_id,
+        asset_number: r.asset_number,
+        serial_number: r.serial_number,
+        current_room_id: destRoom.id,
+        moved_by: Auth.user.id,
+        received_by: receivedBy,
+        moved_at: movedAt,
+      }));
+    if (locUpserts.length > 0) {
+      const { error: locError } = await supabaseClient
+        .from("equipment_locations")
+        .upsert(locUpserts, { onConflict: "asset_number" });
+      if (locError) console.warn("Localização não atualizada:", locError.message);
+    }
+
+    if (itemStatus) {
+      const uniqueEqIds = [...new Set(mod._loteItems.map((i) => i.equipmentId))];
+      for (const eqId of uniqueEqIds) {
+        await supabaseClient
+          .from("equipment")
+          .update({ status: itemStatus })
+          .eq("id", eqId);
+      }
+    }
+
+    Audit.log("batch_movement", "asset_movements", null, {
+      count: inserts.length,
+      from: originRoom.name,
+      to: destRoom.name,
+    });
+
+    document.getElementById("movimentacao-lote-modal")?.remove();
+    UI.showToast(
+      `${inserts.length} movimentaç${inserts.length !== 1 ? "ões registradas" : "ão registrada"} com sucesso!`,
+      "success",
+    );
+    App.modules.movimentacoes.init();
+    App.notifications.init();
+  },
+
   fillEquipmentData: (name) => {
     const eq = App.modules.movimentacoes._equipment.find((e) => e.name === name);
     document.getElementById("mov-equipment-id").value = eq ? eq.id : "";

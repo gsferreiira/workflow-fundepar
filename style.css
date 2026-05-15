@@ -500,3 +500,7 @@ body.dark .skel { background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1
 .skel-row { display: flex; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border-color); align-items: center; }
 .skel-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; }
 .skel-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.lote-item-row { display: grid; grid-template-columns: 2fr 1fr 1fr 32px; gap: 6px; align-items: center; }
+.lote-scan-item { display: flex; align-items: center; gap: 6px; font-size: 13px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; padding: 5px 10px; }
+.lote-scan-item-name { color: var(--text-secondary); font-size: 11px; }
+.lote-scan-item-unknown { font-style: italic; }

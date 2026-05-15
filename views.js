@@ -457,6 +457,10 @@ const Views = {
                            onchange="App.modules.movimentacoes.handleImportFile(this)">`
                         : ""
                     }
+                    <button class="btn-primary" style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                            onclick="App.modules.movimentacoes.showCreateLoteModal()">
+                        <i data-lucide="layers"></i> Registrar em Lote
+                    </button>
                     <button class="btn-primary" onclick="App.modules.movimentacoes.showCreateModal()"><i data-lucide="plus"></i> Registrar Movimentação</button>
                 </div>
             </div>
@@ -1707,6 +1711,108 @@ const Views = {
             </div>
         `,
 
+    /* ── MOVIMENTAÇÃO EM LOTE ────────────────────────────────────── */
+    movimentacaoLoteModal: (equipment, rooms, opts = {}) => {
+      const {
+        originId = "", originName = "", destId = "", destName = "",
+        receivedBy = "", itemStatus = "", comentario = "",
+      } = opts;
+      const statusOpts = ["", "novo", "bom", "regular", "inservível"];
+      const statusLabels = { "": "Não informado", novo: "Novo", bom: "Bom", regular: "Regular", "inservível": "Inservível" };
+      return `
+            <div class="modal-overlay" id="movimentacao-lote-modal">
+                <div class="modal-content" style="max-width:720px;max-height:90vh;overflow-y:auto;">
+                    <div class="modal-header">
+                        <h3 style="display:flex;align-items:center;gap:8px;">
+                            <i data-lucide="layers" style="width:18px;height:18px;"></i>
+                            Movimentação em Lote
+                        </h3>
+                        <button class="modal-close" type="button" onclick="document.getElementById('movimentacao-lote-modal').remove()"><i data-lucide="x"></i></button>
+                    </div>
+                    <form id="form-lote-movimentacao" onsubmit="App.modules.movimentacoes.createLote(event)">
+                        <div class="form-2col">
+                            <div class="form-group">
+                                <label>Origem <span style="color:var(--danger-color)">*</span></label>
+                                <input type="hidden" id="lote-origin-id" value="${escapeHtml(originId)}">
+                                <div class="autocomplete-wrapper" id="wrap-lote-origin">
+                                    <input type="text" class="form-control" placeholder="Sala de origem..." autocomplete="off"
+                                           value="${escapeHtml(originName)}"
+                                           onfocus="Autocomplete.show('wrap-lote-origin')"
+                                           onblur="Autocomplete.hide('wrap-lote-origin')"
+                                           oninput="Autocomplete.filter('wrap-lote-origin')">
+                                    <div class="autocomplete-list" id="wrap-lote-origin-list">
+                                        ${rooms.map((r) => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-lote-origin','${escapeHtml(r.id)}','${escapeHtml(r.name)}','lote-origin-id')">${escapeHtml(r.name)}</div>`).join("")}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Destino <span style="color:var(--danger-color)">*</span></label>
+                                <input type="hidden" id="lote-dest-id" value="${escapeHtml(destId)}">
+                                <div class="autocomplete-wrapper" id="wrap-lote-dest">
+                                    <input type="text" class="form-control" placeholder="Sala de destino..." autocomplete="off"
+                                           value="${escapeHtml(destName)}"
+                                           onfocus="Autocomplete.show('wrap-lote-dest')"
+                                           onblur="Autocomplete.hide('wrap-lote-dest')"
+                                           oninput="Autocomplete.filter('wrap-lote-dest')">
+                                    <div class="autocomplete-list" id="wrap-lote-dest-list">
+                                        ${rooms.map((r) => `<div class="autocomplete-item" data-label="${escapeHtml(r.name)}" onpointerdown="event.preventDefault();Autocomplete.pick('wrap-lote-dest','${escapeHtml(r.id)}','${escapeHtml(r.name)}','lote-dest-id')">${escapeHtml(r.name)}</div>`).join("")}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-2col">
+                            <div class="form-group">
+                                <label>Recebedor <span style="color:var(--text-secondary);font-weight:400">(Opcional — aplica a todos)</span></label>
+                                <input type="text" id="lote-received-by" class="form-control" placeholder="Nome de quem recebe..." value="${escapeHtml(receivedBy)}">
+                            </div>
+                            <div class="form-group">
+                                <label>Estado dos Itens <span style="color:var(--text-secondary);font-weight:400">(Opcional — aplica a todos)</span></label>
+                                <select id="lote-item-status" class="form-control">
+                                    ${statusOpts.map((v) => `<option value="${v}"${v === itemStatus ? " selected" : ""}>${statusLabels[v]}</option>`).join("")}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Comentário <span style="color:var(--text-secondary);font-weight:400;">(Opcional — aplica a todos)</span></label>
+                            <textarea id="lote-comentario" class="form-control" rows="2" placeholder="Ex: Equipamentos recebidos do almoxarifado...">${escapeHtml(comentario)}</textarea>
+                        </div>
+
+                        <div style="margin:16px 0 8px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--border-color);padding-top:16px;">
+                            <div>
+                                <span style="font-weight:600;">Equipamentos</span>
+                                <span id="lote-count-badge" style="margin-left:8px;background:var(--bg-hover);color:var(--text-secondary);font-size:12px;padding:2px 8px;border-radius:12px;">0 itens</span>
+                            </div>
+                            <div style="display:flex;gap:8px;">
+                                <button type="button" class="btn-primary"
+                                        style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                                        onclick="App.modules.movimentacoes.openScannerForLote()">
+                                    <i data-lucide="scan-barcode" style="width:14px;height:14px;"></i> Escanear
+                                </button>
+                                <button type="button" class="btn-primary"
+                                        style="background:var(--bg-card);color:var(--text-primary);border:1px solid var(--border-color);"
+                                        onclick="App.modules.movimentacoes.addLoteItem()">
+                                    <i data-lucide="plus" style="width:14px;height:14px;"></i> Adicionar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 32px;gap:6px;padding:0 0 4px;font-size:12px;color:var(--text-secondary);font-weight:600;">
+                            <span>Equipamento</span><span>Nº Patrimônio</span><span>Nº Série</span><span></span>
+                        </div>
+                        <div id="lote-items-list" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px;">
+                        </div>
+
+                        <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border-color);">
+                            <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;"
+                                    onclick="document.getElementById('movimentacao-lote-modal').remove()">Cancelar</button>
+                            <button type="submit" id="lote-submit-btn" class="btn-primary" disabled>Adicione ao menos 1 item</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+    },
+
     /* ── NOTIFICATIONS PANEL ─────────────────────────────────────── */
     notificationsPanel: (items) => `
             <div class="notif-header">
@@ -1768,6 +1874,35 @@ const Views = {
                     </p>
                     <button class="btn-primary" style="background:#e2e8f0;color:#475569;width:100%;" onclick="App.scanner.close()">
                         <i data-lucide="x"></i> Cancelar
+                    </button>
+                </div>
+            </div>
+        `,
+
+    scannerLoteModal: () => `
+            <div class="modal-overlay" id="scanner-modal">
+                <div class="modal-content" style="max-width:400px;">
+                    <div class="modal-header">
+                        <div>
+                            <h3>Escanear Patrimônios</h3>
+                            <div id="lote-scan-counter" style="font-size:13px;color:var(--success-color);font-weight:600;margin-top:2px;">0 itens escaneados</div>
+                        </div>
+                        <button class="modal-close" type="button" onclick="App.scanner.closeLote()"><i data-lucide="x"></i></button>
+                    </div>
+                    <div class="scanner-viewport">
+                        <video id="scanner-video" autoplay playsinline muted></video>
+                        <div class="scanner-overlay">
+                            <div class="scanner-frame">
+                                <div class="scanner-line"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--text-secondary);text-align:center;margin:0 0 10px;">
+                        Aponte para o código — o scanner continua após cada leitura
+                    </p>
+                    <div id="lote-scan-list" style="max-height:110px;overflow-y:auto;display:flex;flex-direction:column;gap:3px;margin-bottom:12px;"></div>
+                    <button id="lote-scan-concluir" class="btn-primary" style="width:100%;" onclick="App.scanner.closeLote()">
+                        Concluir (0 itens)
                     </button>
                 </div>
             </div>
