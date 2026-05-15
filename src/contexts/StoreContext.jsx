@@ -50,7 +50,7 @@ export function StoreProvider({ children }) {
   const equipment = useCallback(
     () =>
       fetchKey('equipment', () =>
-        supabase.from('equipment').select('id, name').is('deleted_at', null).order('name'),
+        supabase.from('equipment').select('id, name, categoria').is('deleted_at', null).order('name'),
       ),
     [fetchKey],
   )

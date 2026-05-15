@@ -7,35 +7,7 @@ import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
-import { fmtDate } from '../utils/format.js'
 
-const STATUS_OPTS = ['novo', 'bom', 'regular', 'inservível']
-
-function statusBadge(status) {
-  const map = {
-    novo: { bg: 'rgba(16,185,129,.12)', color: '#059669' },
-    bom: { bg: 'rgba(59,130,246,.12)', color: '#2563eb' },
-    regular: { bg: 'rgba(245,158,11,.12)', color: '#d97706' },
-    inservível: { bg: 'rgba(239,68,68,.12)', color: '#dc2626' },
-  }
-  const s = (status || '').toLowerCase()
-  const c = map[s] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)' }
-  const label = status ? status.charAt(0).toUpperCase() + status.slice(1) : '—'
-  return (
-    <span
-      style={{
-        background: c.bg,
-        color: c.color,
-        padding: '2px 8px',
-        borderRadius: 20,
-        fontSize: 12,
-        fontWeight: 600,
-      }}
-    >
-      {label}
-    </span>
-  )
-}
 
 export function Equipamentos() {
   const { search } = useOutletContext()
@@ -46,7 +18,6 @@ export function Equipamentos() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editEq, setEditEq] = useState(null)
   const [filterCat, setFilterCat] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
   const [searchLocal, setSearchLocal] = useState('')
 
   const load = async () => {
@@ -76,20 +47,13 @@ export function Equipamentos() {
     const q = (search || searchLocal).toLowerCase().trim()
     return list.filter((eq) => {
       if (filterCat && (eq.categoria || '') !== filterCat) return false
-      if (filterStatus && (eq.status || '') !== filterStatus) return false
       if (q) {
-        const hay = (
-          (eq.name || '') +
-          ' ' +
-          (eq.categoria || '') +
-          ' ' +
-          (eq.observacao || '')
-        ).toLowerCase()
+        const hay = ((eq.name || '') + ' ' + (eq.categoria || '')).toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [list, filterCat, filterStatus, search, searchLocal])
+  }, [list, filterCat, search, searchLocal])
 
   const onDelete = async (id) => {
     const eq = list.find((e) => e.id === id)
@@ -155,21 +119,6 @@ export function Equipamentos() {
               ))}
             </select>
           </div>
-          <div className="filter-group">
-            <label className="filter-label">Status</label>
-            <select
-              className="form-control filter-control"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {STATUS_OPTS.map((s) => (
-                <option key={s} value={s}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
         <div className="filter-actions">
           <span className="filter-count">
@@ -180,7 +129,6 @@ export function Equipamentos() {
             onClick={() => {
               setSearchLocal('')
               setFilterCat('')
-              setFilterStatus('')
             }}
           >
             <X size={13} /> Limpar
@@ -193,9 +141,6 @@ export function Equipamentos() {
             <tr>
               <th>Nome do Equipamento</th>
               <th>Categoria</th>
-              <th>Status</th>
-              <th>Observação</th>
-              <th>Cadastrado em</th>
               <th style={{ width: 130 }}>Ações</th>
             </tr>
           </thead>
@@ -203,7 +148,7 @@ export function Equipamentos() {
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={3}
                   style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
                 >
                   Nenhum equipamento encontrado.
@@ -233,20 +178,6 @@ export function Equipamentos() {
                       <span style={{ color: 'var(--text-secondary)' }}>—</span>
                     )}
                   </td>
-                  <td>{statusBadge(eq.status)}</td>
-                  <td
-                    style={{
-                      color: 'var(--text-secondary)',
-                      maxWidth: 200,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                    title={eq.observacao || ''}
-                  >
-                    {eq.observacao || '—'}
-                  </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{fmtDate(eq.created_at)}</td>
                   <td>
                     <div className="table-actions">
                       <button className="btn-table-action edit" onClick={() => setEditEq(eq)}>
@@ -296,8 +227,6 @@ function EquipModal({ eq, onClose, onSaved }) {
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(eq?.name || '')
   const [categoria, setCategoria] = useState(eq?.categoria || '')
-  const [status, setStatus] = useState(eq?.status || 'bom')
-  const [observacao, setObservacao] = useState(eq?.observacao || '')
   const editing = !!eq
 
   const submit = async (e) => {
@@ -306,8 +235,6 @@ function EquipModal({ eq, onClose, onSaved }) {
     const updates = {
       name: name.trim(),
       categoria: categoria.trim() || null,
-      status: status || 'bom',
-      observacao: observacao.trim() || null,
     }
     if (editing) {
       const { error } = await supabase.from('equipment').update(updates).eq('id', eq.id)
@@ -359,49 +286,21 @@ function EquipModal({ eq, onClose, onSaved }) {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
-          <div className="form-2col">
-            <div className="form-group">
-              <label>Categoria</label>
-              <input
-                type="text"
-                className="form-control"
-                placeholder="Ex: Computador, Monitor, Switch..."
-                value={categoria}
-                onChange={(e) => setCategoria(e.target.value)}
-                list="equip-cat-list"
-              />
-              <datalist id="equip-cat-list">
-                {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'Câmera'].map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </div>
-            <div className="form-group">
-              <label>Status</label>
-              <select
-                className="form-control"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="bom">Bom</option>
-                <option value="novo">Novo</option>
-                <option value="regular">Regular</option>
-                <option value="inservível">Inservível</option>
-              </select>
-            </div>
-          </div>
           <div className="form-group">
-            <label>
-              Observação{' '}
-              <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
-            </label>
-            <textarea
+            <label>Categoria</label>
+            <input
+              type="text"
               className="form-control"
-              rows="2"
-              placeholder="Ex: Tela com risco vertical, bateria fraca..."
-              value={observacao}
-              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Ex: Computador, Monitor, Switch..."
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+              list="equip-cat-list"
             />
+            <datalist id="equip-cat-list">
+              {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'Câmera'].map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
             <button

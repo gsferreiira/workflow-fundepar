@@ -38,6 +38,8 @@ function buildQuery(filters, { page, count = false }) {
   if (filters.dateTo)
     q = q.lte('moved_at', new Date(filters.dateTo + 'T23:59:59').toISOString())
   if (filters.equipmentId) q = q.eq('equipment_id', filters.equipmentId)
+  if (filters.categoriaIds && filters.categoriaIds.length > 0)
+    q = q.in('equipment_id', filters.categoriaIds)
   if (filters.originId) q = q.eq('origin_room_id', filters.originId)
   if (filters.destId) q = q.eq('destination_room_id', filters.destId)
   if (filters.responsible) q = q.eq('moved_by', filters.responsible)
@@ -74,6 +76,8 @@ export function Movimentacoes() {
     dateFrom: '',
     dateTo: '',
     equipmentId: '',
+    categoria: '',
+    categoriaIds: [],
     originId: '',
     destId: '',
     responsible: '',
@@ -162,11 +166,23 @@ export function Movimentacoes() {
     fetchPage(1, filters, search)
   }
 
+  const categorias = useMemo(
+    () => [...new Set(equipment.filter((e) => e.categoria).map((e) => e.categoria))].sort(),
+    [equipment],
+  )
+
+  const setCategoriaFilter = (cat) => {
+    const ids = cat ? equipment.filter((e) => e.categoria === cat).map((e) => e.id) : []
+    setFilters((f) => ({ ...f, categoria: cat, categoriaIds: ids }))
+  }
+
   const clearFilters = () => {
     const cleared = {
       dateFrom: '',
       dateTo: '',
       equipmentId: '',
+      categoria: '',
+      categoriaIds: [],
       originId: '',
       destId: '',
       responsible: '',
@@ -567,6 +583,14 @@ export function Movimentacoes() {
               onChange={(e) => setFilters((f) => ({ ...f, equipmentId: e.target.value }))}>
               <option value="">Todos</option>
               {equipment.map((eq) => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+            </select>
+          </div>
+          <div className="filter-group">
+            <label className="filter-label">Categoria</label>
+            <select className="form-control filter-control" value={filters.categoria}
+              onChange={(e) => setCategoriaFilter(e.target.value)}>
+              <option value="">Todas</option>
+              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div className="filter-group">

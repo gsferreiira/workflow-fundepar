@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react'
-import { X, MapPin, Package, FileSpreadsheet, ChevronDown, ChevronUp } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { X, MapPin, Package, FileSpreadsheet } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
@@ -158,7 +158,6 @@ export function MapaSalas() {
               key={room.id}
               room={room}
               onDetail={() => setDetailRoom(room)}
-              onExport={() => exportRoom(room)}
             />
           ))}
         </div>
@@ -175,13 +174,17 @@ export function MapaSalas() {
   )
 }
 
-function RoomCard({ room, onDetail, onExport }) {
-  const [expanded, setExpanded] = useState(false)
-  const preview = room.items.slice(0, 3)
-  const hasMore = room.items.length > 3
+function RoomCard({ room, onDetail }) {
+  const preview = room.items.slice(0, 2)
+  const extra = room.items.length - 2
+  const hasFooter = room.coordinator || room.description || room.setor
 
   return (
-    <div className="table-card" style={{ padding: 0, overflow: 'hidden' }}>
+    <div
+      className="table-card"
+      style={{ padding: 0, overflow: 'hidden', cursor: 'pointer' }}
+      onClick={onDetail}
+    >
       <div
         style={{
           padding: '14px 16px 12px',
@@ -204,89 +207,76 @@ function RoomCard({ room, onDetail, onExport }) {
               Nº {room.room_number}
             </div>
           )}
-          {room.coordinator && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{room.coordinator}</div>
-          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-          <span
-            style={{
-              background: room.items.length > 0 ? 'rgba(16,185,129,.1)' : 'rgba(0,0,0,.06)',
-              color: room.items.length > 0 ? '#059669' : 'var(--text-secondary)',
-              padding: '2px 8px',
-              borderRadius: 20,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            {room.items.length} equip.
-          </span>
-        </div>
+        <span
+          style={{
+            background: room.items.length > 0 ? 'rgba(16,185,129,.1)' : 'rgba(0,0,0,.06)',
+            color: room.items.length > 0 ? '#059669' : 'var(--text-secondary)',
+            padding: '2px 8px',
+            borderRadius: 20,
+            fontSize: 11,
+            fontWeight: 700,
+            flexShrink: 0,
+          }}
+        >
+          {room.items.length} equip.
+        </span>
       </div>
 
-      <div style={{ padding: '10px 16px' }}>
+      <div style={{ padding: '10px 16px', flex: 1 }}>
         {room.items.length === 0 ? (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', padding: '8px 0' }}>
             Sem equipamentos
           </div>
         ) : (
           <>
-            {(expanded ? room.items : preview).map((item, i) => (
+            {preview.map((item, i) => (
               <div
                 key={i}
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
                   gap: 8,
                   padding: '4px 0',
-                  borderBottom: i < (expanded ? room.items.length : preview.length) - 1 ? '1px solid var(--border-color)' : 'none',
+                  borderBottom: i < preview.length - 1 ? '1px solid var(--border-color)' : 'none',
                 }}
               >
-                <Package size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                <Package size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0, marginTop: 2 }} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.name}
                   </div>
-                  {item.asset_number && (
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                      PAT: {formatAssetNumber(item.asset_number)}
-                    </div>
-                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {item.asset_number ? `PAT: ${formatAssetNumber(item.asset_number)}` : item.serial_number ? `Série: ${item.serial_number}` : ''}
+                    {item.received_by ? (item.asset_number || item.serial_number ? ` · ${item.received_by}` : item.received_by) : ''}
+                  </div>
                 </div>
               </div>
             ))}
-            {hasMore && (
-              <button
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--accent-color)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}
-                onClick={() => setExpanded((v) => !v)}
-              >
-                {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                {expanded ? 'Mostrar menos' : `+${room.items.length - 3} mais`}
-              </button>
+            {extra > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--accent-color)', marginTop: 6 }}>
+                +{extra} equipamento{extra !== 1 ? 's' : ''} — clique para ver todos
+              </div>
             )}
           </>
         )}
       </div>
 
-      <div style={{ padding: '10px 16px 14px', display: 'flex', gap: 8 }}>
-        <button
-          className="btn-table-action edit"
-          style={{ flex: 1, justifyContent: 'center' }}
-          onClick={onDetail}
+      {hasFooter && (
+        <div
+          style={{
+            padding: '8px 16px',
+            borderTop: '1px solid var(--border-color)',
+            fontSize: 12,
+            color: 'var(--text-secondary)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
         >
-          Ver Detalhes
-        </button>
-        {room.items.length > 0 && (
-          <button
-            className="btn-table-action"
-            onClick={onExport}
-            title="Exportar Excel"
-            style={{ color: '#059669' }}
-          >
-            <FileSpreadsheet size={14} />
-          </button>
-        )}
-      </div>
+          {[room.coordinator, room.description || room.setor].filter(Boolean).join(' · ')}
+        </div>
+      )}
     </div>
   )
 }
