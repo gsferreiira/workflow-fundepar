@@ -1,10 +1,11 @@
+import { lazy, Suspense } from 'react'
 import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
 import { StoreProvider } from './contexts/StoreContext.jsx'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 import { Layout } from './components/Layout.jsx'
 import { Login } from './pages/Login.jsx'
-import { Dashboard } from './pages/Dashboard.jsx'
+import { Inicio } from './pages/Inicio.jsx'
 import { Workflow } from './pages/Workflow.jsx'
 import { Equipamentos } from './pages/Equipamentos.jsx'
 import { Movimentacoes } from './pages/Movimentacoes.jsx'
@@ -14,6 +15,10 @@ import { Salas } from './pages/Salas.jsx'
 import { Usuarios } from './pages/Usuarios.jsx'
 import { Perfil } from './pages/Perfil.jsx'
 import { Auditoria } from './pages/Auditoria.jsx'
+
+const Dashboard = lazy(() =>
+  import('./pages/Dashboard.jsx').then((module) => ({ default: module.Dashboard })),
+)
 
 function LoadingScreen() {
   return (
@@ -41,7 +46,7 @@ function ProtectedRoute() {
 function PublicRoute() {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
-  if (user) return <Navigate to="/dashboard" replace />
+  if (user) return <Navigate to="/inicio" replace />
   return <Outlet />
 }
 
@@ -57,8 +62,16 @@ function App() {
               </Route>
               <Route element={<ProtectedRoute />}>
                 <Route element={<Layout />}>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/" element={<Navigate to="/inicio" replace />} />
+                  <Route path="/inicio" element={<Inicio />} />
+                  <Route
+                    path="/dashboard"
+                    element={
+                      <Suspense fallback={<LoadingScreen />}>
+                        <Dashboard />
+                      </Suspense>
+                    }
+                  />
                   <Route path="/workflow" element={<Workflow />} />
                   <Route path="/equipamentos" element={<Equipamentos />} />
                   <Route path="/movimentacoes" element={<Movimentacoes />} />
