@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from 'rea
 import { supabase, createTempClient } from '../lib/supabase.js'
 
 const AuthContext = createContext(null)
+const AUTH_INIT_TIMEOUT_MS = 8000
 
 export const useAuth = () => {
   const ctx = useContext(AuthContext)
@@ -24,6 +25,12 @@ export function AuthProvider({ children }) {
     setToastFn(() => fn)
   }, [])
 
+  const fallbackUser = useCallback((authUser) => ({
+    ...authUser,
+    full_name: authUser.user_metadata?.full_name || authUser.email,
+    role: 'usuario',
+  }), [])
+
   const fetchProfile = useCallback(async (authUser) => {
     const { data: profile, error } = await supabase
       .from('profiles')
@@ -34,11 +41,7 @@ export function AuthProvider({ children }) {
 
     if (error) {
       console.error('Erro ao buscar perfil:', error.message)
-      const fallback = {
-        ...authUser,
-        full_name: authUser.email,
-        role: 'usuario',
-      }
+      const fallback = fallbackUser(authUser)
       setUser(fallback)
       return fallback
     }
@@ -55,35 +58,66 @@ export function AuthProvider({ children }) {
       if (syncError) console.warn('Falha ao sincronizar email do perfil:', syncError.message)
     }
     return merged
+  }, [fallbackUser])
+
+  const withTimeout = useCallback((promise, label) => {
+    let timeoutId
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`${label} demorou mais que o esperado.`)),
+        AUTH_INIT_TIMEOUT_MS,
+      )
+    })
+
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId))
   }, [])
+
+  const fetchProfileInBackground = useCallback((authUser) => {
+    setUser(fallbackUser(authUser))
+
+    setTimeout(() => {
+      withTimeout(fetchProfile(authUser), 'A busca do perfil').catch((error) => {
+        console.error('Erro ao carregar perfil em segundo plano:', error.message)
+      })
+    }, 0)
+  }, [fallbackUser, fetchProfile, withTimeout])
 
   useEffect(() => {
     let mounted = true
     const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session && mounted) {
-        await fetchProfile(session.user)
+      try {
+        const {
+          data: { session },
+          error,
+        } = await withTimeout(supabase.auth.getSession(), 'A verificacao da sessao')
+
+        if (error) throw error
+        if (session && mounted) {
+          await withTimeout(fetchProfile(session.user), 'A busca do perfil')
+        }
+      } catch (error) {
+        console.error('Erro ao inicializar autenticacao:', error.message)
+        if (mounted) setUser(null)
+      } finally {
+        if (mounted) setLoading(false)
       }
-      if (mounted) setLoading(false)
     }
     init()
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        await fetchProfile(session.user)
+        fetchProfileInBackground(session.user)
       } else if (event === 'PASSWORD_RECOVERY' && session) {
-        await fetchProfile(session.user)
+        fetchProfileInBackground(session.user)
         window.location.hash = '#/perfil'
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
       } else if (event === 'TOKEN_REFRESHED' && session) {
         // Mantém o estado coerente com token novo, sem refazer fetch desnecessário
       } else if (event === 'USER_UPDATED' && session) {
-        await fetchProfile(session.user)
+        fetchProfileInBackground(session.user)
       }
     })
 
@@ -91,15 +125,24 @@ export function AuthProvider({ children }) {
       mounted = false
       subscription?.unsubscribe()
     }
-  }, [fetchProfile])
+  }, [fetchProfile, fetchProfileInBackground, withTimeout])
 
   const signIn = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
+    try {
+      const { data, error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        'O login',
+      )
+      if (error) {
+        showToast('Erro no login: ' + error.message, 'danger')
+        return null
+      }
+      if (data.user) fetchProfileInBackground(data.user)
+      return data.user
+    } catch (error) {
       showToast('Erro no login: ' + error.message, 'danger')
       return null
     }
-    return data.user
   }
 
   const signUp = async (full_name, email, password) => {

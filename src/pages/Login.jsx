@@ -13,15 +13,21 @@ export function Login() {
   const handleLogin = async (e) => {
     e.preventDefault()
     setBusy(true)
-    await signIn(email, password)
-    setBusy(false)
+    try {
+      await signIn(email, password)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleSignup = async (e) => {
     e.preventDefault()
     setBusy(true)
-    await signUp(name, email, password)
-    setBusy(false)
+    try {
+      await signUp(name, email, password)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (

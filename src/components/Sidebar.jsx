@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
+  Home,
   LayoutDashboard,
   KanbanSquare,
   Package,
@@ -47,6 +48,7 @@ export function Sidebar({ open, onLinkClick }) {
 
       <nav className="sidebar-menu">
         <ul>
+          <SidebarItem to="/inicio" icon={<Home />} label="Início" onClick={onLinkClick} />
           <SidebarItem to="/dashboard" icon={<LayoutDashboard />} label="Dashboard" onClick={onLinkClick} />
           <SidebarItem to="/workflow" icon={<KanbanSquare />} label="Workflow (Kanban)" onClick={onLinkClick} />
           <li className="separator">Patrimônio</li>
