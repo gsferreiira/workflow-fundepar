@@ -283,7 +283,7 @@ App.scanner = {
     let query = supabaseClient
       .from("asset_movements")
       .select(
-        "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name), profile:moved_by(full_name)",
+        "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name)",
       )
       .eq("asset_number", assetNumber)
       .is("deleted_at", null)
@@ -297,7 +297,7 @@ App.scanner = {
       const retry = await supabaseClient
         .from("asset_movements")
         .select(
-          "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name), profile:moved_by(full_name)",
+          "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name)",
         )
         .eq("asset_number", assetNumber)
         .order("moved_at", { ascending: false })
@@ -312,8 +312,18 @@ App.scanner = {
     }
 
     if (movements && movements.length > 0) {
+      const mov = movements[0];
+      // Busca nome do responsável separadamente (moved_by pode não ter FK em profiles)
+      if (mov.moved_by) {
+        const { data: prof } = await supabaseClient
+          .from("profiles")
+          .select("full_name")
+          .eq("id", mov.moved_by)
+          .single();
+        if (prof) mov.profile = prof;
+      }
       document.getElementById("modal-root").innerHTML =
-        Views.app.scanResultModal(movements[0], assetNumber);
+        Views.app.scanResultModal(mov, assetNumber);
       if (typeof lucide !== "undefined") lucide.createIcons();
     } else {
       await App.modules.movimentacoes.showCreateModal(assetNumber);
