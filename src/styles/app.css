@@ -67,6 +67,7 @@ button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 500; 
 .fade-in { animation: fadeIn 0.4s ease-out; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
 
 /* Formulários */
 .form-group { margin-bottom: 20px; text-align: left; }
@@ -104,8 +105,8 @@ textarea.form-control { resize: vertical; }
 .nav-link i { color: #64748b; width: 20px; }
 .nav-link:hover { background: rgba(241, 245, 249, 0.05); }
 .nav-link:hover i { color: var(--text-on-dark); }
-.sidebar-menu ul li.active a { background: var(--accent-color); color: white; }
-.sidebar-menu ul li.active a i { color: white; }
+.sidebar-menu ul li.active a, .sidebar-menu .nav-link.active { background: var(--accent-color); color: white; }
+.sidebar-menu ul li.active a i, .sidebar-menu .nav-link.active i, .sidebar-menu .nav-link.active svg { color: white; }
 
 .sidebar-profile { margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 16px; background: rgba(241, 245, 249, 0.03); border-radius: 10px; }
 .sidebar-profile-link { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; border-radius: 8px; padding: 4px; margin: -4px; transition: background 0.2s; }
