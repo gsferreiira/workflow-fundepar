@@ -39,6 +39,7 @@ const Auth = {
             .from('profiles')
             .select('*')
             .eq('id', authUser.id)
+            .is('deleted_at', null)
             .single();
 
         if (error) {
@@ -48,7 +49,11 @@ const Auth = {
             Auth.user = { ...authUser, ...profile };
             // Sincroniza email no perfil caso ainda não esteja salvo
             if (!profile.email) {
-                supabaseClient.from('profiles').update({ email: authUser.email }).eq('id', authUser.id);
+                const { error: syncError } = await supabaseClient
+                    .from('profiles')
+                    .update({ email: authUser.email })
+                    .eq('id', authUser.id);
+                if (syncError) console.warn('Falha ao sincronizar email do perfil:', syncError.message);
             }
         }
     },
@@ -62,6 +67,13 @@ const Auth = {
 
         if (error) {
             UI.showToast(error.message, 'danger');
+            return null;
+        }
+
+        // Supabase oculta o erro de email duplicado por padrão (anti-enumeration).
+        // Quando o email já existe, data.user.identities vem como array vazio.
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+            UI.showToast('Este e-mail já está cadastrado. Faça login ou recupere sua senha.', 'warning');
             return null;
         }
 
@@ -88,7 +100,13 @@ const Auth = {
     // ── Operações Admin ────────────────────────────────────────────────
     admin: {
         createUser: async (full_name, email, role = 'usuario') => {
-            const DEFAULT_PASSWORD = 'Fundepar26';
+            // Gera senha aleatória forte (não é usada — usuário receberá email de redefinição).
+            // Evita expor senha padrão no código-fonte do frontend.
+            const randomPassword = (() => {
+                const bytes = new Uint8Array(18);
+                crypto.getRandomValues(bytes);
+                return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('') + 'A!';
+            })();
 
             // Cliente temporário sem persistir sessão — não afeta a sessão do admin
             const tempClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -97,7 +115,7 @@ const Auth = {
 
             const { data, error } = await tempClient.auth.signUp({
                 email,
-                password: DEFAULT_PASSWORD,
+                password: randomPassword,
                 options: { data: { full_name } }
             });
             if (error) { UI.showToast('Erro ao criar usuário: ' + error.message, 'danger'); return null; }
@@ -110,6 +128,11 @@ const Auth = {
                 role
             }, { onConflict: 'id' });
             if (profileError) { UI.showToast('Usuário criado, mas erro no perfil: ' + profileError.message, 'warning'); }
+
+            // Dispara email de redefinição de senha automaticamente
+            const redirectTo = window.location.origin + window.location.pathname;
+            const { error: resetError } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+            if (resetError) console.warn('Falha ao enviar email de redefinição:', resetError.message);
 
             return data.user;
         },
