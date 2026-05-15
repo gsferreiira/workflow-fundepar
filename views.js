@@ -1813,6 +1813,144 @@ const Views = {
         `;
     },
 
+    /* ── AUDITORIA ───────────────────────────────────────────────── */
+    auditoria: (profiles) => {
+      const actionOpts = [
+        ["", "Todas as ações"],
+        ["create", "Criação"],
+        ["update", "Edição"],
+        ["delete", "Exclusão"],
+        ["restore", "Restauração"],
+        ["batch_movement", "Lote"],
+        ["import", "Importação"],
+        ["role", "Papel"],
+        ["password_reset", "Redefinição de senha"],
+      ];
+      const tableOpts = [
+        ["", "Todas as entidades"],
+        ["equipment", "Equipamento"],
+        ["rooms", "Sala"],
+        ["asset_movements", "Movimentação"],
+        ["tickets", "Chamado"],
+        ["profiles", "Usuário"],
+      ];
+      return `
+            <div class="view-header">
+                <div>
+                    <h2>Auditoria</h2>
+                    <p>Histórico de todas as ações realizadas no sistema.</p>
+                </div>
+            </div>
+            <div class="filter-bar" style="flex-wrap:wrap;gap:10px;">
+                <div class="filter-group">
+                    <label>Usuário</label>
+                    <select id="audit-filter-actor" class="form-control filter-control" onchange="App.modules.auditoria.applyFilters()">
+                        <option value="">Todos</option>
+                        ${profiles.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Ação</label>
+                    <select id="audit-filter-action" class="form-control filter-control" onchange="App.modules.auditoria.applyFilters()">
+                        ${actionOpts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Entidade</label>
+                    <select id="audit-filter-table" class="form-control filter-control" onchange="App.modules.auditoria.applyFilters()">
+                        ${tableOpts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>De</label>
+                    <input type="date" id="audit-filter-date-from" class="form-control filter-control" onchange="App.modules.auditoria.applyFilters()">
+                </div>
+                <div class="filter-group">
+                    <label>Até</label>
+                    <input type="date" id="audit-filter-date-to" class="form-control filter-control" onchange="App.modules.auditoria.applyFilters()">
+                </div>
+                <div class="filter-group" style="justify-content:flex-end;flex:1;">
+                    <span id="audit-result-count" class="filter-count"></span>
+                    <button class="btn-filter-clear" onclick="App.modules.auditoria.clearFilters()">
+                        <i data-lucide="x" style="width:13px;"></i> Limpar
+                    </button>
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width:150px;">Data / Hora</th>
+                            <th>Usuário</th>
+                            <th style="width:120px;">Ação</th>
+                            <th style="width:130px;">Entidade</th>
+                            <th>Detalhes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-tbody"></tbody>
+                </table>
+            </div>
+            <div id="audit-pagination"></div>
+        `;
+    },
+
+    auditoriaRows: (rows) => {
+      const actionLabel = {
+        create: ["Criação", "#22c55e"],
+        update: ["Edição", "#f59e0b"],
+        delete: ["Exclusão", "#ef4444"],
+        restore: ["Restauração", "#6366f1"],
+        batch_movement: ["Lote", "#0ea5e9"],
+        import: ["Importação", "#0ea5e9"],
+        role: ["Papel", "#a855f7"],
+        password_reset: ["Senha", "#f97316"],
+        log: ["Log", "#94a3b8"],
+      };
+      const tableLabel = {
+        equipment: "Equipamento",
+        rooms: "Sala",
+        asset_movements: "Movimentação",
+        tickets: "Chamado",
+        profiles: "Usuário",
+        audit_logs: "Auditoria",
+      };
+      if (!rows.length)
+        return `<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-secondary);">Nenhum registro encontrado.</td></tr>`;
+      return rows
+        .map((r) => {
+          const [label, color] = actionLabel[r.action] || [r.action, "#94a3b8"];
+          const entity = tableLabel[r.table_name] || r.table_name;
+          const details = r.details
+            ? Object.entries(r.details)
+                .map(([k, v]) => `<span class="audit-detail-tag"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</span>`)
+                .join(" ")
+            : "—";
+          return `
+            <tr>
+                <td style="white-space:nowrap;font-size:12px;">${new Date(r.created_at).toLocaleDateString("pt-BR")} ${new Date(r.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</td>
+                <td>${escapeHtml(r.actor_name || "—")}</td>
+                <td><span class="audit-action-badge" style="background:${color}20;color:${color};border:1px solid ${color}40;">${label}</span></td>
+                <td style="font-size:13px;">${escapeHtml(entity)}</td>
+                <td style="font-size:12px;color:var(--text-secondary);">${details}</td>
+            </tr>`;
+        })
+        .join("");
+    },
+
+    auditoriaPagination: (page, total, pageSize) => {
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      return `
+            <div class="pagination-bar">
+                <span class="pagination-info">Página ${page} de ${totalPages}</span>
+                <button class="pagination-btn" ${page <= 1 ? "disabled" : ""} onclick="App.modules.auditoria.prevPage()">
+                    <i data-lucide="chevron-left"></i>
+                </button>
+                <button class="pagination-btn" ${page >= totalPages ? "disabled" : ""} onclick="App.modules.auditoria.nextPage()">
+                    <i data-lucide="chevron-right"></i>
+                </button>
+            </div>`;
+    },
+
     /* ── NOTIFICATIONS PANEL ─────────────────────────────────────── */
     notificationsPanel: (items) => `
             <div class="notif-header">

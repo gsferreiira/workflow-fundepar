@@ -15,6 +15,8 @@ App.scanner = {
 
   open: async () => {
     App.scanner._handled = false;
+    App.scanner._loteMode = false;
+    App.scanner._video = null;
     document.getElementById("modal-root").innerHTML = Views.app.scannerModal();
     if (typeof lucide !== "undefined") lucide.createIcons();
 
@@ -278,7 +280,7 @@ App.scanner = {
 
     UI.showToast(`Código lido: ${assetNumber}`, "success");
 
-    const { data: movements, error: scanError } = await supabaseClient
+    let query = supabaseClient
       .from("asset_movements")
       .select(
         "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name), profile:moved_by(full_name)",
@@ -287,6 +289,22 @@ App.scanner = {
       .is("deleted_at", null)
       .order("moved_at", { ascending: false })
       .limit(1);
+
+    let { data: movements, error: scanError } = await query;
+
+    // Coluna deleted_at pode não existir se a migração da Onda 3 ainda não foi rodada
+    if (scanError && scanError.message?.includes("deleted_at")) {
+      const retry = await supabaseClient
+        .from("asset_movements")
+        .select(
+          "*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name), profile:moved_by(full_name)",
+        )
+        .eq("asset_number", assetNumber)
+        .order("moved_at", { ascending: false })
+        .limit(1);
+      movements = retry.data;
+      scanError = retry.error;
+    }
 
     if (scanError) {
       UI.showToast("Erro ao buscar patrimônio: " + scanError.message, "danger");

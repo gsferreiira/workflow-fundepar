@@ -181,6 +181,7 @@ const App = {
         case "#rastreio":       return App.modules.rastreio.init();
         case "#mapa-salas":     return App.modules.mapaSalas.init();
         case "#perfil":         return App.modules.perfil.init();
+        case "#auditoria":      return App.modules.auditoria.init();
         default:
           viewContent.innerHTML =
             '<div style="text-align:center;padding:40px;"><h2>Erro 404</h2><p style="color:var(--text-secondary)">A tela procurada não existe.</p></div>';
@@ -276,6 +277,8 @@ const App = {
                     <i data-lucide="log-out"></i>
                 </button>`;
       if (typeof lucide !== "undefined") lucide.createIcons();
+      const liAuditoria = document.getElementById("li-auditoria");
+      if (liAuditoria) liAuditoria.style.display = Auth.user.role === "admin" ? "" : "none";
     }
   },
 
