@@ -24,10 +24,31 @@
     <!-- Tesseract.js (OCR para leitura de etiquetas danificadas) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 
-    <!-- Scripts da aplicação -->
+    <!-- Scripts da aplicação. A ordem importa:
+         1. auth.js     → cria Auth + supabaseClient
+         2. views.js    → cria Views + escapeHtml/formatAssetNumber/maskAssetNumber
+         3. app.js      → cria UI + App (com App.modules vazio)
+         4. modules/*   → cada módulo registra App.modules.X = {...}
+         5. helpers.js  → Autocomplete, darkMode, globalSearch + debounced (depende dos módulos)
+         6. bootstrap   → App.init() é chamado APÓS tudo carregar -->
     <script defer src="auth.js"></script>
     <script defer src="views.js"></script>
     <script defer src="app.js"></script>
+    <script defer src="modules/store.js"></script>
+    <script defer src="modules/audit.js"></script>
+    <script defer src="modules/dashboard.js"></script>
+    <script defer src="modules/workflow.js"></script>
+    <script defer src="modules/salas.js"></script>
+    <script defer src="modules/usuarios.js"></script>
+    <script defer src="modules/perfil.js"></script>
+    <script defer src="modules/equipamentos.js"></script>
+    <script defer src="modules/rastreio.js"></script>
+    <script defer src="modules/movimentacoes.js"></script>
+    <script defer src="modules/mapaSalas.js"></script>
+    <script defer src="modules/scanner.js"></script>
+    <script defer src="modules/notifications.js"></script>
+    <script defer src="modules/helpers.js"></script>
+    <script defer src="bootstrap.js"></script>
   </head>
   <body class="light">
     <!-- Sistema de Notificações -->
@@ -134,7 +155,7 @@
                   type="text"
                   id="global-search"
                   placeholder="Pesquisar..."
-                  oninput="App.globalSearch(this.value)"
+                  oninput="App.globalSearchDebounced(this.value)"
                 />
               </div>
             </div>

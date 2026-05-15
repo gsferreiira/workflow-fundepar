@@ -6,7 +6,8 @@ const escapeHtml = (str) => {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 };
 
 // Formata número de patrimônio como 000.000.000.000
@@ -215,7 +216,7 @@ const Views = {
                     <div class="filter-group" style="flex:2;min-width:180px;">
                         <label class="filter-label">Pesquisar</label>
                         <input type="text" id="equip-search" class="form-control filter-control" placeholder="Nome ou observação..."
-                               oninput="App.modules.equipamentos.applyFilters()">
+                               oninput="App.modules.equipamentos.applyFiltersDebounced()">
                     </div>
                     <div class="filter-group">
                         <label class="filter-label">Categoria</label>
@@ -272,7 +273,7 @@ const Views = {
                     <td>
                         <div class="table-actions">
                             <button class="btn-table-action edit" onclick="App.modules.equipamentos.editEquipamento('${escapeHtml(eq.id)}')"><i data-lucide="pencil"></i> Editar</button>
-                            <button class="btn-table-action delete" onclick="App.modules.equipamentos.deleteEquipamento(this,'${escapeHtml(eq.id)}')"><i data-lucide="trash-2"></i></button>
+                            <button class="btn-table-action delete" onclick="App.modules.equipamentos.deleteEquipamento('${escapeHtml(eq.id)}')"><i data-lucide="trash-2"></i></button>
                         </div>
                     </td>
                 </tr>
@@ -425,7 +426,7 @@ const Views = {
                     <td>
                         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
                             <button class="btn-table-action edit" title="Editar" onclick="App.modules.movimentacoes.showEditModal('${escapeHtml(m.id)}')"><i data-lucide="pencil"></i></button>
-                            <button class="btn-table-action delete" title="Excluir" onclick="App.modules.movimentacoes.delete(this,'${escapeHtml(m.id)}')"><i data-lucide="trash-2"></i></button>
+                            <button class="btn-table-action delete" title="Excluir" onclick="App.modules.movimentacoes.delete('${escapeHtml(m.id)}')"><i data-lucide="trash-2"></i></button>
                             ${m.is_edited ? `<button class="badge-edited" onclick="App.modules.movimentacoes.showEditInfo('${escapeHtml(m.id)}')" title="Ver histórico de edições"><i data-lucide="history"></i> Editado</button>` : ""}
                         </div>
                     </td>
@@ -496,7 +497,7 @@ const Views = {
                             id="filter-asset"
                             class="form-control filter-control"
                             placeholder="000.000.000.000"
-                            oninput="App.modules.movimentacoes.applyFilters()">
+                            oninput="App.modules.movimentacoes.applyFiltersDebounced()">
                     </div>
                     <div class="filter-group">
                         <label class="filter-label">Responsável</label>
@@ -783,13 +784,12 @@ const Views = {
                         <label class="filter-label">Pesquisar</label>
                         <input type="text" id="rastreio-search" class="form-control filter-control"
                                placeholder="Nome, nº patrimônio, série, recebedor..."
-                               oninput="App.modules.rastreio.applyFilters()">
+                               oninput="App.modules.rastreio.applyFiltersDebounced()">
                     </div>
                     <div class="filter-group">
                         <label class="filter-label">Sala Atual</label>
                         <select id="rastreio-filter-room" class="form-control filter-control" onchange="App.modules.rastreio.applyFilters()">
                             <option value="">Todas as salas</option>
-                            <option value="__sem_sala__">Sem localização</option>
                             ${(rooms || []).map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join("")}
                         </select>
                     </div>
@@ -965,7 +965,7 @@ const Views = {
                         <label class="filter-label">Pesquisar</label>
                         <input type="text" id="mapa-salas-search" class="form-control filter-control"
                                placeholder="Nome da pessoa ou número da sala..."
-                               oninput="App.modules.mapaSalas.applyFilters()">
+                               oninput="App.modules.mapaSalas.applyFiltersDebounced()">
                     </div>
                 </div>
                 <div class="filter-actions">
@@ -1064,7 +1064,7 @@ const Views = {
                     <td>
                         <div class="table-actions">
                             <button class="btn-table-action edit" onclick="App.modules.salas.editRoom('${escapeHtml(sala.id)}')"><i data-lucide="pencil"></i> Editar</button>
-                            <button class="btn-table-action delete" onclick="App.modules.salas.deleteRoom(this,'${escapeHtml(sala.id)}')"><i data-lucide="trash-2"></i></button>
+                            <button class="btn-table-action delete" onclick="App.modules.salas.deleteRoom('${escapeHtml(sala.id)}')"><i data-lucide="trash-2"></i></button>
                         </div>
                     </td>
                 </tr>
@@ -1228,8 +1228,8 @@ const Views = {
                                 <td>
                                     <div class="table-actions">
                                         ${currentUserRole === "admin" && u.id !== currentUserId ? `<button class="btn-table-action edit" title="Editar usuário" onclick="App.modules.usuarios.editUsuario('${escapeHtml(u.id)}')"><i data-lucide="pencil"></i></button>` : ""}
-                                        ${currentUserRole === "admin" && u.id !== currentUserId ? `<button class="btn-table-action" style="color:var(--warning-color);" title="Enviar email de redefinição de senha" onclick="App.modules.usuarios.resetSenha(this,'${escapeHtml(u.id)}','${escapeHtml(u.full_name || u.email || "")}','${escapeHtml(u.email || "")}')"><i data-lucide="key-round"></i></button>` : ""}
-                                        ${currentUserRole === "admin" && u.id !== currentUserId ? `<button class="btn-table-action delete" title="Excluir usuário" onclick="App.modules.usuarios.deleteUsuario(this,'${escapeHtml(u.id)}')"><i data-lucide="trash-2"></i></button>` : ""}
+                                        ${currentUserRole === "admin" && u.id !== currentUserId ? `<button class="btn-table-action" style="color:var(--warning-color);" title="Enviar email de redefinição de senha" onclick="App.modules.usuarios.resetSenha('${escapeHtml(u.id)}','${escapeHtml(u.full_name || u.email || "")}','${escapeHtml(u.email || "")}')"><i data-lucide="key-round"></i></button>` : ""}
+                                        ${currentUserRole === "admin" && u.id !== currentUserId ? `<button class="btn-table-action delete" title="Excluir usuário" onclick="App.modules.usuarios.deleteUsuario('${escapeHtml(u.id)}')"><i data-lucide="trash-2"></i></button>` : ""}
                                     </div>
                                 </td>
                             </tr>
@@ -1266,8 +1266,8 @@ const Views = {
                             </select>
                         </div>
                         <div style="background:var(--bg-main);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;">
-                            <i data-lucide="lock-keyhole" style="width:15px;height:15px;flex-shrink:0;"></i>
-                            Senha inicial: <strong style="color:var(--text-primary);">Fundepar26</strong>
+                            <i data-lucide="mail" style="width:15px;height:15px;flex-shrink:0;"></i>
+                            O colaborador receberá um e-mail para definir a própria senha.
                         </div>
                         <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:4px;">
                             <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('usuario-create-modal').remove()">Cancelar</button>
@@ -1291,9 +1291,12 @@ const Views = {
                             <input type="text" id="edit-usuario-name" class="form-control" value="${escapeHtml(u.full_name || "")}" required placeholder="Nome completo...">
                         </div>
                         <div class="form-group">
-                            <label>E-mail <span style="color:var(--danger-color)">*</span></label>
+                            <label>E-mail de exibição <span style="color:var(--danger-color)">*</span></label>
                             <input type="email" id="edit-usuario-email" class="form-control" value="${escapeHtml(u.email || "")}" required placeholder="email@exemplo.com">
-                            <small style="color:var(--text-secondary);font-size:11px;display:block;margin-top:4px;">Altera apenas o e-mail de exibição no sistema.</small>
+                            <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:11px;color:#92400e;display:flex;align-items:flex-start;gap:6px;">
+                                <i data-lucide="alert-triangle" style="width:13px;height:13px;flex-shrink:0;margin-top:1px;"></i>
+                                <span>Este campo altera apenas o e-mail visível no sistema. O e-mail de <strong>login</strong> não é modificado e continua sendo o original.</span>
+                            </div>
                         </div>
                         <div style="display:flex;justify-content:flex-end;gap:12px;margin-top:8px;">
                             <button type="button" class="btn-primary" style="background:#e2e8f0;color:#475569;" onclick="document.getElementById('usuario-edit-modal').remove()">Cancelar</button>
@@ -1315,8 +1318,8 @@ const Views = {
                 <div class="profile-avatar-card">
                     <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.full_name || "U")}&background=0c4a6e&color=fff&size=96" class="avatar-lg">
                     <h3>${escapeHtml(user.full_name) || "Usuário"}</h3>
-                    <span class="badge-role-pill ${escapeHtml(user.role || "usuario")}">${escapeHtml(user.role) || "usuário"}</span>
-                    <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;word-break:break-all;">${escapeHtml(user.email)}</p>
+                    <span class="badge-role-pill ${escapeHtml(user.role || "usuario")}">${escapeHtml({ admin: "Admin", tecnico: "Técnico", usuario: "Usuário" }[user.role] || "Usuário")}</span>
+                    <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;word-break:break-all;">${escapeHtml(user.email) || "—"}</p>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:20px;">
                     <div class="table-card">
@@ -1597,7 +1600,7 @@ const Views = {
                             </div>
                             <div class="form-group">
                                 <label>Nº Patrimônio</label>
-                                <input type="text" id="edit-mov-asset" class="form-control" value="${formatAssetNumber(movement.asset_number)}" placeholder="Ex: 000.000.000.000" oninput="maskAssetNumber(event)">
+                                <input type="text" id="edit-mov-asset" class="form-control" value="${escapeHtml(formatAssetNumber(movement.asset_number))}" placeholder="Ex: 000.000.000.000" oninput="maskAssetNumber(event)">
                             </div>
                         </div>
                         <div class="form-2col">

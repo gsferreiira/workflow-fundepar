@@ -1,15 +1,16 @@
 :root {
-    --primary-color: #0c4a6e; 
-    --accent-color: #0ea5e9; 
-    --success-color: #10b981; 
-    --warning-color: #f59e0b; 
-    --danger-color: #ef4444;  
+    --primary-color: #0c4a6e;
+    --accent-color: #0ea5e9;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --danger-color: #ef4444;
     --text-primary: #1e293b;
     --text-secondary: #64748b;
     --text-on-dark: #f1f5f9;
     --bg-main: #f8fafc;
     --bg-card: #ffffff;
-    --bg-dark: #020617; 
+    --bg-dark: #020617;
+    --bg-hover: #f1f5f9;
     --border-color: #e2e8f0;
     --radius-full: 9999px;
     --radius-lg: 12px;
@@ -22,6 +23,7 @@ body.dark {
     --text-secondary: #94a3b8;
     --bg-main: #0f172a;
     --bg-card: #1e293b;
+    --bg-hover: #0f172a;
     --border-color: #334155;
     --primary-color: #7dd3fc;
 }
@@ -37,6 +39,21 @@ body.dark .sidebar-menu li.active a, body.dark .sidebar-menu li a:hover { backgr
 body.dark .modal-overlay { background: rgba(2,6,23,.75); }
 body.dark .badge-edited { background: rgba(146,64,14,.3); color: #fcd34d; border-color: rgba(146,64,14,.4); }
 body.dark .btn-move-status { background: #0f172a; }
+
+/* Polimento dark mode: componentes com cores claras hardcoded */
+body.dark .modal-close { background: #0f172a; color: var(--text-secondary); }
+body.dark .modal-close:hover { background: #334155; color: var(--danger-color); }
+body.dark .badge-status.baixa { background: rgba(148,163,184,.15); color: #94a3b8; }
+body.dark .kanban-header .count { background: #0f172a; color: var(--text-secondary); }
+body.dark .notif-item.unread { background: rgba(14,165,233,.08); }
+body.dark .modal-content::before { background: #475569; }
+/* Override de botões "Cancelar" com style inline (background:#e2e8f0) no dark */
+body.dark .btn-primary[style*="background:#e2e8f0"],
+body.dark .btn-primary[style*="background: #e2e8f0"] {
+    background: #334155 !important;
+    color: #e2e8f0 !important;
+}
+body.dark .edit-info-reason { background: #0f172a; color: var(--text-primary); }
 
 /* ── BASE ───────────────────────────────────────────────────────────── */
 * { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
@@ -473,3 +490,13 @@ textarea.form-control { resize: vertical; }
 .scanner-line { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent 0%, #0ea5e9 50%, transparent 100%); animation: scan-sweep 1.4s ease-in-out infinite; }
 .scanner-corners::before, .scanner-corners::after { content: ''; position: absolute; width: 18px; height: 18px; border-color: #0ea5e9; border-style: solid; }
 @keyframes scan-sweep { 0% { top: 0; } 50% { top: calc(100% - 2px); } 100% { top: 0; } }
+
+/* ── SKELETON LOADERS ──────────────────────────────────────────────── */
+.skel { background: linear-gradient(90deg, var(--border-color) 0%, rgba(148,163,184,0.18) 50%, var(--border-color) 100%); background-size: 200% 100%; border-radius: 6px; animation: skel-shimmer 1.4s ease-in-out infinite; display: block; }
+body.dark .skel { background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1e293b 100%); background-size: 200% 100%; }
+@keyframes skel-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skel-text { height: 14px; margin: 4px 0; }
+.skel-title { height: 22px; width: 40%; margin-bottom: 12px; }
+.skel-row { display: flex; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border-color); align-items: center; }
+.skel-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 20px; }
+.skel-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
