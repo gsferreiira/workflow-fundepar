@@ -15,30 +15,32 @@ import { Usuarios } from './pages/Usuarios.jsx'
 import { Perfil } from './pages/Perfil.jsx'
 import { Auditoria } from './pages/Auditoria.jsx'
 
+function LoadingScreen() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-main)',
+      }}
+    >
+      <div className="skel skel-card" style={{ width: 320, height: 120 }}></div>
+    </div>
+  )
+}
+
 function ProtectedRoute() {
   const { user, loading } = useAuth()
-  if (loading) {
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'var(--bg-main)',
-        }}
-      >
-        <div className="skel skel-card" style={{ width: 320, height: 120 }}></div>
-      </div>
-    )
-  }
+  if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
   return <Outlet />
 }
 
 function PublicRoute() {
   const { user, loading } = useAuth()
-  if (loading) return null
+  if (loading) return <LoadingScreen />
   if (user) return <Navigate to="/dashboard" replace />
   return <Outlet />
 }
