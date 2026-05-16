@@ -16,14 +16,17 @@ import {
 } from 'recharts'
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   ArrowRightLeft,
   BarChart3,
   CheckCircle,
+  Clock,
   MapPin,
   Package,
   PieChart as PieChartIcon,
   Ticket,
+  TrendingUp,
   UserRound,
   Users,
 } from 'lucide-react'
@@ -42,27 +45,64 @@ const ACTION_LABELS = {
   restore: 'Restaurações',
   password_reset: 'Redefinições',
 }
+const PRIORITY_LABELS = { baixa: 'Baixa', media: 'Média', alta: 'Alta', urgente: 'Urgente' }
 
-const emptyByMonth = () => {
-  const months = []
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date()
-    d.setMonth(d.getMonth() - i)
-    d.setDate(1)
-    months.push({
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: MONTHS[d.getMonth()],
-      chamados: 0,
-      movimentacoes: 0,
-      auditoria: 0,
-    })
-  }
-  return months
+// Filtros temporais disponíveis no Dashboard (#25).
+// Cada chave mapeia para a janela de tempo + a granularidade da série temporal.
+const PERIODS = {
+  '7d': { label: '7 dias', days: 7, bucket: 'day', buckets: 7 },
+  '30d': { label: '30 dias', days: 30, bucket: 'day', buckets: 30 },
+  '6m': { label: '6 meses', days: 30 * 6, bucket: 'month', buckets: 6 },
+  '12m': { label: '12 meses', days: 30 * 12, bucket: 'month', buckets: 12 },
 }
 
-const monthKey = (date) => {
+const ASSET_STALE_DAYS = 90 // equipamento sem movimentação por mais de N dias = "parado"
+
+const startOfPeriod = (period) => {
+  const days = PERIODS[period].days
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - days)
+  return d
+}
+
+// Gera as "caixas" vazias da série temporal conforme o período.
+const emptyBuckets = (period) => {
+  const { bucket, buckets } = PERIODS[period]
+  const out = []
+  for (let i = buckets - 1; i >= 0; i--) {
+    const d = new Date()
+    if (bucket === 'month') {
+      d.setMonth(d.getMonth() - i)
+      d.setDate(1)
+      out.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        label: MONTHS[d.getMonth()],
+        chamados: 0,
+        movimentacoes: 0,
+        auditoria: 0,
+      })
+    } else {
+      d.setHours(0, 0, 0, 0)
+      d.setDate(d.getDate() - i)
+      out.push({
+        key: d.toISOString().slice(0, 10),
+        label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        chamados: 0,
+        movimentacoes: 0,
+        auditoria: 0,
+      })
+    }
+  }
+  return out
+}
+
+const bucketKey = (date, period) => {
   const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  if (PERIODS[period].bucket === 'month') {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+  return d.toISOString().slice(0, 10)
 }
 
 const percent = (value, total) => {
@@ -81,16 +121,34 @@ function groupCount(items, keyGetter, fallback = 'Não informado') {
     .sort((a, b) => b.value - a.value)
 }
 
+// Formata duração em horas para "Xh Ym" ou "Xd Yh" conforme tamanho.
+const fmtDuration = (hours) => {
+  if (!hours || hours < 0) return '—'
+  if (hours < 1) return `${Math.round(hours * 60)} min`
+  if (hours < 24) {
+    const h = Math.floor(hours)
+    const m = Math.round((hours - h) * 60)
+    return m ? `${h}h ${m}m` : `${h}h`
+  }
+  const days = Math.floor(hours / 24)
+  const h = Math.round(hours - days * 24)
+  return h ? `${days}d ${h}h` : `${days}d`
+}
+
 export function Dashboard() {
+  const [period, setPeriod] = useState('6m')
   const [data, setData] = useState(null)
 
   useEffect(() => {
     let cancelled = false
+    setData(null)
+
     const load = async () => {
-      const sixMonthsAgo = new Date()
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5)
-      sixMonthsAgo.setDate(1)
-      sixMonthsAgo.setHours(0, 0, 0, 0)
+      const startDate = startOfPeriod(period)
+      const startIso = startDate.toISOString()
+      const staleDate = new Date()
+      staleDate.setDate(staleDate.getDate() - ASSET_STALE_DAYS)
+      const staleIso = staleDate.toISOString()
 
       const [
         { count: pendingTickets },
@@ -99,11 +157,13 @@ export function Dashboard() {
         { count: totalUsers },
         { data: profiles },
         { data: equipment },
+        { data: rooms },
         { data: assetLocations },
         { data: recentMovements },
-        { data: allMovements },
+        { data: periodMovements },
         { data: ticketsHistory },
         { data: auditLogs },
+        { data: resolvedTicketsTimes },
       ] = await Promise.all([
         supabase
           .from('tickets')
@@ -125,52 +185,68 @@ export function Dashboard() {
           .is('deleted_at', null),
         supabase.from('profiles').select('id, full_name, role').is('deleted_at', null),
         supabase.from('equipment').select('id, name, categoria').is('deleted_at', null),
+        supabase.from('rooms').select('id, name').is('deleted_at', null),
         supabase
           .from('equipment_locations')
-          .select('id, equipment_id, equipment(name,categoria), asset_number, serial_number'),
+          .select(
+            'id, equipment_id, equipment(name,categoria), asset_number, serial_number, moved_at',
+          ),
         supabase
           .from('asset_movements')
-          .select('id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number, received_by')
+          .select(
+            'id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number, received_by',
+          )
           .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(10),
         supabase
           .from('asset_movements')
-          .select('id, equipment_id, equipment(name,categoria), moved_by, moved_at, asset_number, serial_number')
+          .select(
+            'id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number',
+          )
           .is('deleted_at', null)
-          .gte('moved_at', sixMonthsAgo.toISOString()),
+          .gte('moved_at', startIso),
         supabase
           .from('tickets')
-          .select('id, status, created_at')
+          .select('id, status, priority, created_at, updated_at')
           .is('deleted_at', null)
-          .gte('created_at', sixMonthsAgo.toISOString()),
+          .gte('created_at', startIso),
         supabase
           .from('audit_logs')
           .select('id, action, table_name, actor_id, actor_name, created_at')
-          .gte('created_at', sixMonthsAgo.toISOString())
+          .gte('created_at', startIso)
           .order('created_at', { ascending: false })
-          .limit(300),
+          .limit(500),
+        supabase
+          .from('tickets')
+          .select('priority, created_at, updated_at')
+          .eq('status', 'resolvido')
+          .is('deleted_at', null)
+          .gte('created_at', startIso),
       ])
 
       if (cancelled) return
 
       const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]))
       const equipmentMap = Object.fromEntries((equipment || []).map((e) => [e.id, e]))
-      const months = emptyByMonth()
+      const roomMap = Object.fromEntries((rooms || []).map((r) => [r.id, r]))
+      const buckets = emptyBuckets(period)
 
-      ;(allMovements || []).forEach((movement) => {
-        const item = months.find((m) => m.key === monthKey(movement.moved_at))
+      // Série temporal — distribui movements, tickets e audit_logs por bucket
+      ;(periodMovements || []).forEach((movement) => {
+        const item = buckets.find((b) => b.key === bucketKey(movement.moved_at, period))
         if (item) item.movimentacoes += 1
       })
       ;(ticketsHistory || []).forEach((ticket) => {
-        const item = months.find((m) => m.key === monthKey(ticket.created_at))
+        const item = buckets.find((b) => b.key === bucketKey(ticket.created_at, period))
         if (item) item.chamados += 1
       })
       ;(auditLogs || []).forEach((log) => {
-        const item = months.find((m) => m.key === monthKey(log.created_at))
+        const item = buckets.find((b) => b.key === bucketKey(log.created_at, period))
         if (item) item.auditoria += 1
       })
 
+      // Patrimônios por categoria
       const assetsByNumber = new Map()
       ;(assetLocations || []).forEach((asset) => {
         const assetKey = asset.asset_number || asset.serial_number || asset.id
@@ -178,25 +254,123 @@ export function Dashboard() {
           const eq = asset.equipment || equipmentMap[asset.equipment_id] || {}
           assetsByNumber.set(assetKey, {
             categoria: eq.categoria || 'Sem categoria',
+            moved_at: asset.moved_at,
           })
         }
       })
-      ;(allMovements || []).forEach((movement) => {
+      ;(periodMovements || []).forEach((movement) => {
         const assetKey = movement.asset_number || movement.serial_number || movement.id
         if (!assetsByNumber.has(assetKey)) {
           const eq = movement.equipment || equipmentMap[movement.equipment_id] || {}
           assetsByNumber.set(assetKey, {
             categoria: eq.categoria || 'Sem categoria',
+            moved_at: movement.moved_at,
           })
         }
       })
 
-      const equipmentByCategory = groupCount([...assetsByNumber.values()], (asset) => asset.categoria)
-      const usersByRole = groupCount(profiles || [], (profile) => ROLE_LABELS[profile.role] || profile.role)
+      const equipmentByCategory = groupCount(
+        [...assetsByNumber.values()],
+        (asset) => asset.categoria,
+      )
+      const usersByRole = groupCount(
+        profiles || [],
+        (profile) => ROLE_LABELS[profile.role] || profile.role,
+      )
       const activitiesByAction = groupCount(
         auditLogs || [],
         (log) => ACTION_LABELS[log.action] || log.action,
       ).slice(0, 6)
+
+      // ── #24 — Métricas avançadas ────────────────────────────────────
+
+      // Top 10 equipamentos mais movimentados no período
+      const movementsByEquipment = new Map()
+      ;(periodMovements || []).forEach((m) => {
+        if (!m.equipment_id) return
+        const cur = movementsByEquipment.get(m.equipment_id) || {
+          id: m.equipment_id,
+          name: m.equipment?.name || equipmentMap[m.equipment_id]?.name || '—',
+          count: 0,
+        }
+        cur.count += 1
+        movementsByEquipment.set(m.equipment_id, cur)
+      })
+      const topEquipments = [...movementsByEquipment.values()]
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10)
+        .map((e) => ({ name: e.name, value: e.count }))
+
+      // Salas com mais fluxo (entrada + saída)
+      const roomFlow = new Map()
+      ;(periodMovements || []).forEach((m) => {
+        if (m.origin_room_id) {
+          const cur = roomFlow.get(m.origin_room_id) || {
+            id: m.origin_room_id,
+            name: roomMap[m.origin_room_id]?.name || '—',
+            saidas: 0,
+            entradas: 0,
+          }
+          cur.saidas += 1
+          roomFlow.set(m.origin_room_id, cur)
+        }
+        if (m.destination_room_id) {
+          const cur = roomFlow.get(m.destination_room_id) || {
+            id: m.destination_room_id,
+            name: roomMap[m.destination_room_id]?.name || '—',
+            saidas: 0,
+            entradas: 0,
+          }
+          cur.entradas += 1
+          roomFlow.set(m.destination_room_id, cur)
+        }
+      })
+      const topRooms = [...roomFlow.values()]
+        .map((r) => ({ ...r, total: r.entradas + r.saidas }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 8)
+
+      // Tempo médio de resolução por prioridade (em horas)
+      // Aproximação: usa updated_at - created_at. Funciona se o ticket foi para
+      // 'resolvido' como última atualização — pode superestimar se foi editado depois.
+      const resolutionByPriority = new Map()
+      ;(resolvedTicketsTimes || []).forEach((t) => {
+        if (!t.created_at || !t.updated_at) return
+        const created = new Date(t.created_at)
+        const resolved = new Date(t.updated_at)
+        const hours = (resolved - created) / 3_600_000
+        if (hours < 0) return
+        const key = t.priority || 'media'
+        const cur = resolutionByPriority.get(key) || { sum: 0, count: 0 }
+        cur.sum += hours
+        cur.count += 1
+        resolutionByPriority.set(key, cur)
+      })
+      const resolutionData = ['urgente', 'alta', 'media', 'baixa']
+        .filter((p) => resolutionByPriority.has(p))
+        .map((p) => {
+          const v = resolutionByPriority.get(p)
+          return {
+            name: PRIORITY_LABELS[p],
+            value: Number((v.sum / v.count).toFixed(1)),
+            count: v.count,
+          }
+        })
+
+      // Equipamentos parados há > ASSET_STALE_DAYS sem movimentação
+      const staleAssets = (assetLocations || [])
+        .filter((a) => a.moved_at && new Date(a.moved_at) < new Date(staleIso))
+        .map((a) => ({
+          asset_number: a.asset_number,
+          serial_number: a.serial_number,
+          name: a.equipment?.name || equipmentMap[a.equipment_id]?.name || '—',
+          moved_at: a.moved_at,
+          days: Math.floor(
+            (Date.now() - new Date(a.moved_at).getTime()) / (24 * 3_600_000),
+          ),
+        }))
+        .sort((a, b) => b.days - a.days)
+        .slice(0, 10)
 
       const recent = (recentMovements || []).map((movement) => ({
         ...movement,
@@ -206,7 +380,9 @@ export function Dashboard() {
       const totalTickets = (pendingTickets || 0) + (resolvedTickets || 0)
       const totalAssets = [...assetsByNumber.keys()].length
       const totalAudit = (auditLogs || []).length
-      const activeActors = new Set((auditLogs || []).map((log) => log.actor_id).filter(Boolean)).size
+      const activeActors = new Set(
+        (auditLogs || []).map((log) => log.actor_id).filter(Boolean),
+      ).size
 
       setData({
         stats: {
@@ -218,10 +394,14 @@ export function Dashboard() {
         },
         recent,
         charts: {
-          traffic: months,
+          traffic: buckets,
           equipmentByCategory,
           usersByRole,
           activitiesByAction,
+          topEquipments,
+          topRooms,
+          resolutionData,
+          staleAssets,
           usability: [
             { name: 'Chamados resolvidos', value: percent(resolvedTickets || 0, totalTickets) },
             { name: 'Usuários ativos', value: percent(activeActors, totalUsers || 0) },
@@ -236,7 +416,7 @@ export function Dashboard() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [period])
 
   const chartTheme = useMemo(
     () => ({
@@ -248,32 +428,24 @@ export function Dashboard() {
     [],
   )
 
-  if (!data) return <SkeletonDashboard />
+  if (!data) {
+    return (
+      <>
+        <DashboardHeader period={period} onPeriodChange={setPeriod} />
+        <SkeletonDashboard />
+      </>
+    )
+  }
 
   const { stats, recent, charts } = data
 
   return (
     <>
-      <div className="view-header dashboard-header">
-        <div>
-          <h2>Dashboard</h2>
-          <p>Indicadores operacionais, movimentações e uso recente do workflow.</p>
-        </div>
-      </div>
+      <DashboardHeader period={period} onPeriodChange={setPeriod} />
 
       <div className="stat-grid dashboard-stat-grid fade-in">
-        <MetricCard
-          icon={Ticket}
-          value={stats.pendingTickets}
-          label="Chamados Pendentes"
-          tone="info"
-        />
-        <MetricCard
-          icon={CheckCircle}
-          value={stats.resolvedTickets}
-          label="Chamados Resolvidos"
-          tone="success"
-        />
+        <MetricCard icon={Ticket} value={stats.pendingTickets} label="Chamados Pendentes" tone="info" />
+        <MetricCard icon={CheckCircle} value={stats.resolvedTickets} label="Chamados Resolvidos" tone="success" />
         <MetricCard icon={MapPin} value={stats.totalRooms} label="Locais / Salas" tone="warning" />
         <MetricCard
           icon={Package}
@@ -288,7 +460,7 @@ export function Dashboard() {
       <div className="dashboard-charts-grid fade-in">
         <ChartCard
           title="Histórico de Tráfego"
-          subtitle="Chamados, movimentações e auditoria nos últimos 6 meses"
+          subtitle={`Chamados, movimentações e auditoria nos últimos ${PERIODS[period].label}`}
           icon={BarChart3}
           className="dashboard-chart-wide"
         >
@@ -317,20 +489,103 @@ export function Dashboard() {
         </ChartCard>
 
         <ChartCard
+          title="Top 10 Equipamentos Movimentados"
+          subtitle={`Patrimônios com mais trocas de sala (${PERIODS[period].label})`}
+          icon={TrendingUp}
+        >
+          {charts.topEquipments.length === 0 ? (
+            <EmptyState message="Sem movimentações no período selecionado." />
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart
+                data={charts.topEquipments}
+                layout="vertical"
+                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tick={{ fill: chartTheme.text, fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fill: chartTheme.text, fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={140}
+                />
+                <Tooltip content={<DashboardTooltip />} />
+                <Bar dataKey="value" name="Movimentações" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard
+          title="Salas com Mais Fluxo"
+          subtitle="Entradas e saídas de patrimônio por sala"
+          icon={MapPin}
+        >
+          {charts.topRooms.length === 0 ? (
+            <EmptyState message="Sem movimentações por sala no período." />
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={charts.topRooms} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
+                <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: chartTheme.text, fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={0}
+                  angle={-20}
+                  textAnchor="end"
+                  height={60}
+                />
+                <YAxis tick={{ fill: chartTheme.text, fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip content={<DashboardTooltip />} />
+                <Legend />
+                <Bar dataKey="entradas" name="Entradas" fill="#10b981" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="saidas" name="Saídas" fill="#ef4444" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard
+          title="Tempo Médio de Resolução"
+          subtitle="Chamados resolvidos por prioridade (horas)"
+          icon={Clock}
+        >
+          {charts.resolutionData.length === 0 ? (
+            <EmptyState message="Sem chamados resolvidos no período." />
+          ) : (
+            <div className="resolution-list">
+              {charts.resolutionData.map((item, index) => (
+                <div className="resolution-row" key={item.name}>
+                  <div className="resolution-priority">
+                    <span
+                      className="resolution-dot"
+                      style={{ background: COLORS[index % COLORS.length] }}
+                    ></span>
+                    <strong>{item.name}</strong>
+                    <span className="resolution-count">
+                      ({item.count} chamado{item.count !== 1 ? 's' : ''})
+                    </span>
+                  </div>
+                  <span className="resolution-time">{fmtDuration(item.value)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard
           title="Visitantes por Tipo"
           subtitle="Distribuição dos usuários por perfil"
           icon={PieChartIcon}
         >
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
-              <Pie
-                data={charts.usersByRole}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={58}
-                outerRadius={94}
-                paddingAngle={3}
-              >
+              <Pie data={charts.usersByRole} dataKey="value" nameKey="name" innerRadius={58} outerRadius={94} paddingAngle={3}>
                 {charts.usersByRole.map((entry, index) => (
                   <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
                 ))}
@@ -367,7 +622,11 @@ export function Dashboard() {
           icon={Package}
         >
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={charts.equipmentByCategory.slice(0, 8)} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
+            <BarChart
+              data={charts.equipmentByCategory.slice(0, 8)}
+              layout="vertical"
+              margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+            >
               <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" horizontal={false} />
               <XAxis type="number" tick={{ fill: chartTheme.text, fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
               <YAxis type="category" dataKey="name" tick={{ fill: chartTheme.text, fontSize: 12 }} axisLine={false} tickLine={false} width={110} />
@@ -401,6 +660,33 @@ export function Dashboard() {
               </div>
             ))}
           </div>
+        </ChartCard>
+
+        <ChartCard
+          title={`Equipamentos Parados (>${ASSET_STALE_DAYS} dias)`}
+          subtitle="Patrimônios sem movimentação registrada"
+          icon={AlertTriangle}
+          className="dashboard-chart-wide"
+        >
+          {charts.staleAssets.length === 0 ? (
+            <EmptyState message={`Nenhum equipamento parado há mais de ${ASSET_STALE_DAYS} dias.`} />
+          ) : (
+            <div className="stale-list">
+              {charts.staleAssets.map((asset, idx) => (
+                <div className="stale-row" key={`${asset.asset_number || idx}`}>
+                  <div className="stale-info">
+                    <strong>{asset.name}</strong>
+                    {asset.asset_number && (
+                      <span className="stale-pat">
+                        PAT {formatAssetNumber(asset.asset_number)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="stale-days">{asset.days} dias parado</span>
+                </div>
+              ))}
+            </div>
+          )}
         </ChartCard>
       </div>
 
@@ -468,6 +754,31 @@ export function Dashboard() {
   )
 }
 
+function DashboardHeader({ period, onPeriodChange }) {
+  return (
+    <div className="view-header dashboard-header">
+      <div>
+        <h2>Dashboard</h2>
+        <p>Indicadores operacionais, movimentações e uso recente do workflow.</p>
+      </div>
+      <div className="period-toggle" role="tablist" aria-label="Período do dashboard">
+        {Object.entries(PERIODS).map(([key, info]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={period === key}
+            className={`period-toggle-btn ${period === key ? 'active' : ''}`}
+            onClick={() => onPeriodChange(key)}
+          >
+            {info.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function MetricCard({ icon: Icon, value, label, subtitle, tone }) {
   return (
     <div className="stat-card dashboard-stat-card">
@@ -509,6 +820,21 @@ function DashboardTooltip({ active, payload, label }) {
           {entry.name}: {entry.value}
         </div>
       ))}
+    </div>
+  )
+}
+
+function EmptyState({ message }) {
+  return (
+    <div
+      style={{
+        padding: 32,
+        textAlign: 'center',
+        color: 'var(--text-secondary)',
+        fontSize: 13,
+      }}
+    >
+      {message}
     </div>
   )
 }

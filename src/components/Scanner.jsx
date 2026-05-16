@@ -28,6 +28,7 @@ export function Scanner({
   const detectorRef = useRef(null)
   const animFrameRef = useRef(null)
   const ocrIntervalRef = useRef(null)
+  const ocrWorkerRef = useRef(null)
   const zxingReaderRef = useRef(null)
   const handledRef = useRef(false)
   const { showToast } = useToast()
@@ -50,6 +51,12 @@ export function Scanner({
     if (ocrIntervalRef.current) {
       clearInterval(ocrIntervalRef.current)
       ocrIntervalRef.current = null
+    }
+    // Termina o worker do Tesseract pra liberar a memória (~5-10 MB de WASM)
+    if (ocrWorkerRef.current) {
+      const w = ocrWorkerRef.current
+      ocrWorkerRef.current = null
+      w.terminate().catch(() => {})
     }
     if (zxingReaderRef.current) {
       try {
@@ -130,26 +137,41 @@ export function Scanner({
     animFrameRef.current = requestAnimationFrame(loopNative)
   }
 
-  const startOCR = () => {
+  const startOCR = async () => {
+    // Cria um worker do Tesseract UMA VEZ e reutiliza nas chamadas seguintes.
+    // Antes, cada `Tesseract.recognize()` criava um worker novo (~5-10 MB de WASM)
+    // a cada 1.5s, vazando memória progressivamente em sessões longas.
+    try {
+      const Tesseract = (await import('tesseract.js')).default
+      // Em runs anteriores, o worker pode ter sido criado mas a câmera ainda
+      // não estava pronta. Se já existir, reutiliza.
+      if (!ocrWorkerRef.current) {
+        const worker = await Tesseract.createWorker('eng')
+        await worker.setParameters({ tessedit_char_whitelist: '0123456789.' })
+        ocrWorkerRef.current = worker
+      }
+    } catch (err) {
+      // Falha ao criar worker — silencia (BarcodeDetector é o fallback)
+      return
+    }
+
     ocrIntervalRef.current = setInterval(async () => {
       if (handledRef.current) return
+      const worker = ocrWorkerRef.current
       const video = videoRef.current
-      if (!video) return
+      if (!worker || !video) return
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')
       canvas.width = video.videoWidth
       canvas.height = video.videoHeight
       try {
         ctx.drawImage(video, 0, 0)
-        const Tesseract = (await import('tesseract.js')).default
-        const result = await Tesseract.recognize(canvas, 'eng', {
-          tessedit_char_whitelist: '0123456789.',
-        })
+        const result = await worker.recognize(canvas)
         const text = result.data.text || ''
         const match = text.match(/\b\d{3}\.\d{3}\.\d{3}\.\d{3}\b/)
         if (match) handleSuccess(match[0])
       } catch (err) {
-        // OCR falha silenciosamente — fallback é BarcodeDetector
+        // OCR falha silenciosamente — frame ruim, próxima iteração tenta de novo
       }
     }, 1500)
   }
@@ -193,7 +215,7 @@ export function Scanner({
 
     showToast(`Código lido: ${assetNumber}`, 'success')
 
-    let { data: movements, error } = await supabase
+    const { data: movements, error } = await supabase
       .from('asset_movements')
       .select(
         '*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name)',
@@ -202,19 +224,6 @@ export function Scanner({
       .is('deleted_at', null)
       .order('moved_at', { ascending: false })
       .limit(1)
-
-    if (error && error.message?.includes('deleted_at')) {
-      const retry = await supabase
-        .from('asset_movements')
-        .select(
-          '*, equipment(name), destination_room:destination_room_id(id,name), origin_room:origin_room_id(name)',
-        )
-        .eq('asset_number', assetNumber)
-        .order('moved_at', { ascending: false })
-        .limit(1)
-      movements = retry.data
-      error = retry.error
-    }
 
     if (error) {
       showToast('Erro ao buscar patrimônio: ' + error.message, 'danger')
@@ -225,11 +234,14 @@ export function Scanner({
     if (movements && movements.length > 0) {
       const mov = movements[0]
       if (mov.moved_by) {
+        // .maybeSingle() retorna null em vez de erro quando o perfil foi
+        // soft-deletado ou não existe mais. Antes, o .single() abortava a
+        // exibição inteira do resultado.
         const { data: prof } = await supabase
           .from('profiles')
           .select('full_name')
           .eq('id', mov.moved_by)
-          .single()
+          .maybeSingle()
         if (prof) mov.profile = prof
       }
       onMaquinaLocalizada?.(mov, assetNumber)

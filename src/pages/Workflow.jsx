@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import {
   Plus,
   X,
@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
+import { useRealtime } from '../hooks/useRealtime.js'
 import { SkeletonKanban } from '../components/Skeleton.jsx'
 
 const STATUSES = [
@@ -33,7 +34,7 @@ export function Workflow() {
   const [rooms, setRooms] = useState([])
   const isDraggingRef = useRef(false)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { data, error } = await supabase
       .from('tickets')
       .select('*, rooms(name), profiles:requester_id(full_name)')
@@ -44,11 +45,18 @@ export function Workflow() {
       return
     }
     setTickets(data || [])
-  }
+  }, [showToast])
 
   useEffect(() => {
     load()
-  }, [])
+  }, [load])
+
+  // Realtime: outros usuários movendo/criando/deletando tickets refletem aqui.
+  // Não refeta durante o próprio drag para evitar piscar.
+  useRealtime('tickets', useCallback(() => {
+    if (isDraggingRef.current) return
+    load()
+  }, [load]))
 
   const openCreateModal = async () => {
     setRooms(await roomsFetcher())

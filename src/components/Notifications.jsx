@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { X, BellOff, ArrowRightLeft, Package, Eye, MapPin, ArrowRight, User } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { formatAssetNumber } from '../utils/format.js'
+import { useRealtime } from '../hooks/useRealtime.js'
 
 const relativeTime = (date) => {
   const diff = Date.now() - date
@@ -15,7 +16,29 @@ const relativeTime = (date) => {
   return date.toLocaleDateString('pt-BR')
 }
 
+// Acesso seguro a localStorage — modo privado/quota cheia não derruba o app.
+const safeGetItem = (key) => {
+  try {
+    return localStorage.getItem(key)
+  } catch (e) {
+    return null
+  }
+}
+const safeSetItem = (key, value) => {
+  try {
+    localStorage.setItem(key, value)
+  } catch (e) {
+    /* noop */
+  }
+}
+
 export function NotificationsPanel({ open, onClose, items, onShowDetail }) {
+  // Lê lastSeen UMA VEZ por render. Antes era lido dentro de cada iteração do .map.
+  const lastSeen = useMemo(() => {
+    const raw = safeGetItem('notif_last_seen')
+    return raw ? new Date(raw) : null
+  }, [open, items])
+
   if (!open) return null
   return (
     <>
@@ -35,9 +58,6 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail }) {
             </div>
           ) : (
             items.map((item) => {
-              const lastSeen = localStorage.getItem('notif_last_seen')
-                ? new Date(localStorage.getItem('notif_last_seen'))
-                : null
               const isNew = !lastSeen || item.date > lastSeen
               return (
                 <div className={`notif-item${isNew ? ' unread' : ''}`} key={item.id}>
@@ -85,7 +105,7 @@ export function useNotifications() {
   const [items, setItems] = useState([])
   const [badge, setBadge] = useState(0)
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const [{ data: movements }, { data: equipment }, { data: profiles }] = await Promise.all([
       supabase
         .from('asset_movements')
@@ -105,9 +125,8 @@ export function useNotifications() {
     ])
 
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]))
-    const lastSeen = localStorage.getItem('notif_last_seen')
-      ? new Date(localStorage.getItem('notif_last_seen'))
-      : null
+    const lastSeenRaw = safeGetItem('notif_last_seen')
+    const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
 
     const collected = [
       ...(movements || []).map((m) => ({
@@ -133,15 +152,32 @@ export function useNotifications() {
     setItems(collected)
     const unseen = lastSeen ? collected.filter((i) => i.date > lastSeen).length : collected.length
     setBadge(unseen)
-  }
+  }, [])
 
   useEffect(() => {
     refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refresh])
+
+  // Realtime: refeta as notificações quando alguém insere movimentação ou equipamento.
+  // Throttle leve: agrupa múltiplos eventos em janelas de 1.5s para evitar refetch em rajada.
+  const throttleRef = useRef(null)
+  const throttledRefresh = useCallback(() => {
+    if (throttleRef.current) return
+    throttleRef.current = setTimeout(() => {
+      throttleRef.current = null
+      refresh()
+    }, 1500)
+  }, [refresh])
+
+  useRealtime('asset_movements', throttledRefresh, { event: 'INSERT' })
+  useRealtime('equipment', throttledRefresh, { event: 'INSERT' })
+
+  useEffect(() => () => {
+    if (throttleRef.current) clearTimeout(throttleRef.current)
   }, [])
 
   const markAsSeen = () => {
-    localStorage.setItem('notif_last_seen', new Date().toISOString())
+    safeSetItem('notif_last_seen', new Date().toISOString())
     setBadge(0)
   }
 

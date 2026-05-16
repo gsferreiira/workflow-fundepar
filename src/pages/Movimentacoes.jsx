@@ -6,6 +6,7 @@ import {
   Pencil,
   Trash2,
   FileSpreadsheet,
+  ChevronDown,
   Upload,
   ScanLine,
   MapPin,
@@ -28,7 +29,7 @@ import { formatAssetNumber, applyAssetMask, fmtDate, fmtDateTime } from '../util
 
 const PAGE_SIZE = 25
 
-function buildQuery(filters, { page, count = false }) {
+function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
   let q = supabase
     .from('asset_movements')
     .select('*, equipment(name)', count ? { count: 'exact' } : {})
@@ -51,8 +52,8 @@ function buildQuery(filters, { page, count = false }) {
     )
   }
   q = q.order('moved_at', { ascending: false })
-  const from = (page - 1) * PAGE_SIZE
-  return q.range(from, from + PAGE_SIZE - 1)
+  const from = (page - 1) * pageSize
+  return q.range(from, from + pageSize - 1)
 }
 
 export function Movimentacoes() {
@@ -89,6 +90,7 @@ export function Movimentacoes() {
   const [editMov, setEditMov] = useState(null)
   const [editInfoMovId, setEditInfoMovId] = useState(null)
   const [importRows, setImportRows] = useState(null)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
 
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanMode, setScanMode] = useState('single')
@@ -152,14 +154,15 @@ export function Movimentacoes() {
     [roomsFetcher, profilesFetcher, showToast],
   )
 
+  // Único useEffect responsável pela primeira carga + recarrega quando search muda.
+  // Antes existiam DOIS useEffects (um com `[search]`, outro com `[]`) que
+  // disparavam fetches paralelos no mount, fazendo a primeira página ser
+  // requisitada duas vezes em paralelo.
   useEffect(() => {
     setPage(1)
-    fetchPage(1, filters, search)
+    fetchPage(1, filtersRef.current, search)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
-
-  useEffect(() => {
-    fetchPage(page, filters, search)
-  }, [])
 
   const applyFilters = () => {
     setPage(1)
@@ -232,53 +235,85 @@ export function Movimentacoes() {
     refresh()
   }
 
-  const exportExcel = async () => {
-    showToast('Preparando exportação...', 'success')
-    const f = { ...filters, search: search || '' }
-    const XLSX = (await import('xlsx')).default
-    const [rm, pr] = await Promise.all([roomsFetcher(), profilesFetcher()])
-    const roomMap = Object.fromEntries(rm.map((r) => [r.id, r]))
-    const profileMap = Object.fromEntries(pr.map((p2) => [p2.id, p2]))
-    let all = []
-    let p2 = 1
-    const BATCH = 1000
-    while (true) {
-      const { data, error } = await buildQuery(f, { page: p2, count: false })
-      if (error) {
-        showToast('Erro ao exportar: ' + error.message, 'danger')
+  // scope: 'page' = só a página visível (rápido) | 'all' = todos os filtrados
+  const exportExcel = async (scope = 'all') => {
+    try {
+      const f = { ...filters, search: search || '' }
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) {
+        showToast('Biblioteca de exportação não carregada.', 'danger')
         return
       }
-      all = all.concat(data || [])
-      if (!data || data.length < BATCH) break
-      p2++
-      if (all.length >= 20000) break
+      const [rm, pr] = await Promise.all([roomsFetcher(), profilesFetcher()])
+      const roomMap = Object.fromEntries(rm.map((r) => [r.id, r]))
+      const profileMap = Object.fromEntries(pr.map((p2) => [p2.id, p2]))
+
+      let all = []
+      if (scope === 'page') {
+        // Só a página visível — usa o PAGE_SIZE padrão.
+        const { data, error } = await buildQuery(f, { page, count: false })
+        if (error) {
+          showToast('Erro ao exportar: ' + error.message, 'danger')
+          return
+        }
+        all = data || []
+      } else {
+        // Todos os filtrados — busca em lotes de 1000 (limite de segurança 20k).
+        showToast('Preparando exportação completa...', 'success')
+        const BATCH = 1000
+        let p2 = 1
+        while (true) {
+          const { data, error } = await buildQuery(f, {
+            page: p2,
+            count: false,
+            pageSize: BATCH,
+          })
+          if (error) {
+            showToast('Erro ao exportar: ' + error.message, 'danger')
+            return
+          }
+          all = all.concat(data || [])
+          if (!data || data.length < BATCH) break
+          p2++
+          if (all.length >= 20000) {
+            showToast('Limite de 20.000 linhas atingido. Filtre mais para exportar tudo.', 'warning')
+            break
+          }
+        }
+      }
+
+      if (all.length === 0) {
+        showToast('Nenhuma movimentação para exportar.', 'warning')
+        return
+      }
+      const wsData = [
+        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora'],
+        ...all.map((m) => [
+          m.equipment?.name || '—',
+          m.serial_number || '—',
+          formatAssetNumber(m.asset_number) || '—',
+          roomMap[m.origin_room_id]?.name || '—',
+          roomMap[m.destination_room_id]?.name || '—',
+          profileMap[m.moved_by]?.full_name || '—',
+          m.received_by || '—',
+          new Date(m.moved_at).toLocaleString('pt-BR'),
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      ws['!cols'] = [
+        { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
+        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 },
+      ]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Movimentações')
+      const suffix = scope === 'page' ? `_pagina${page}` : ''
+      XLSX.writeFile(wb, `movimentacoes${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      showToast(`${all.length} linha${all.length !== 1 ? 's' : ''} exportada${all.length !== 1 ? 's' : ''}!`, 'success')
+    } catch (err) {
+      console.error('exportExcel erro:', err)
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
     }
-    if (all.length === 0) {
-      showToast('Nenhuma movimentação para exportar.', 'warning')
-      return
-    }
-    const wsData = [
-      ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora'],
-      ...all.map((m) => [
-        m.equipment?.name || '—',
-        m.serial_number || '—',
-        formatAssetNumber(m.asset_number) || '—',
-        roomMap[m.origin_room_id]?.name || '—',
-        roomMap[m.destination_room_id]?.name || '—',
-        profileMap[m.moved_by]?.full_name || '—',
-        m.received_by || '—',
-        new Date(m.moved_at).toLocaleString('pt-BR'),
-      ]),
-    ]
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    ws['!cols'] = [
-      { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
-      { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 },
-    ]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Movimentações')
-    XLSX.writeFile(wb, `movimentacoes_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    showToast(`${all.length} linha${all.length !== 1 ? 's' : ''} exportada${all.length !== 1 ? 's' : ''}!`, 'success')
   }
 
   const handleImportFile = async (e) => {
@@ -292,7 +327,11 @@ export function Movimentacoes() {
       showToast('Arquivo muito grande (máximo 5 MB). Divida em planilhas menores.', 'warning')
       return
     }
-    const XLSX = (await import('xlsx')).default
+    // O `xlsx` expõe tanto `.default` quanto namespace flat. Em alguns
+    // builds do Vite o `.default` vem sem o `utils`, então caímos no
+    // namespace inteiro caso o default esteja vazio.
+    const xlsxMod = await import('xlsx')
+    const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
     const normalize = (s) => (s || '').toString().trim().toLowerCase()
     const [eq, rm] = await Promise.all([equipmentFetcher(), roomsFetcher()])
     const eqByName = Object.fromEntries(eq.map((e2) => [normalize(e2.name), e2]))
@@ -532,9 +571,57 @@ export function Movimentacoes() {
           <p>Histórico de todas as movimentações de patrimônio.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn-primary" style={{ background: '#059669' }} onClick={exportExcel}>
-            <FileSpreadsheet size={14} /> Exportar
-          </button>
+          <div className="export-menu-wrapper">
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#059669' }}
+              onClick={() => setExportMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+            >
+              <FileSpreadsheet size={14} /> Exportar
+              <ChevronDown size={14} style={{ marginLeft: 2 }} />
+            </button>
+            {exportMenuOpen && (
+              <>
+                <div className="export-menu-backdrop" onClick={() => setExportMenuOpen(false)} />
+                <div className="export-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="export-menu-item"
+                    onClick={() => {
+                      setExportMenuOpen(false)
+                      exportExcel('page')
+                    }}
+                  >
+                    <div className="export-menu-item-title">Esta página</div>
+                    <div className="export-menu-item-desc">
+                      Exporta as {Math.min(PAGE_SIZE, list?.length || 0)} linhas visíveis (página {page}).
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="export-menu-item"
+                    onClick={() => {
+                      setExportMenuOpen(false)
+                      exportExcel('all')
+                    }}
+                  >
+                    <div className="export-menu-item-title">
+                      Todos os resultados filtrados
+                    </div>
+                    <div className="export-menu-item-desc">
+                      Exporta as {total.toLocaleString('pt-BR')} linha{total !== 1 ? 's' : ''} que correspondem aos filtros atuais.
+                      {total > 5000 && ' Pode demorar alguns segundos.'}
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           {isAdmin && (
             <>
               <button

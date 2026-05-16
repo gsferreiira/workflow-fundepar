@@ -1,6 +1,17 @@
 import { useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
+
+// Domínio assumido quando o usuário digita só a parte antes do @ (ex: "joao"
+// vira "joao@fundepar.pr.gov.br"). Caso a Fundepar mude de domínio, ajustar aqui.
+const DEFAULT_EMAIL_DOMAIN = 'fundepar.pr.gov.br'
+
+const normalizeEmail = (raw) => {
+  const trimmed = (raw || '').trim().toLowerCase()
+  if (!trimmed) return ''
+  if (trimmed.includes('@')) return trimmed
+  return `${trimmed}@${DEFAULT_EMAIL_DOMAIN}`
+}
 
 export function Login() {
   const { signIn, signUp } = useAuth()
@@ -14,7 +25,7 @@ export function Login() {
     e.preventDefault()
     setBusy(true)
     try {
-      await signIn(email, password)
+      await signIn(normalizeEmail(email), password)
     } finally {
       setBusy(false)
     }
@@ -24,7 +35,7 @@ export function Login() {
     e.preventDefault()
     setBusy(true)
     try {
-      await signUp(name, email, password)
+      await signUp(name, normalizeEmail(email), password)
     } finally {
       setBusy(false)
     }
@@ -34,48 +45,34 @@ export function Login() {
     <div id="auth-container" className="auth-container fade-in">
       {mode === 'login' ? (
         <div className="auth-card">
-          <div
-            style={{
-              background: 'var(--primary-color)',
-              color: 'white',
-              width: 60,
-              height: 60,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 24,
-              fontWeight: 'bold',
-              borderRadius: 12,
-              margin: '0 auto 16px auto',
-            }}
-          >
-            F
-          </div>
+          <LogoHeader />
           <h2>Bem-vindo de volta</h2>
           <p className="subtitle">Faça login para acessar a área de gestão.</p>
           <form id="login-form" onSubmit={handleLogin}>
             <div className="form-group">
-              <label htmlFor="login-email">E-mail</label>
+              <label htmlFor="login-email">E-mail ou usuário</label>
               <input
-                type="email"
+                type="text"
                 id="login-email"
                 className="form-control"
                 required
-                placeholder="exemplo@fundepar.gov.br"
+                autoComplete="username"
+                placeholder={`joao  ou  joao@${DEFAULT_EMAIL_DOMAIN}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              <small className="form-hint">
+                Pode digitar só o usuário — completamos com <strong>@{DEFAULT_EMAIL_DOMAIN}</strong>.
+              </small>
             </div>
             <div className="form-group">
               <label htmlFor="login-password">Senha</label>
-              <input
-                type="password"
+              <PasswordInput
                 id="login-password"
-                className="form-control"
-                required
-                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
               />
             </div>
             <button type="submit" className="btn-primary" disabled={busy}>
@@ -97,23 +94,7 @@ export function Login() {
         </div>
       ) : (
         <div className="auth-card">
-          <div
-            style={{
-              background: 'var(--primary-color)',
-              color: 'white',
-              width: 60,
-              height: 60,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 24,
-              fontWeight: 'bold',
-              borderRadius: 12,
-              margin: '0 auto 16px auto',
-            }}
-          >
-            F
-          </div>
+          <LogoHeader />
           <h2>Cadastrar Acesso</h2>
           <p className="subtitle">Preencha seus dados para solicitar acesso.</p>
           <form id="register-form" onSubmit={handleSignup}>
@@ -132,25 +113,28 @@ export function Login() {
             <div className="form-group">
               <label htmlFor="register-email">E-mail Corporativo</label>
               <input
-                type="email"
+                type="text"
                 id="register-email"
                 className="form-control"
                 required
-                placeholder="nome@fundepar.gov.br"
+                autoComplete="email"
+                placeholder={`nome@${DEFAULT_EMAIL_DOMAIN}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
+              <small className="form-hint">
+                Pode digitar só o usuário — completamos com <strong>@{DEFAULT_EMAIL_DOMAIN}</strong>.
+              </small>
             </div>
             <div className="form-group">
               <label htmlFor="register-password">Senha Segura</label>
-              <input
-                type="password"
+              <PasswordInput
                 id="register-password"
-                className="form-control"
-                required
-                placeholder="Mínimo 6 caracteres"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                autoComplete="new-password"
+                minLength={6}
               />
             </div>
             <button type="submit" className="btn-primary" disabled={busy}>
@@ -171,6 +155,58 @@ export function Login() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function LogoHeader() {
+  return (
+    <div
+      style={{
+        background: 'var(--primary-color)',
+        color: 'white',
+        width: 60,
+        height: 60,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 24,
+        fontWeight: 'bold',
+        borderRadius: 12,
+        margin: '0 auto 16px auto',
+      }}
+    >
+      F
+    </div>
+  )
+}
+
+function PasswordInput({ id, value, onChange, placeholder, autoComplete, minLength }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="password-input-wrapper">
+      <input
+        type={show ? 'text' : 'password'}
+        id={id}
+        className="form-control"
+        required
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        minLength={minLength}
+        style={{ paddingRight: 42 }}
+      />
+      <button
+        type="button"
+        className="password-toggle-btn"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? 'Ocultar senha' : 'Mostrar senha'}
+        title={show ? 'Ocultar senha' : 'Mostrar senha'}
+        tabIndex={-1}
+      >
+        {show ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
     </div>
   )
 }

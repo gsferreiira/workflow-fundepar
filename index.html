@@ -7,10 +7,29 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
     />
     <title>Fundepar - Sistema Profissional de Gestão de Workflow</title>
+
+    <!-- PWA -->
+    <meta name="theme-color" content="#0c4a6e" />
+    <meta name="application-name" content="Fundepar TI" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Fundepar TI" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <!-- Aplica o dark mode ANTES do React montar pra evitar FOUC (flash do tema claro). -->
+    <script>
+      try {
+        if (localStorage.getItem('dark_mode') === '1') {
+          document.documentElement.classList.add('dark-pre')
+          document.addEventListener('DOMContentLoaded', () => document.body.classList.add('dark'))
+        }
+      } catch (e) { /* localStorage bloqueado (modo privado) — ignora */ }
+    </script>
   </head>
   <body class="light">
     <div id="root"></div>

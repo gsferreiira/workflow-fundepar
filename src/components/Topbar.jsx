@@ -12,7 +12,10 @@ export function Topbar({
   const [dark, setDark] = useState(false)
 
   useEffect(() => {
-    const saved = localStorage.getItem('dark_mode') === '1'
+    let saved = false
+    try {
+      saved = localStorage.getItem('dark_mode') === '1'
+    } catch (e) { /* localStorage indisponível */ }
     setDark(saved)
     document.body.classList.toggle('dark', saved)
   }, [])
@@ -21,7 +24,9 @@ export function Topbar({
     const next = !dark
     setDark(next)
     document.body.classList.toggle('dark', next)
-    localStorage.setItem('dark_mode', next ? '1' : '0')
+    try {
+      localStorage.setItem('dark_mode', next ? '1' : '0')
+    } catch (e) { /* sem persistência se localStorage falhar */ }
   }
 
   return (

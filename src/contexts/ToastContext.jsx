@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react'
 import {
   CheckCircle,
   AlertCircle,
@@ -16,14 +16,15 @@ export const useToast = () => {
   return ctx
 }
 
-let _uid = 0
-
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
   const [confirmState, setConfirmState] = useState(null)
+  // Counter por instância (em ref) em vez de variável module-level — evita
+  // colisão de IDs entre múltiplos providers e em HMR.
+  const uidRef = useRef(0)
 
   const showToast = useCallback((message, type = 'success') => {
-    const id = ++_uid
+    const id = ++uidRef.current
     setToasts((prev) => [...prev, { id, message, type }])
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id))
