@@ -31,6 +31,8 @@ export function Scanner({
   const ocrWorkerRef = useRef(null)
   const zxingReaderRef = useRef(null)
   const handledRef = useRef(false)
+  const onLoteItemRef = useRef(onLoteItem)
+  onLoteItemRef.current = onLoteItem
   const { showToast } = useToast()
 
   useEffect(() => {
@@ -278,18 +280,20 @@ export function Scanner({
     }
 
     // Tenta inserir; o pai decide se é duplicata
-    const ok = onLoteItem?.(assetNumber, equipmentId, equipmentName)
+    const ok = onLoteItemRef.current?.(assetNumber, equipmentId, equipmentName)
     if (ok === false) {
       showToast(`PAT ${assetNumber} já foi adicionado.`, 'warning')
     } else {
       showToast(`+ ${assetNumber}${equipmentName ? ' — ' + equipmentName : ''}`, 'success')
     }
 
-    // Reseta para próxima leitura
-    handledRef.current = false
-    if (mode === 'lote' && videoRef.current && detectorRef.current) {
-      loopNative()
-    }
+    // Aguarda antes de liberar próxima leitura para evitar releitura imediata do mesmo código
+    setTimeout(() => {
+      handledRef.current = false
+      if (mode === 'lote' && videoRef.current && detectorRef.current) {
+        loopNative()
+      }
+    }, 1500)
   }
 
   if (!open) return null

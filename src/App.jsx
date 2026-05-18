@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react'
-import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, Outlet, useOutletContext } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
 import { StoreProvider } from './contexts/StoreContext.jsx'
 import { ToastProvider } from './contexts/ToastContext.jsx'
+import { NavPermissionsProvider, useNavPermissions } from './contexts/NavPermissionsContext.jsx'
 import { Layout } from './components/Layout.jsx'
 import { PWAUpdater } from './components/PWAUpdater.jsx'
 import { Login } from './pages/Login.jsx'
@@ -16,6 +17,7 @@ import { Salas } from './pages/Salas.jsx'
 import { Usuarios } from './pages/Usuarios.jsx'
 import { Perfil } from './pages/Perfil.jsx'
 import { Auditoria } from './pages/Auditoria.jsx'
+import { Permissoes } from './pages/Permissoes.jsx'
 
 const Dashboard = lazy(() =>
   import('./pages/Dashboard.jsx').then((module) => ({ default: module.Dashboard })),
@@ -44,6 +46,17 @@ function ProtectedRoute() {
   return <Outlet />
 }
 
+// Protege rotas por permissão dinâmica (lida do banco via NavPermissionsContext)
+function RoleRoute({ pageKey }) {
+  const { user, loading: authLoading } = useAuth()
+  const { permissions, loading: permLoading } = useNavPermissions()
+  const ctx = useOutletContext()
+  if (authLoading || permLoading) return <LoadingScreen />
+  const allowed = permissions[pageKey]?.includes(user?.role) ?? false
+  if (!allowed) return <Navigate to="/inicio" replace />
+  return <Outlet context={ctx} />
+}
+
 function PublicRoute() {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -57,47 +70,58 @@ function App() {
       <PWAUpdater />
       <AuthProvider>
         <StoreProvider>
-          <HashRouter>
-            <Routes>
-              <Route element={<PublicRoute />}>
-                <Route path="/login" element={<Login />} />
-              </Route>
-              <Route element={<ProtectedRoute />}>
-                <Route element={<Layout />}>
-                  <Route path="/" element={<Navigate to="/inicio" replace />} />
-                  <Route path="/inicio" element={<Inicio />} />
-                  <Route
-                    path="/dashboard"
-                    element={
-                      <Suspense fallback={<LoadingScreen />}>
-                        <Dashboard />
-                      </Suspense>
-                    }
-                  />
-                  <Route path="/workflow" element={<Workflow />} />
-                  <Route path="/equipamentos" element={<Equipamentos />} />
-                  <Route path="/movimentacoes" element={<Movimentacoes />} />
-                  <Route path="/rastreio" element={<Rastreio />} />
-                  <Route path="/mapa-salas" element={<MapaSalas />} />
-                  <Route path="/salas" element={<Salas />} />
-                  <Route path="/usuarios" element={<Usuarios />} />
-                  <Route path="/perfil" element={<Perfil />} />
-                  <Route path="/auditoria" element={<Auditoria />} />
-                  <Route
-                    path="*"
-                    element={
-                      <div style={{ textAlign: 'center', padding: 40 }}>
-                        <h2>Erro 404</h2>
-                        <p style={{ color: 'var(--text-secondary)' }}>
-                          A tela procurada não existe.
-                        </p>
-                      </div>
-                    }
-                  />
+          <NavPermissionsProvider>
+            <HashRouter>
+              <Routes>
+                <Route element={<PublicRoute />}>
+                  <Route path="/login" element={<Login />} />
                 </Route>
-              </Route>
-            </Routes>
-          </HashRouter>
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<Navigate to="/inicio" replace />} />
+                    <Route path="/inicio" element={<Inicio />} />
+                    <Route
+                      path="/dashboard"
+                      element={
+                        <Suspense fallback={<LoadingScreen />}>
+                          <Dashboard />
+                        </Suspense>
+                      }
+                    />
+                    <Route path="/workflow" element={<Workflow />} />
+                    <Route path="/equipamentos" element={<Equipamentos />} />
+                    <Route path="/movimentacoes" element={<Movimentacoes />} />
+                    <Route path="/rastreio" element={<Rastreio />} />
+                    <Route path="/mapa-salas" element={<MapaSalas />} />
+                    <Route element={<RoleRoute pageKey="salas" />}>
+                      <Route path="/salas" element={<Salas />} />
+                    </Route>
+                    <Route element={<RoleRoute pageKey="usuarios" />}>
+                      <Route path="/usuarios" element={<Usuarios />} />
+                    </Route>
+                    <Route element={<RoleRoute pageKey="auditoria" />}>
+                      <Route path="/auditoria" element={<Auditoria />} />
+                    </Route>
+                    <Route element={<RoleRoute pageKey="permissoes" />}>
+                      <Route path="/permissoes" element={<Permissoes />} />
+                    </Route>
+                    <Route path="/perfil" element={<Perfil />} />
+                    <Route
+                      path="*"
+                      element={
+                        <div style={{ textAlign: 'center', padding: 40 }}>
+                          <h2>Erro 404</h2>
+                          <p style={{ color: 'var(--text-secondary)' }}>
+                            A tela procurada não existe.
+                          </p>
+                        </div>
+                      }
+                    />
+                  </Route>
+                </Route>
+              </Routes>
+            </HashRouter>
+          </NavPermissionsProvider>
         </StoreProvider>
       </AuthProvider>
     </ToastProvider>
