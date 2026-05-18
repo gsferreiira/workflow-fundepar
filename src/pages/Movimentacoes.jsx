@@ -816,18 +816,6 @@ export function Movimentacoes() {
         </>
       )}
 
-      <Scanner
-        open={scannerOpen}
-        mode={scanMode}
-        onClose={() => setScannerOpen(false)}
-        onMaquinaLocalizada={onMaquinaLocalizada}
-        onSemHistorico={onSemHistorico}
-        onLoteItem={onLoteItem}
-        onConcluirLote={onConcluirLote}
-        loteCount={loteItems.length}
-        loteRecentList={loteItems.slice(-5).reverse()}
-      />
-
       {scanResult && (
         <ScanResultModal
           movement={scanResult.mov}
@@ -908,6 +896,18 @@ export function Movimentacoes() {
           onConfirm={confirmImport}
         />
       )}
+
+      <Scanner
+        open={scannerOpen}
+        mode={scanMode}
+        onClose={() => setScannerOpen(false)}
+        onMaquinaLocalizada={onMaquinaLocalizada}
+        onSemHistorico={onSemHistorico}
+        onLoteItem={onLoteItem}
+        onConcluirLote={onConcluirLote}
+        loteCount={loteItems.length}
+        loteRecentList={loteItems.slice(-5).reverse()}
+      />
     </>
   )
 }
