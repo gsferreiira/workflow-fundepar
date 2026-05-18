@@ -53,8 +53,11 @@ export function Autocomplete({
     const v = e.target.value
     setText(v)
     setOpen(true)
-    // se o usuário apagar / digitar algo que não bate exatamente, limpa o id
-    if (!items.some((it) => it.name === v)) {
+    // Se o usuário digitar algo que não bate com NENHUM item (case-insensitive
+    // e tolerante a espaços extras), limpa o id. Antes a comparação era
+    // case-sensitive, então "Sala 1" vs "sala 1" zerava a seleção indevidamente.
+    const norm = v.trim().toLowerCase()
+    if (!items.some((it) => (it.name || '').trim().toLowerCase() === norm)) {
       onChange?.('', v)
     }
   }

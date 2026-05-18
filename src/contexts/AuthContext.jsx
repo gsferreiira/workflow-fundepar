@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase, createTempClient } from '../lib/supabase.js'
+import { useToast } from './ToastContext.jsx'
 
 const AuthContext = createContext(null)
 const AUTH_INIT_TIMEOUT_MS = 8000
@@ -13,23 +14,31 @@ export const useAuth = () => {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [toastFn, setToastFn] = useState(null)
-
-  const showToast = (msg, type) => {
-    if (toastFn) toastFn(msg, type)
-    else console.log(`[toast:${type}]`, msg)
-  }
-
-  // Permite registrar a função de toast vinda do ToastProvider
-  const registerToast = useCallback((fn) => {
-    setToastFn(() => fn)
-  }, [])
+  // ToastProvider é ancestral em App.jsx — pegamos showToast direto.
+  // Antes existia um registerToast() que nunca era chamado, por isso os toasts
+  // de "senha inválida" e demais erros de auth caíam silenciosamente no console.
+  const { showToast } = useToast()
 
   const fallbackUser = useCallback((authUser) => ({
     ...authUser,
     full_name: authUser.user_metadata?.full_name || authUser.email,
     role: 'usuario',
   }), [])
+
+  // Traduz as mensagens de erro mais comuns do Supabase Auth para pt-BR.
+  const translateAuthError = (message = '') => {
+    const m = String(message).toLowerCase()
+    if (m.includes('invalid login credentials')) return 'E-mail ou senha incorretos.'
+    if (m.includes('email not confirmed')) return 'E-mail ainda não confirmado. Verifique sua caixa de entrada.'
+    if (m.includes('user not found')) return 'Usuário não encontrado.'
+    if (m.includes('email rate limit')) return 'Muitas tentativas. Tente novamente em alguns minutos.'
+    if (m.includes('rate limit')) return 'Muitas requisições. Aguarde alguns instantes.'
+    if (m.includes('password should be at least')) return 'A senha precisa ter no mínimo 6 caracteres.'
+    if (m.includes('signups not allowed')) return 'Cadastros desabilitados. Contate um administrador.'
+    if (m.includes('user already registered')) return 'Este e-mail já está cadastrado.'
+    if (m.includes('network')) return 'Falha de conexão. Verifique sua internet.'
+    return message
+  }
 
   const fetchProfile = useCallback(async (authUser) => {
     const { data: profile, error } = await supabase
@@ -134,13 +143,13 @@ export function AuthProvider({ children }) {
         'O login',
       )
       if (error) {
-        showToast('Erro no login: ' + error.message, 'danger')
+        showToast(translateAuthError(error.message), 'danger')
         return null
       }
       if (data.user) fetchProfileInBackground(data.user)
       return data.user
     } catch (error) {
-      showToast('Erro no login: ' + error.message, 'danger')
+      showToast(translateAuthError(error.message), 'danger')
       return null
     }
   }
@@ -153,7 +162,7 @@ export function AuthProvider({ children }) {
     })
 
     if (error) {
-      showToast(error.message, 'danger')
+      showToast(translateAuthError(error.message), 'danger')
       return null
     }
 
@@ -228,7 +237,6 @@ export function AuthProvider({ children }) {
         fetchProfile,
         adminCreateUser,
         adminResetPassword,
-        registerToast,
       }}
     >
       {children}

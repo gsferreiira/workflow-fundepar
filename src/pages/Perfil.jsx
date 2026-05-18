@@ -1,9 +1,37 @@
-import { useState } from 'react'
-import { Loader2, User, Lock, Mail, Shield } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Loader2, User, Lock, Mail, Shield, Eye, EyeOff } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonProfile } from '../components/Skeleton.jsx'
+
+function PasswordInput({ value, onChange, placeholder, minLength, autoComplete = 'new-password' }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="password-input-wrapper">
+      <input
+        type={show ? 'text' : 'password'}
+        className="form-control"
+        required
+        minLength={minLength}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        style={{ paddingRight: 42 }}
+      />
+      <button
+        type="button"
+        className="password-toggle-btn"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? 'Ocultar senha' : 'Mostrar senha'}
+        tabIndex={-1}
+      >
+        {show ? <EyeOff size={16} /> : <Eye size={16} />}
+      </button>
+    </div>
+  )
+}
 
 const ROLE_LABELS = { admin: 'Administrador', tecnico: 'Técnico', usuario: 'Usuário' }
 
@@ -15,6 +43,12 @@ export function Perfil() {
   const [newPass, setNewPass] = useState('')
   const [confPass, setConfPass] = useState('')
   const [busyPass, setBusyPass] = useState(false)
+
+  // Sincroniza o input quando `user.full_name` muda (ex: outra aba edita
+  // o nome, USER_UPDATED do Supabase Auth refeta o perfil).
+  useEffect(() => {
+    setName(user?.full_name || '')
+  }, [user?.full_name])
 
   if (!user) return <SkeletonProfile />
 
@@ -155,22 +189,16 @@ export function Perfil() {
           <form onSubmit={updatePassword}>
             <div className="form-group">
               <label>Nova senha</label>
-              <input
-                type="password"
-                className="form-control"
-                required
-                minLength={6}
+              <PasswordInput
                 value={newPass}
                 onChange={(e) => setNewPass(e.target.value)}
                 placeholder="Mínimo 6 caracteres"
+                minLength={6}
               />
             </div>
             <div className="form-group">
               <label>Confirmar nova senha</label>
-              <input
-                type="password"
-                className="form-control"
-                required
+              <PasswordInput
                 value={confPass}
                 onChange={(e) => setConfPass(e.target.value)}
                 placeholder="Repita a nova senha"

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Sidebar } from './Sidebar.jsx'
 import { Topbar } from './Topbar.jsx'
@@ -29,11 +29,13 @@ export function Layout() {
   const { showToast } = useToast()
   const { items, badge, refresh, markAsSeen } = useNotifications()
 
-  // Debounce do search e reset entre rotas
+  // Debounce do search e reset entre rotas.
+  // O debouncer é criado UMA VEZ via useMemo. Antes era criado a cada render
+  // do useEffect, o que zerava o timer interno e o debounce nunca disparava.
+  const debouncedSetSearch = useMemo(() => debounce((v) => setSearchDebounced(v), 250), [])
   useEffect(() => {
-    const d = debounce((v) => setSearchDebounced(v), 250)
-    d(search)
-  }, [search])
+    debouncedSetSearch(search)
+  }, [search, debouncedSetSearch])
 
   useEffect(() => {
     setSearch('')

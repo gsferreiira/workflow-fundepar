@@ -85,28 +85,38 @@ export function MapaSalas() {
   }, [rooms, search])
 
   const exportRoom = async (room) => {
-    const XLSX = (await import('xlsx')).default
-    if (room.items.length === 0) {
-      showToast('Esta sala não tem equipamentos para exportar.', 'warning')
-      return
+    try {
+      if (room.items.length === 0) {
+        showToast('Esta sala não tem equipamentos para exportar.', 'warning')
+        return
+      }
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) {
+        showToast('Biblioteca de exportação não carregada.', 'danger')
+        return
+      }
+      const wsData = [
+        ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ...room.items.map((item) => [
+          item.name || '—',
+          formatAssetNumber(item.asset_number) || '—',
+          item.serial_number || '—',
+          item.received_by || '—',
+          item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, room.name.slice(0, 31))
+      const safeName = room.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
+      XLSX.writeFile(wb, `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      showToast(`Exportado: ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`, 'success')
+    } catch (err) {
+      console.error('exportRoom erro:', err)
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
     }
-    const wsData = [
-      ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
-      ...room.items.map((item) => [
-        item.name || '—',
-        formatAssetNumber(item.asset_number) || '—',
-        item.serial_number || '—',
-        item.received_by || '—',
-        item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
-      ]),
-    ]
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, room.name.slice(0, 31))
-    const safeName = room.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
-    XLSX.writeFile(wb, `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    showToast(`Exportado: ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`, 'success')
   }
 
   if (!rooms) return <SkeletonCards />
@@ -232,7 +242,7 @@ function RoomCard({ room, onDetail }) {
           <>
             {preview.map((item, i) => (
               <div
-                key={i}
+                key={item.asset_number || item.serial_number || `${item.name}-${i}`}
                 style={{
                   display: 'flex',
                   alignItems: 'flex-start',
@@ -335,7 +345,7 @@ function RoomDetailModal({ room, onClose, onExport }) {
               </thead>
               <tbody>
                 {room.items.map((item, i) => (
-                  <tr key={i}>
+                  <tr key={item.asset_number || item.serial_number || `${item.name}-${i}`}>
                     <td>
                       <strong>{item.name}</strong>
                       {item.serial_number && (

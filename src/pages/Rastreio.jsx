@@ -1,7 +1,10 @@
-import { useEffect, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin } from 'lucide-react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../contexts/AuthContext.jsx'
+import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
+import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { formatAssetNumber, fmtDate, fmtDateTime } from '../utils/format.js'
 
@@ -40,6 +43,10 @@ export function Rastreio() {
   const [filterStatus, setFilterStatus] = useState('')
   const [sort, setSort] = useState('az')
   const [historyEq, setHistoryEq] = useState(null)
+  const [selectedKeys, setSelectedKeys] = useState(() => new Set())
+  const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [reloadToken, setReloadToken] = useState(0)
+  const refetch = useCallback(() => setReloadToken((t) => t + 1), [])
 
   useEffect(() => {
     const load = async () => {
@@ -79,6 +86,7 @@ export function Rastreio() {
         seen.add(key)
         if (!m.destination_room_id) return
         items.push({
+          key,
           equipment_id: m.equipment_id,
           equipment: m.equipment,
           categoria: m.equipment?.categoria || null,
@@ -98,7 +106,7 @@ export function Rastreio() {
       setData(items)
     }
     load()
-  }, [])
+  }, [reloadToken, showToast])
 
   const uniqueRooms = useMemo(() => {
     if (!data) return []
@@ -165,12 +173,18 @@ export function Rastreio() {
   }, [data, search, filterRoom, filterCat, filterStatus, sort])
 
   const exportExcel = async () => {
-    if (filtered.length === 0) {
-      showToast('Nenhum equipamento para exportar.', 'warning')
-      return
-    }
-    const XLSX = (await import('xlsx')).default
-    const wsData = [
+    try {
+      if (filtered.length === 0) {
+        showToast('Nenhum equipamento para exportar.', 'warning')
+        return
+      }
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) {
+        showToast('Biblioteca de exportação não carregada.', 'danger')
+        return
+      }
+      const wsData = [
       ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Última Movimentação', 'Observação'],
       ...filtered.map((d) => [
         d.equipment?.name || '—',
@@ -193,6 +207,10 @@ export function Rastreio() {
     XLSX.utils.book_append_sheet(wb, ws, 'Rastreio')
     XLSX.writeFile(wb, `rastreio_${new Date().toISOString().slice(0, 10)}.xlsx`)
     showToast('Arquivo exportado!', 'success')
+    } catch (err) {
+      console.error('exportExcel erro:', err)
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
+    }
   }
 
   const clearFilters = () => {
@@ -203,6 +221,39 @@ export function Rastreio() {
     setSort('az')
   }
 
+  // ── Seleção múltipla / Bulk move (Onda 4 #8) ──────────────────────
+  const toggleSelected = useCallback((key) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((d) => selectedKeys.has(d.key))
+
+  const toggleAllFiltered = useCallback(() => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (allFilteredSelected) {
+        filtered.forEach((d) => next.delete(d.key))
+      } else {
+        filtered.forEach((d) => next.add(d.key))
+      }
+      return next
+    })
+  }, [filtered, allFilteredSelected])
+
+  const clearSelection = useCallback(() => setSelectedKeys(new Set()), [])
+
+  // Pega só os itens filtrados que estão selecionados (descarta seleção fora do filtro atual)
+  const selectedItems = useMemo(
+    () => filtered.filter((d) => selectedKeys.has(d.key)),
+    [filtered, selectedKeys],
+  )
+
   if (!data) return <SkeletonTable />
 
   return (
@@ -212,8 +263,15 @@ export function Rastreio() {
           <h2>Rastreio de Patrimônio</h2>
           <p>Localização atual de cada equipamento individual no sistema.</p>
         </div>
-        <button className="btn-primary" style={{ background: '#059669' }} onClick={exportExcel}>
+        <button
+          className="btn-primary"
+          style={{ background: '#059669' }}
+          onClick={exportExcel}
+          disabled={!filtered || filtered.length === 0}
+          title={filtered?.length === 0 ? 'Sem itens para exportar' : 'Exportar todos os itens filtrados'}
+        >
           <FileSpreadsheet size={14} /> Exportar Excel
+          {filtered && filtered.length > 0 && ` (${filtered.length})`}
         </button>
       </div>
 
@@ -299,10 +357,44 @@ export function Rastreio() {
         </div>
       </div>
 
+      {selectedItems.length > 0 && (
+        <div className="bulk-action-bar fade-in">
+          <div className="bulk-action-info">
+            <Check size={16} />
+            <strong>{selectedItems.length}</strong> selecionado{selectedItems.length !== 1 ? 's' : ''}
+          </div>
+          <div className="bulk-action-buttons">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setBulkModalOpen(true)}
+            >
+              <ArrowRightLeft size={14} /> Mover {selectedItems.length} para outra sala
+            </button>
+            <button
+              type="button"
+              className="btn-filter-clear"
+              onClick={clearSelection}
+            >
+              <X size={13} /> Limpar seleção
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="table-card fade-in">
         <table className="data-table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  className="bulk-checkbox"
+                  checked={allFilteredSelected}
+                  onChange={toggleAllFiltered}
+                  aria-label="Selecionar todos os equipamentos filtrados"
+                />
+              </th>
               <th>Equipamento</th>
               <th>Categoria</th>
               <th>Status</th>
@@ -317,15 +409,24 @@ export function Rastreio() {
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
                 >
                   Nenhum equipamento encontrado.
                 </td>
               </tr>
             ) : (
-              filtered.map((d, i) => (
-                <tr key={i}>
+              filtered.map((d) => (
+                <tr key={d.key} className={selectedKeys.has(d.key) ? 'row-selected' : ''}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      className="bulk-checkbox"
+                      checked={selectedKeys.has(d.key)}
+                      onChange={() => toggleSelected(d.key)}
+                      aria-label={`Selecionar ${d.equipment?.name || d.key}`}
+                    />
+                  </td>
                   <td>
                     <strong>{d.equipment?.name || '—'}</strong>
                     {d.serial_number && (
@@ -398,7 +499,209 @@ export function Rastreio() {
       {historyEq && (
         <HistoryModal item={historyEq} onClose={() => setHistoryEq(null)} />
       )}
+
+      {bulkModalOpen && (
+        <BulkMoveModal
+          items={selectedItems}
+          onClose={() => setBulkModalOpen(false)}
+          onSuccess={() => {
+            setBulkModalOpen(false)
+            clearSelection()
+            refetch()
+          }}
+        />
+      )}
     </>
+  )
+}
+
+function BulkMoveModal({ items, onClose, onSuccess }) {
+  const { user } = useAuth()
+  const { rooms: roomsFetcher } = useStore()
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [rooms, setRooms] = useState([])
+  const [destRoomId, setDestRoomId] = useState('')
+  const [receivedBy, setReceivedBy] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    roomsFetcher().then(setRooms)
+  }, [roomsFetcher])
+
+  // Itens cuja sala atual coincide com a destino — serão pulados na execução
+  const skippable = useMemo(
+    () => items.filter((i) => destRoomId && i.destination_room_id === destRoomId),
+    [items, destRoomId],
+  )
+  const toMove = items.length - skippable.length
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!destRoomId) {
+      showToast('Selecione a sala de destino.', 'warning')
+      return
+    }
+    if (toMove === 0) {
+      showToast('Todos os selecionados já estão nessa sala.', 'warning')
+      return
+    }
+    setSubmitting(true)
+    const movedAt = new Date().toISOString()
+    const destRoom = rooms.find((r) => r.id === destRoomId)
+
+    // Insere uma movimentação por item (pula os que já estão no destino)
+    const movements = items
+      .filter((i) => i.destination_room_id !== destRoomId)
+      .map((i) => ({
+        equipment_id: i.equipment_id,
+        serial_number: i.serial_number,
+        asset_number: i.asset_number,
+        origin_room_id: i.destination_room_id, // sala atual vira origem
+        destination_room_id: destRoomId,
+        moved_by: user?.id,
+        received_by: receivedBy.trim() || null,
+        moved_at: movedAt,
+      }))
+
+    const { data: inserted, error } = await supabase
+      .from('asset_movements')
+      .insert(movements)
+      .select('id, asset_number')
+
+    if (error) {
+      showToast('Erro ao mover: ' + error.message, 'danger')
+      setSubmitting(false)
+      return
+    }
+
+    // Atualiza equipment_locations para cada patrimônio físico (asset_number)
+    const locationUpserts = movements
+      .filter((m) => m.asset_number)
+      .map((m) => ({
+        equipment_id: m.equipment_id,
+        asset_number: m.asset_number,
+        serial_number: m.serial_number,
+        current_room_id: destRoomId,
+        moved_by: m.moved_by,
+        received_by: m.received_by,
+        moved_at: movedAt,
+      }))
+    if (locationUpserts.length > 0) {
+      const { error: locError } = await supabase
+        .from('equipment_locations')
+        .upsert(locationUpserts, { onConflict: 'asset_number' })
+      if (locError) console.warn('Bulk move — localização atual não atualizada:', locError.message)
+    }
+
+    // Audit: registra a operação em lote
+    audit.log('bulk_move', 'asset_movements', null, {
+      count: movements.length,
+      destination: destRoom?.name,
+      asset_numbers: movements.map((m) => m.asset_number).filter(Boolean),
+    })
+
+    showToast(
+      `${movements.length} ${movements.length === 1 ? 'patrimônio movido' : 'patrimônios movidos'} para "${destRoom?.name}".`,
+      'success',
+    )
+    onSuccess()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 520 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Mover {items.length} {items.length === 1 ? 'patrimônio' : 'patrimônios'}</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              Os itens selecionados serão movidos para a mesma sala destino.
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>
+              Sala de destino <span style={{ color: 'var(--danger-color)' }}>*</span>
+            </label>
+            <select
+              className="form-control"
+              required
+              value={destRoomId}
+              onChange={(e) => setDestRoomId(e.target.value)}
+            >
+              <option value="">Selecione...</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            {skippable.length > 0 && (
+              <small style={{ color: 'var(--warning-color)', fontSize: 12, marginTop: 4, display: 'block' }}>
+                {skippable.length} {skippable.length === 1 ? 'item já está' : 'itens já estão'} nessa sala e {skippable.length === 1 ? 'será pulado' : 'serão pulados'}.
+              </small>
+            )}
+          </div>
+          <div className="form-group">
+            <label>Recebedor <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(opcional)</span></label>
+            <input
+              type="text"
+              className="form-control"
+              value={receivedBy}
+              onChange={(e) => setReceivedBy(e.target.value)}
+              placeholder="Nome de quem recebe os equipamentos..."
+            />
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+              Itens selecionados ({items.length})
+            </div>
+            {items.map((i) => (
+              <div
+                key={i.key}
+                style={{
+                  fontSize: 13,
+                  padding: '4px 0',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  borderBottom: '1px solid var(--border-color)',
+                }}
+              >
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {i.equipment?.name || '—'}
+                  {i.asset_number && (
+                    <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>
+                      ({formatAssetNumber(i.asset_number)})
+                    </span>
+                  )}
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  {i.room?.name || '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#e2e8f0', color: '#475569' }}
+              onClick={onClose}
+            >
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={submitting || toMove === 0}>
+              {submitting ? 'Movendo...' : `Mover ${toMove} ${toMove === 1 ? 'item' : 'itens'}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 

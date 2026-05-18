@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
 import { StoreProvider } from './contexts/StoreContext.jsx'
 import { ToastProvider } from './contexts/ToastContext.jsx'
 import { Layout } from './components/Layout.jsx'
+import { PWAUpdater } from './components/PWAUpdater.jsx'
 import { Login } from './pages/Login.jsx'
 import { Inicio } from './pages/Inicio.jsx'
 import { Workflow } from './pages/Workflow.jsx'
@@ -53,6 +54,7 @@ function PublicRoute() {
 function App() {
   return (
     <ToastProvider>
+      <PWAUpdater />
       <AuthProvider>
         <StoreProvider>
           <HashRouter>
