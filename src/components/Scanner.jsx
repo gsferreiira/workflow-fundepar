@@ -83,7 +83,7 @@ export function Scanner({
     }
   }
 
-  const startNative = async () => {
+  const startNative = async (retry = 0) => {
     let stream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -94,7 +94,18 @@ export function Scanner({
         },
       })
     } catch (err) {
-      showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger')
+      // Câmera ainda liberando da sessão anterior — aguarda e tenta de novo
+      if ((err.name === 'NotReadableError' || err.name === 'AbortError') && retry < 3) {
+        await new Promise((r) => setTimeout(r, 400))
+        return startNative(retry + 1)
+      }
+      const msg =
+        err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+          ? 'Permissão de câmera negada. Habilite nas configurações do navegador.'
+          : err.name === 'NotFoundError'
+            ? 'Nenhuma câmera encontrada neste dispositivo.'
+            : 'Não foi possível acessar a câmera. Verifique as permissões.'
+      showToast(msg, 'danger')
       onClose?.()
       return
     }
@@ -178,7 +189,7 @@ export function Scanner({
     }, 1500)
   }
 
-  const startZXing = async () => {
+  const startZXing = async (retry = 0) => {
     try {
       const { BrowserMultiFormatReader } = await import('@zxing/library')
       const reader = new BrowserMultiFormatReader()
@@ -189,8 +200,18 @@ export function Scanner({
             handleSuccess(result.getText())
           }
         })
-        .catch(() => {
-          showToast('Não foi possível acessar a câmera. Verifique as permissões.', 'danger')
+        .catch(async (err) => {
+          if ((err?.name === 'NotReadableError' || err?.name === 'AbortError') && retry < 3) {
+            try { reader.reset() } catch (_) { /* noop */ }
+            zxingReaderRef.current = null
+            await new Promise((r) => setTimeout(r, 400))
+            return startZXing(retry + 1)
+          }
+          const msg =
+            err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError'
+              ? 'Permissão de câmera negada. Habilite nas configurações do navegador.'
+              : 'Não foi possível acessar a câmera. Verifique as permissões.'
+          showToast(msg, 'danger')
           onClose?.()
         })
     } catch (e) {
