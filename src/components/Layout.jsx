@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { X, MapPin, Loader2 } from 'lucide-react'
 import { Sidebar } from './Sidebar.jsx'
 import { Topbar } from './Topbar.jsx'
 import {
@@ -9,6 +10,9 @@ import {
 } from './Notifications.jsx'
 import { Scanner, ScanResultModal } from './Scanner.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
+import { useAuth } from '../contexts/AuthContext.jsx'
+import { useStore } from '../contexts/StoreContext.jsx'
+import { supabase } from '../lib/supabase.js'
 import { debounce } from '../utils/format.js'
 
 // Contexto compartilhado com as páginas — value vem do <Outlet context={...}/>
@@ -24,10 +28,18 @@ export function Layout() {
   const [notifDetail, setNotifDetail] = useState(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanResult, setScanResult] = useState(null)
+  const [locateAsset, setLocateAsset] = useState(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { showToast } = useToast()
+  const { user } = useAuth()
+  const { rooms: roomsFetcher } = useStore()
+  const [rooms, setRooms] = useState([])
   const { items, badge, refresh, markAsSeen } = useNotifications()
+
+  useEffect(() => {
+    roomsFetcher().then(setRooms)
+  }, [roomsFetcher])
 
   // Debounce do search e reset entre rotas.
   // O debouncer é criado UMA VEZ via useMemo. Antes era criado a cada render
@@ -66,8 +78,7 @@ export function Layout() {
 
   const handleSemHistorico = (asset) => {
     setScannerOpen(false)
-    // Navega para movimentações e abre modal com pré-preenchimento
-    navigate('/movimentacoes', { state: { openCreateModal: { prefillAsset: asset } } })
+    setLocateAsset(asset)
   }
 
   const handleScanRegistrar = () => {
@@ -145,6 +156,92 @@ export function Layout() {
       {notifDetail && (
         <NotificationDetailModal item={notifDetail} onClose={() => setNotifDetail(null)} />
       )}
+      {locateAsset && (
+        <QuickLocateModal
+          assetNumber={locateAsset}
+          rooms={rooms}
+          userId={user?.id}
+          onClose={() => setLocateAsset(null)}
+          onSaved={(roomName) => {
+            setLocateAsset(null)
+            showToast(`Localização de ${locateAsset} registrada em "${roomName}".`, 'success')
+          }}
+          onRegisterMovement={() => {
+            const asset = locateAsset
+            setLocateAsset(null)
+            navigate('/movimentacoes', { state: { openCreateModal: { prefillAsset: asset } } })
+          }}
+        />
+      )}
     </LayoutContext.Provider>
+  )
+}
+
+function QuickLocateModal({ assetNumber, rooms, userId, onClose, onSaved, onRegisterMovement }) {
+  const [roomId, setRoomId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const roomsSorted = [...rooms].sort((a, b) => a.name.localeCompare(b.name))
+
+  const handleSave = async () => {
+    if (!roomId) return
+    setBusy(true)
+    const room = rooms.find(r => r.id === roomId)
+    const { error } = await supabase.from('asset_movements').insert({
+      asset_number: assetNumber,
+      destination_room_id: roomId,
+      moved_by: userId,
+      moved_at: new Date().toISOString(),
+    })
+    setBusy(false)
+    if (error) return
+    onSaved(room?.name || roomId)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 420 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Patrimônio sem localização</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              PAT: <strong>{assetNumber}</strong>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.5 }}>
+          Este patrimônio não possui histórico de movimentação. Selecione a sala onde ele está agora para registrar sua localização.
+        </p>
+        <div className="form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <MapPin size={13} /> Onde está agora?
+          </label>
+          <select className="form-control" value={roomId} onChange={e => setRoomId(e.target.value)}>
+            <option value="">Selecione a sala...</option>
+            {roomsSorted.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <button
+            className="btn-primary"
+            style={{ background: '#e2e8f0', color: '#475569', flex: 1 }}
+            onClick={onRegisterMovement}
+          >
+            Movimentação completa
+          </button>
+          <button
+            className="btn-primary"
+            style={{ flex: 1 }}
+            disabled={!roomId || busy}
+            onClick={handleSave}
+          >
+            {busy ? <Loader2 size={14} className="spin" /> : 'Registrar localização'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
