@@ -120,7 +120,7 @@ export function Workflow() {
 
   const activeTickets = (tickets || [])
     .filter(t => t.status === 'em_atendimento')
-    .filter(t => isAdmin || t.assigned_to === user?.id)
+    .filter(t => isAdmin || t.assigned_to === user?.id || t.requester_id === user?.id)
     .sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
 
   const doneTickets = (tickets || [])
@@ -280,6 +280,7 @@ export function Workflow() {
                 key={t.id}
                 ticket={t}
                 isTech={isTech}
+                currentUserId={user?.id}
                 onInicializar={() => inicializar(t.id)}
                 onDetail={() => setDetailId(t.id)}
               />
@@ -359,14 +360,15 @@ export function Workflow() {
 }
 
 // ─── Card: BASE ───────────────────────────────────────────────────────────────
-function BaseCard({ ticket, isTech, onInicializar, onDetail }) {
+function BaseCard({ ticket, isTech, currentUserId, onInicializar, onDetail }) {
   const level = ticket.room?.priority_level || 1
   const p = ROOM_PRIORITY[level]
+  const isMine = ticket.requester_id === currentUserId
   return (
     <div
       style={{
         background: 'var(--bg-card)', borderRadius: 12, padding: '14px 16px',
-        border: `1.5px solid ${p.border}`, cursor: 'pointer',
+        border: `1.5px solid ${isMine ? 'var(--accent-color)' : p.border}`, cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 14,
         transition: 'box-shadow .15s',
       }}
@@ -375,6 +377,11 @@ function BaseCard({ ticket, isTech, onInicializar, onDetail }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
           <PriorityBadge level={level} />
+          {isMine && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(14,165,233,.12)', color: 'var(--accent-color)' }}>
+              Meu chamado
+            </span>
+          )}
           <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
             <MapPin size={11} /> {ticket.room?.name || '—'}
           </span>
@@ -407,6 +414,7 @@ function BaseCard({ ticket, isTech, onInicializar, onDetail }) {
 function ActiveCard({ ticket, isAdmin, currentUserId, onDetail }) {
   const level = ticket.room?.priority_level || 1
   const isOwner = ticket.assigned_to === currentUserId
+  const isMine  = ticket.requester_id === currentUserId && !isOwner
   return (
     <div
       style={{
@@ -419,6 +427,11 @@ function ActiveCard({ ticket, isAdmin, currentUserId, onDetail }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
           <PriorityBadge level={level} />
+          {isMine && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(14,165,233,.12)', color: 'var(--accent-color)' }}>
+              Meu chamado
+            </span>
+          )}
           <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
             <MapPin size={11} /> {ticket.room?.name || '—'}
           </span>
