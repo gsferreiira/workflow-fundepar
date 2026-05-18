@@ -1,26 +1,32 @@
 import { NavLink } from 'react-router-dom'
-import {
-  Home,
-  LayoutDashboard,
-  KanbanSquare,
-  Package,
-  ArrowRightLeft,
-  Search,
-  LayoutGrid,
-  MapPin,
-  Users,
-  ShieldCheck,
-  CircleUser,
-  LogOut,
-} from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
+import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
+import { NAV_PAGES } from '../config/navPages.js'
 
 export function Sidebar({ open, onLinkClick }) {
   const { user, signOut } = useAuth()
-  const isAdmin = user?.role === 'admin'
+  const { permissions } = useNavPermissions()
+  const role = user?.role || 'usuario'
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
   const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário' }
-  const roleLabel = roleLabels[user?.role] || 'Usuário'
+
+  // Filtra as páginas que o role atual pode ver
+  const visiblePages = NAV_PAGES.filter((item) => {
+    if (item.separator) return true // separadores são avaliados abaixo
+    if (item.alwaysVisible) return true
+    return permissions[item.key]?.includes(role) ?? false
+  })
+
+  // Remove separadores que não têm nenhuma página visível após eles
+  const navItems = visiblePages.filter((item, i) => {
+    if (!item.separator) return true
+    for (let j = i + 1; j < visiblePages.length; j++) {
+      if (!visiblePages[j].separator) return true
+      break
+    }
+    return false
+  })
 
   return (
     <aside id="sidebar" className={`sidebar ${open ? 'open' : ''}`}>
@@ -48,32 +54,37 @@ export function Sidebar({ open, onLinkClick }) {
 
       <nav className="sidebar-menu">
         <ul>
-          <SidebarItem to="/inicio" icon={<Home />} label="Início" onClick={onLinkClick} />
-          <SidebarItem to="/dashboard" icon={<LayoutDashboard />} label="Dashboard" onClick={onLinkClick} />
-          <SidebarItem to="/workflow" icon={<KanbanSquare />} label="Workflow (Kanban)" onClick={onLinkClick} />
-          <li className="separator">Patrimônio</li>
-          <SidebarItem to="/equipamentos" icon={<Package />} label="Equipamentos" onClick={onLinkClick} />
-          <SidebarItem to="/movimentacoes" icon={<ArrowRightLeft />} label="Movimentações" onClick={onLinkClick} />
-          <SidebarItem to="/rastreio" icon={<Search />} label="Rastreio" onClick={onLinkClick} />
-          <SidebarItem to="/mapa-salas" icon={<LayoutGrid />} label="Mapa de Salas" onClick={onLinkClick} />
-          <li className="separator">Administração</li>
-          <SidebarItem to="/salas" icon={<MapPin />} label="Cadastro de Salas" onClick={onLinkClick} />
-          <SidebarItem to="/usuarios" icon={<Users />} label="Cadastro de Usuários" onClick={onLinkClick} />
-          {isAdmin && (
-            <SidebarItem to="/auditoria" icon={<ShieldCheck />} label="Auditoria" onClick={onLinkClick} />
+          {navItems.map((item, i) =>
+            item.separator ? (
+              <li key={`sep-${i}`} className="separator">
+                {item.separator}
+              </li>
+            ) : (
+              <SidebarItem
+                key={item.key}
+                to={item.to}
+                icon={<item.icon />}
+                label={item.label}
+                onClick={onLinkClick}
+              />
+            ),
           )}
-          <SidebarItem to="/perfil" icon={<CircleUser />} label="Meu Perfil" onClick={onLinkClick} />
         </ul>
       </nav>
 
       <div id="sidebar-profile" className="sidebar-profile">
-        <NavLink to="/perfil" className="sidebar-profile-link" title="Ver meu perfil" onClick={onLinkClick}>
+        <NavLink
+          to="/perfil"
+          className="sidebar-profile-link"
+          title="Ver meu perfil"
+          onClick={onLinkClick}
+        >
           <img src={avatarUrl} alt="Avatar" className="avatar" />
           <div className="profile-info">
             <div className="name" title={user?.full_name || ''}>
               {user?.full_name || '—'}
             </div>
-            <div className="role">{roleLabel}</div>
+            <div className="role">{roleLabels[role] || 'Usuário'}</div>
           </div>
         </NavLink>
         <button className="btn-logout" onClick={signOut} title="Sair do Sistema">
