@@ -258,6 +258,8 @@ input[type="time"] { min-width: 0; max-width: 100%; }
 .btn-table-action.edit:hover { background: rgba(14, 165, 233, 0.1); }
 .btn-table-action.delete { color: var(--danger-color); }
 .btn-table-action.delete:hover { background: rgba(239, 68, 68, 0.1); }
+.btn-table-action.restore { color: #6366f1; }
+.btn-table-action.restore:hover { background: rgba(99, 102, 241, 0.1); }
 
 /* Select de Role na Tabela */
 .role-select { border: 1px solid var(--border-color); border-radius: 6px; padding: 6px 10px; font-size: 13px; font-family: inherit; color: var(--text-primary); background: var(--bg-main); cursor: pointer; }
