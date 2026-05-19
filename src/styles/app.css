@@ -424,7 +424,7 @@ input[type="time"] { min-width: 0; max-width: 100%; }
     .filter-group { min-width: calc(50% - 6px); max-width: calc(50% - 6px); flex: none; }
     .filter-control { font-size: 16px !important; height: 44px; }
     input[type="date"].filter-control,
-    input[type="datetime-local"].filter-control { min-width: 0; width: 100%; box-sizing: border-box; }
+    input[type="datetime-local"].filter-control { -webkit-appearance: none; appearance: none; min-width: 0; width: 100%; box-sizing: border-box; }
 
     /* Tabelas — scroll horizontal contido */
     .table-card { padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
