@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { X, MapPin, Loader2 } from 'lucide-react'
+import { X, MapPin, Loader2, RefreshCw } from 'lucide-react'
 import { Sidebar } from './Sidebar.jsx'
 import { Topbar } from './Topbar.jsx'
 import {
@@ -14,6 +14,8 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { supabase } from '../lib/supabase.js'
 import { debounce } from '../utils/format.js'
+import { Onboarding, shouldShowOnboarding } from './Onboarding.jsx'
+import { usePullToRefresh } from '../hooks/usePullToRefresh.js'
 
 // Contexto compartilhado com as páginas — value vem do <Outlet context={...}/>
 import { createContext, useContext } from 'react'
@@ -37,6 +39,10 @@ export function Layout() {
   const { rooms: roomsFetcher } = useStore()
   const [rooms, setRooms] = useState([])
   const { items, badge, refresh, markAsSeen } = useNotifications()
+  const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
+  const refreshFnRef = useRef(null)
+  const registerRefresh = useCallback((fn) => { refreshFnRef.current = fn }, [])
+  const { state: pullState } = usePullToRefresh(() => refreshFnRef.current?.())
 
   useEffect(() => {
     roomsFetcher().then(setRooms)
@@ -158,6 +164,7 @@ export function Layout() {
     setSearch,
     openScanner,
     refreshNotifications: refresh,
+    registerRefresh,
   }
 
   return (
@@ -217,6 +224,13 @@ export function Layout() {
       {notifDetail && (
         <NotificationDetailModal item={notifDetail} onClose={() => setNotifDetail(null)} />
       )}
+      {showOnboarding && user?.id && (
+        <Onboarding
+          userId={user.id}
+          role={user.role}
+          onDone={() => setShowOnboarding(false)}
+        />
+      )}
       {locateAsset && (
         <QuickLocateModal
           assetNumber={locateAsset}
@@ -233,6 +247,14 @@ export function Layout() {
             navigate('/movimentacoes', { state: { openCreateModal: { prefillAsset: asset } } })
           }}
         />
+      )}
+      {pullState !== 'idle' && (
+        <div className={`pull-indicator ${pullState}`}>
+          {pullState === 'refreshing'
+            ? <Loader2 size={18} className="spin" />
+            : <RefreshCw size={18} style={{ transform: pullState === 'release' ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
+          }
+        </div>
       )}
     </LayoutContext.Provider>
   )

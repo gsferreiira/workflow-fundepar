@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
   Plus, X, Loader2, CheckCircle2, Clock, MapPin, User,
   Play, MessageSquare, ArrowRightLeft, Settings, Trash2,
@@ -59,9 +60,10 @@ function EmptyState({ message }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 export function Workflow() {
+  const { registerRefresh } = useOutletContext() || {}
   const { user } = useAuth()
   const { rooms: roomsFetcher } = useStore()
-  const { showToast, confirm } = useToast()
+  const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
 
   const [tickets, setTickets]         = useState(null)
@@ -109,6 +111,11 @@ export function Workflow() {
   }, [roomsFetcher])
 
   useRealtime('tickets', useCallback(() => load(), [load]))
+
+  useEffect(() => {
+    registerRefresh?.(load)
+    return () => registerRefresh?.(null)
+  }, [registerRefresh, load])
 
   // ── Filtros de exibição por aba ─────────────────────────────────────────────
   const baseTickets = (tickets || [])
@@ -209,9 +216,12 @@ export function Workflow() {
       .eq('id', id).is('deleted_at', null)
     if (error) { showToast('Erro: ' + error.message, 'danger'); return }
     audit.deleted('tickets', id)
-    showToast('Chamado excluído.', 'success')
     setDetailId(null)
     await load()
+    showUndoToast('Chamado excluído.', async () => {
+      await supabase.from('tickets').update({ deleted_at: null }).eq('id', id)
+      await load()
+    })
   }
 
   if (!tickets) return <SkeletonTable />

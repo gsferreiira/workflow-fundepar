@@ -1,12 +1,30 @@
 import { NavLink } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
+import { LogOut, Download } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
 import { NAV_PAGES } from '../config/navPages.js'
 
+function usePWAInstall() {
+  const [prompt, setPrompt] = useState(null)
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+  const install = async () => {
+    if (!prompt) return
+    prompt.prompt()
+    await prompt.userChoice
+    setPrompt(null)
+  }
+  return { canInstall: !!prompt, install }
+}
+
 export function Sidebar({ open, onLinkClick }) {
   const { user, signOut } = useAuth()
   const { permissions } = useNavPermissions()
+  const { canInstall, install } = usePWAInstall()
   const role = user?.role || 'usuario'
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
   const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário' }
@@ -71,6 +89,12 @@ export function Sidebar({ open, onLinkClick }) {
           )}
         </ul>
       </nav>
+
+      {canInstall && (
+        <button className="sidebar-install-btn" onClick={install}>
+          <Download size={15} /> Instalar como App
+        </button>
+      )}
 
       <div id="sidebar-profile" className="sidebar-profile">
         <NavLink

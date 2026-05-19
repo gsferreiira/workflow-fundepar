@@ -57,17 +57,18 @@ function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
 }
 
 export function Movimentacoes() {
-  const { search } = useOutletContext()
+  const { search, registerRefresh } = useOutletContext()
   const { user } = useAuth()
   const { rooms: roomsFetcher, equipment: equipmentFetcher, profiles: profilesFetcher, invalidate } =
     useStore()
-  const { showToast, confirm } = useToast()
+  const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const isAdmin = user?.role === 'admin'
 
   const [list, setList] = useState(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const refreshRef = useRef(null)
 
   // Detecta movimentações em lote: mesmo moved_at + moved_by = bulk move
   const listWithBatch = useMemo(() => {
@@ -208,6 +209,12 @@ export function Movimentacoes() {
   }
 
   const refresh = () => fetchPage(page, filters, search)
+  refreshRef.current = refresh
+
+  useEffect(() => {
+    registerRefresh?.(() => refreshRef.current?.())
+    return () => registerRefresh?.(null)
+  }, [registerRefresh])
 
   const onPrev = () => {
     const p = page - 1
@@ -226,8 +233,7 @@ export function Movimentacoes() {
   const deleteMov = async (id) => {
     const ok = await confirm({
       title: 'Excluir movimentação',
-      message:
-        'Tem certeza que deseja excluir esta movimentação? O registro será marcado como excluído.',
+      message: 'Tem certeza que deseja excluir esta movimentação?',
       confirmText: 'Excluir',
       danger: true,
     })
@@ -237,13 +243,13 @@ export function Movimentacoes() {
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
       .is('deleted_at', null)
-    if (error) {
-      showToast('Erro ao excluir: ' + error.message, 'danger')
-      return
-    }
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'danger'); return }
     audit.deleted('asset_movements', id)
-    showToast('Movimentação excluída.', 'success')
     refresh()
+    showUndoToast('Movimentação excluída.', async () => {
+      await supabase.from('asset_movements').update({ deleted_at: null }).eq('id', id)
+      refresh()
+    })
   }
 
   // scope: 'page' = só a página visível (rápido) | 'all' = todos os filtrados

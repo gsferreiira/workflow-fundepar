@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState, useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check } from 'lucide-react'
+import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
+import { EmptyState } from '../components/EmptyState.jsx'
 import { formatAssetNumber, fmtDate, fmtDateTime } from '../utils/format.js'
 
 const STATUS_MAP = {
@@ -35,6 +37,7 @@ function StatusBadge({ status }) {
 }
 
 export function Rastreio() {
+  const { registerRefresh } = useOutletContext() || {}
   const { showToast } = useToast()
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
@@ -47,6 +50,13 @@ export function Rastreio() {
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const refetch = useCallback(() => setReloadToken((t) => t + 1), [])
+  const refetchRef = useRef(refetch)
+  refetchRef.current = refetch
+
+  useEffect(() => {
+    registerRefresh?.(() => refetchRef.current?.())
+    return () => registerRefresh?.(null)
+  }, [registerRefresh])
 
   useEffect(() => {
     const load = async () => {
@@ -408,11 +418,12 @@ export function Rastreio() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td
-                  colSpan={9}
-                  style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
-                >
-                  Nenhum equipamento encontrado.
+                <td colSpan={9}>
+                  <EmptyState
+                    preset={search || filterRoom || filterCat || filterStatus ? 'search' : 'package'}
+                    title={search || filterRoom || filterCat || filterStatus ? 'Nenhum patrimônio encontrado' : 'Nenhum patrimônio rastreado'}
+                    description={search || filterRoom || filterCat || filterStatus ? 'Tente ajustar os filtros.' : 'Registre movimentações para rastrear equipamentos.'}
+                  />
                 </td>
               </tr>
             ) : (
