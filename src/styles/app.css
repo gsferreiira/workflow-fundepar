@@ -421,8 +421,10 @@ input[type="time"] { min-width: 0; max-width: 100%; }
 
     /* Filtros */
     .filter-bar { padding: 14px 16px; }
-    .filter-group { min-width: calc(50% - 6px); flex: none; }
+    .filter-group { min-width: calc(50% - 6px); max-width: calc(50% - 6px); flex: none; }
     .filter-control { font-size: 16px !important; height: 44px; }
+    input[type="date"].filter-control,
+    input[type="datetime-local"].filter-control { min-width: 0; width: 100%; box-sizing: border-box; }
 
     /* Tabelas — scroll horizontal contido */
     .table-card { padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
@@ -436,12 +438,6 @@ input[type="time"] { min-width: 0; max-width: 100%; }
     .table-actions .btn-table-action { min-height: 44px; min-width: 44px; padding: 6px; font-size: 0 !important; gap: 0; border-radius: 8px; }
     .table-actions .btn-table-action.edit { background: rgba(14, 165, 233, 0.08); }
     .table-actions .btn-table-action.delete { background: rgba(239, 68, 68, 0.08); }
-
-    /* Coluna de ações: sticky à direita — sempre visível durante scroll horizontal */
-    .data-table th:last-child,
-    .data-table td:last-child { position: sticky; right: 0; z-index: 2; background: var(--bg-card); border-left: 1px solid var(--border-color); }
-    .data-table thead th:last-child { z-index: 3; }
-    .data-table tr:hover td:last-child { background: var(--bg-hover); }
 
     /* Modais — bottom sheet */
     .modal-overlay { padding: 0; align-items: flex-end; }
@@ -522,7 +518,7 @@ input[type="time"] { min-width: 0; max-width: 100%; }
     .detail-meta-grid { grid-template-columns: 1fr; }
 
     /* Filtros — 1 por linha em telas muito estreitas */
-    .filter-group { min-width: 100%; }
+    .filter-group { min-width: 100%; max-width: 100%; }
 
     /* Toast mais compacto */
     .toast { padding: 10px 14px; font-size: 12px; }
