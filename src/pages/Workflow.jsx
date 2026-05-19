@@ -359,11 +359,21 @@ export function Workflow() {
   )
 }
 
+// SLA: retorna { label, color, bg } com base nas horas de espera
+function slaBadge(createdAt) {
+  if (!createdAt) return null
+  const h = (Date.now() - new Date(createdAt)) / 3_600_000
+  if (h < 2)  return { label: `${Math.round(h * 60)}min`, color: '#059669', bg: 'rgba(5,150,105,.1)' }
+  if (h < 8)  return { label: `${Math.floor(h)}h`, color: '#d97706', bg: 'rgba(217,119,6,.1)' }
+  return { label: `${Math.floor(h)}h`, color: '#dc2626', bg: 'rgba(220,38,38,.1)' }
+}
+
 // ─── Card: BASE ───────────────────────────────────────────────────────────────
 function BaseCard({ ticket, isTech, currentUserId, onInicializar, onDetail }) {
   const level = ticket.room?.priority_level || 1
   const p = ROOM_PRIORITY[level]
   const isMine = ticket.requester_id === currentUserId
+  const sla = slaBadge(ticket.created_at)
   return (
     <div
       style={{
@@ -385,9 +395,11 @@ function BaseCard({ ticket, isTech, currentUserId, onInicializar, onDetail }) {
           <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
             <MapPin size={11} /> {ticket.room?.name || '—'}
           </span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Clock size={10} /> {timeAgo(ticket.created_at)}
-          </span>
+          {sla && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: sla.bg, color: sla.color, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Clock size={10} /> {sla.label} esperando
+            </span>
+          )}
         </div>
         <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {ticket.title}

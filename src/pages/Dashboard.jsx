@@ -7,8 +7,6 @@ import {
   CartesianGrid,
   Cell,
   Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,7 +22,6 @@ import {
   Clock,
   MapPin,
   Package,
-  PieChart as PieChartIcon,
   Ticket,
   TrendingUp,
   UserRound,
@@ -273,10 +270,6 @@ export function Dashboard() {
         [...assetsByNumber.values()],
         (asset) => asset.categoria,
       )
-      const usersByRole = groupCount(
-        profiles || [],
-        (profile) => ROLE_LABELS[profile.role] || profile.role,
-      )
       const activitiesByAction = groupCount(
         auditLogs || [],
         (log) => ACTION_LABELS[log.action] || log.action,
@@ -396,7 +389,6 @@ export function Dashboard() {
         charts: {
           traffic: buckets,
           equipmentByCategory,
-          usersByRole,
           activitiesByAction,
           topEquipments,
           topRooms,
@@ -576,24 +568,6 @@ export function Dashboard() {
               ))}
             </div>
           )}
-        </ChartCard>
-
-        <ChartCard
-          title="Visitantes por Tipo"
-          subtitle="Distribuição dos usuários por perfil"
-          icon={PieChartIcon}
-        >
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie data={charts.usersByRole} dataKey="value" nameKey="name" innerRadius={58} outerRadius={94} paddingAngle={3}>
-                {charts.usersByRole.map((entry, index) => (
-                  <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<DashboardTooltip />} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
         </ChartCard>
 
         <ChartCard

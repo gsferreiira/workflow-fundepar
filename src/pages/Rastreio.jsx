@@ -711,22 +711,56 @@ function HistoryModal({ item, onClose }) {
 
   useEffect(() => {
     const load = async () => {
-      const { data, error } = await supabase
+      // Busca os movimentos sem join (mesmo padrão do resto do app)
+      let query = supabase
         .from('asset_movements')
-        .select(
-          '*, origin_room:origin_room_id(name), destination_room:destination_room_id(name), profile:moved_by(full_name)',
-        )
-        .eq('equipment_id', item.equipment_id)
+        .select('id, asset_number, moved_at, received_by, origin_room_id, destination_room_id, moved_by')
         .is('deleted_at', null)
         .order('moved_at', { ascending: false })
+
+      if (item.asset_number) {
+        query = query.eq('asset_number', item.asset_number)
+      } else if (item.serial_number && item.equipment_id) {
+        query = query.eq('equipment_id', item.equipment_id).eq('serial_number', item.serial_number)
+      } else if (item.equipment_id) {
+        query = query.eq('equipment_id', item.equipment_id)
+      }
+
+      const { data: movs, error } = await query
       if (error) {
-        showToast('Erro ao carregar histórico.', 'danger')
+        showToast('Erro ao carregar histórico: ' + error.message, 'danger')
         return
       }
-      setMovements(data || [])
+      if (!movs || movs.length === 0) { setMovements([]); return }
+
+      // Resolve salas e perfis separadamente (igual Movimentacoes.jsx)
+      const roomIds = [...new Set([
+        ...movs.map(m => m.origin_room_id),
+        ...movs.map(m => m.destination_room_id),
+      ].filter(Boolean))]
+      const profileIds = [...new Set(movs.map(m => m.moved_by).filter(Boolean))]
+
+      const [{ data: rooms }, { data: profiles }] = await Promise.all([
+        roomIds.length > 0
+          ? supabase.from('rooms').select('id, name').in('id', roomIds)
+          : Promise.resolve({ data: [] }),
+        profileIds.length > 0
+          ? supabase.from('profiles').select('id, full_name').in('id', profileIds)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r]))
+      const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]))
+
+      setMovements(movs.map(m => ({
+        ...m,
+        origin_room:      roomMap[m.origin_room_id]      || null,
+        destination_room: roomMap[m.destination_room_id] || null,
+        profile:          profileMap[m.moved_by]         || null,
+      })))
     }
     load()
-  }, [item.equipment_id])
+  }, [item.asset_number, item.serial_number, item.equipment_id, showToast])
 
   const name = item.equipment?.name || '—'
 
@@ -751,39 +785,29 @@ function HistoryModal({ item, onClose }) {
             Nenhuma movimentação registrada.
           </div>
         ) : (
-          <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-            <table className="data-table" style={{ minWidth: 0 }}>
-              <thead>
-                <tr>
-                  <th>Nº Pat.</th>
-                  <th>Origem</th>
-                  <th>Destino</th>
-                  <th>Responsável</th>
-                  <th>Data</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movements.map((m) => (
-                  <tr key={m.id}>
-                    <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {formatAssetNumber(m.asset_number) || '—'}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {m.origin_room?.name || '—'}
-                    </td>
-                    <td style={{ color: 'var(--accent-color)' }}>
-                      {m.destination_room?.name || '—'}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>
-                      {m.profile?.full_name || '—'}
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                      {fmtDateTime(m.moved_at)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ maxHeight: 460, overflowY: 'auto', paddingRight: 4 }}>
+            {movements.map((m, i) => (
+              <div key={m.id} className="mov-timeline-item">
+                <div className="mov-timeline-left">
+                  <div className="mov-timeline-dot" style={{ background: i === 0 ? 'var(--accent-color)' : 'var(--border-color)' }} />
+                  {i < movements.length - 1 && <div className="mov-timeline-line" />}
+                </div>
+                <div className="mov-timeline-body">
+                  <div className="mov-timeline-date">{fmtDateTime(m.moved_at)}</div>
+                  <div className="mov-timeline-route">
+                    <span className="mov-timeline-room origin">{m.origin_room?.name || 'Origem desconhecida'}</span>
+                    <ArrowRightLeft size={12} style={{ flexShrink: 0, color: 'var(--text-secondary)' }} />
+                    <span className="mov-timeline-room dest">{m.destination_room?.name || '—'}</span>
+                  </div>
+                  {(m.profile?.full_name || m.received_by) && (
+                    <div className="mov-timeline-meta">
+                      {m.profile?.full_name && <span>Por: {m.profile.full_name}</span>}
+                      {m.received_by && <span>Recebido por: {m.received_by}</span>}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>

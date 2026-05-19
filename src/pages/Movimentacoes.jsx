@@ -69,6 +69,17 @@ export function Movimentacoes() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
 
+  // Detecta movimentações em lote: mesmo moved_at + moved_by = bulk move
+  const listWithBatch = useMemo(() => {
+    if (!list) return null
+    const countMap = {}
+    list.forEach((m) => {
+      const key = `${m.moved_at}|${m.moved_by}`
+      countMap[key] = (countMap[key] || 0) + 1
+    })
+    return list.map((m) => ({ ...m, isBatch: countMap[`${m.moved_at}|${m.moved_by}`] >= 2 }))
+  }, [list])
+
   const [equipment, setEquipment] = useState([])
   const [rooms, setRooms] = useState([])
   const [profilesList, setProfilesList] = useState([])
@@ -724,7 +735,7 @@ export function Movimentacoes() {
         </div>
       </div>
 
-      {!list ? (
+      {!listWithBatch ? (
         <SkeletonTable />
       ) : (
         <>
@@ -743,17 +754,22 @@ export function Movimentacoes() {
                 </tr>
               </thead>
               <tbody>
-                {list.length === 0 ? (
+                {listWithBatch.length === 0 ? (
                   <tr>
                     <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
                       Nenhuma movimentação encontrada.
                     </td>
                   </tr>
                 ) : (
-                  list.map((m) => (
+                  listWithBatch.map((m) => (
                     <tr key={m.id}>
                       <td>
                         <strong>{m.equipment?.name || '—'}</strong>
+                        {m.isBatch && (
+                          <span style={{ marginLeft: 6, fontSize: 10, background: 'rgba(99,102,241,.12)', color: '#6366f1', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }} title="Movimentado em lote">
+                            LOTE
+                          </span>
+                        )}
                         {m.is_edited && (
                           <span style={{ marginLeft: 6, fontSize: 10, background: 'rgba(245,158,11,.15)', color: '#d97706', padding: '1px 5px', borderRadius: 10, fontWeight: 600 }}>
                             editado

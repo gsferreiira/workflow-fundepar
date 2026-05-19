@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Lock } from 'lucide-react'
+import { X, Lock, Eye } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -255,13 +255,15 @@ export function Auditoria() {
                       </td>
                       <td>
                         {log.details && (
-                          <button
-                            className="btn-table-action edit"
-                            style={{ padding: '3px 10px', fontSize: 12 }}
-                            onClick={() => setDetailLog(log)}
-                          >
-                            Ver
-                          </button>
+                          <div className="table-actions">
+                            <button
+                              className="btn-table-action edit"
+                              onClick={() => setDetailLog(log)}
+                              title="Ver detalhes"
+                            >
+                              <Eye size={14} />
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
