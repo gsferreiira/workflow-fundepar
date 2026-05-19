@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
-import { X, Lock, Eye } from 'lucide-react'
+import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
+import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { fmtDateTime } from '../utils/format.js'
+
+// Tabelas que suportam soft-delete e podem ter registros restaurados
+const RESTORABLE = new Set(['rooms', 'equipment', 'asset_movements', 'tickets', 'profiles'])
 
 const ACTIONS = [
   { value: 'create', label: 'Criação' },
@@ -45,8 +49,9 @@ function buildQuery(filters, { page, count = false }) {
 
 export function Auditoria() {
   const { user } = useAuth()
-  const { profiles: profilesFetcher } = useStore()
-  const { showToast } = useToast()
+  const { profiles: profilesFetcher, invalidate } = useStore()
+  const { showToast, confirm } = useToast()
+  const audit = useAudit()
   const [data, setData] = useState(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -59,6 +64,8 @@ export function Auditoria() {
     dateTo: '',
   })
   const [detailLog, setDetailLog] = useState(null)
+  const [undoLog, setUndoLog] = useState(null)
+  const [undoBusy, setUndoBusy] = useState(false)
 
   const isAdmin = user?.role === 'admin'
 
@@ -110,6 +117,50 @@ export function Auditoria() {
     setPage(p)
     fetchPage(p)
     window.scrollTo(0, 0)
+  }
+
+  const executeUndo = async (log) => {
+    setUndoBusy(true)
+    const isDelete = log.action === 'delete'
+    const isCreate = log.action === 'create'
+
+    if (isDelete) {
+      // Restaura o registro removendo o deleted_at
+      const { error } = await supabase
+        .from(log.table_name)
+        .update({ deleted_at: null })
+        .eq('id', log.record_id)
+      if (error) {
+        showToast('Erro ao restaurar: ' + error.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      audit.restored(log.table_name, log.record_id, { undone_log_id: log.id })
+      showToast(`${TABLE_LABELS[log.table_name] || 'Registro'} restaurado com sucesso.`, 'success')
+    } else if (isCreate) {
+      // Reverte a criação fazendo soft-delete do registro
+      const { error } = await supabase
+        .from(log.table_name)
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', log.record_id)
+        .is('deleted_at', null)
+      if (error) {
+        showToast('Erro ao reverter: ' + error.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      audit.deleted(log.table_name, log.record_id, { undone_log_id: log.id })
+      showToast(`Criação de ${TABLE_LABELS[log.table_name] || 'registro'} revertida.`, 'success')
+    }
+
+    // Invalida caches relevantes
+    if (log.table_name === 'rooms') invalidate('rooms', 'roomsFull')
+    else if (log.table_name === 'equipment') invalidate('equipment')
+    else if (log.table_name === 'profiles') invalidate('profiles')
+
+    setUndoBusy(false)
+    setUndoLog(null)
+    fetchPage(page)
   }
 
   if (!isAdmin) {
@@ -225,7 +276,7 @@ export function Auditoria() {
                   <th>Ação</th>
                   <th>Tabela</th>
                   <th>ID do Registro</th>
-                  <th style={{ width: 90 }}>Detalhes</th>
+                  <th style={{ width: 110 }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -254,8 +305,8 @@ export function Auditoria() {
                         {log.record_id ? log.record_id.slice(0, 8) + '…' : '—'}
                       </td>
                       <td>
-                        {log.details && (
-                          <div className="table-actions">
+                        <div className="table-actions">
+                          {log.details && (
                             <button
                               className="btn-table-action edit"
                               onClick={() => setDetailLog(log)}
@@ -263,8 +314,17 @@ export function Auditoria() {
                             >
                               <Eye size={14} />
                             </button>
-                          </div>
-                        )}
+                          )}
+                          {(log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id && (
+                            <button
+                              className="btn-table-action restore"
+                              onClick={() => setUndoLog(log)}
+                              title={log.action === 'delete' ? 'Restaurar registro' : 'Reverter criação'}
+                            >
+                              {log.action === 'delete' ? <Undo2 size={14} /> : <RotateCcw size={14} />}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -283,6 +343,14 @@ export function Auditoria() {
       )}
 
       {detailLog && <DetailModal log={detailLog} onClose={() => setDetailLog(null)} />}
+      {undoLog && (
+        <UndoModal
+          log={undoLog}
+          busy={undoBusy}
+          onConfirm={() => executeUndo(undoLog)}
+          onClose={() => setUndoLog(null)}
+        />
+      )}
     </>
   )
 }
@@ -353,6 +421,155 @@ function DetailModal({ log, onClose }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
           <button className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
             Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Campos que não precisam aparecer na prévia (são técnicos/internos)
+const SKIP_FIELDS = new Set(['id', 'created_at', 'updated_at', 'deleted_at'])
+
+// Labels legíveis por tabela
+const FIELD_LABELS = {
+  equipment: { name: 'Nome', categoria: 'Categoria', status: 'Estado', asset_number: 'Nº Patrimônio', serial_number: 'Nº Série', observacao: 'Observação' },
+  rooms: { name: 'Nome', room_number: 'Número', coordinator: 'Coordenador', description: 'Descrição', priority_level: 'Prioridade' },
+  asset_movements: { asset_number: 'Nº Patrimônio', serial_number: 'Nº Série', moved_at: 'Data da movimentação', received_by: 'Recebido por', origin_room: 'Sala de origem', destination_room: 'Sala de destino', moved_by_name: 'Movido por' },
+  tickets: { title: 'Título', status: 'Status', description: 'Descrição', priority: 'Prioridade' },
+  profiles: { full_name: 'Nome completo', email: 'E-mail', role: 'Papel' },
+}
+
+async function fetchFullRecord(tableName, recordId) {
+  if (!recordId || !tableName) return null
+
+  if (tableName === 'asset_movements') {
+    const { data: mov } = await supabase.from('asset_movements').select('*').eq('id', recordId).maybeSingle()
+    if (!mov) return null
+    const roomIds = [mov.origin_room_id, mov.destination_room_id].filter(Boolean)
+    const profileIds = [mov.moved_by].filter(Boolean)
+    const [{ data: rooms }, { data: profiles }] = await Promise.all([
+      roomIds.length ? supabase.from('rooms').select('id, name').in('id', roomIds) : { data: [] },
+      profileIds.length ? supabase.from('profiles').select('id, full_name').in('id', profileIds) : { data: [] },
+    ])
+    const roomMap = Object.fromEntries((rooms || []).map(r => [r.id, r.name]))
+    const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p.full_name]))
+    return {
+      asset_number: mov.asset_number,
+      serial_number: mov.serial_number,
+      moved_at: mov.moved_at,
+      origin_room: roomMap[mov.origin_room_id] || mov.origin_room_id || '—',
+      destination_room: roomMap[mov.destination_room_id] || mov.destination_room_id || '—',
+      moved_by_name: profileMap[mov.moved_by] || mov.moved_by || '—',
+      received_by: mov.received_by,
+    }
+  }
+
+  const { data } = await supabase.from(tableName).select('*').eq('id', recordId).maybeSingle()
+  return data
+}
+
+function RecordPreview({ tableName, record }) {
+  const labels = FIELD_LABELS[tableName] || {}
+  const entries = Object.entries(record).filter(([k, v]) => {
+    if (SKIP_FIELDS.has(k)) return false
+    if (v === null || v === undefined || v === '') return false
+    return true
+  })
+
+  if (entries.length === 0) return <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sem dados adicionais.</p>
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {entries.map(([key, value]) => {
+        const label = labels[key] || key
+        let display = value
+        if (typeof value === 'boolean') display = value ? 'Sim' : 'Não'
+        else if (key.endsWith('_at') && typeof value === 'string') display = fmtDateTime(value)
+        else if (typeof value === 'object') display = JSON.stringify(value)
+        else display = String(value)
+        return (
+          <div key={key} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, minWidth: 130, flexShrink: 0 }}>{label}</span>
+            <span style={{ fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word' }}>{display}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function UndoModal({ log, busy, onConfirm, onClose }) {
+  const isDelete = log.action === 'delete'
+  const tableLabel = TABLE_LABELS[log.table_name] || log.table_name
+  const [record, setRecord] = useState(null)
+  const [loadingRecord, setLoadingRecord] = useState(true)
+
+  useEffect(() => {
+    fetchFullRecord(log.table_name, log.record_id).then(data => {
+      setRecord(data)
+      setLoadingRecord(false)
+    })
+  }, [log.table_name, log.record_id])
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 500 }}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: isDelete ? 'rgba(99,102,241,.1)' : 'rgba(245,158,11,.1)', color: isDelete ? '#6366f1' : '#d97706', padding: 10, borderRadius: 10, flexShrink: 0 }}>
+              {isDelete ? <Undo2 size={20} /> : <RotateCcw size={20} />}
+            </div>
+            <div>
+              <h3 style={{ margin: 0 }}>{isDelete ? 'Restaurar registro' : 'Reverter criação'}</h3>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                {fmtDateTime(log.created_at)} · por <strong>{log.actor_name || '—'}</strong>
+              </div>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        {/* Registro completo */}
+        <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0', minHeight: 60 }}>
+          <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
+            {tableLabel} — dados do registro
+          </p>
+          {loadingRecord ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
+              <Loader2 size={14} className="spin" /> Carregando...
+            </div>
+          ) : record ? (
+            <RecordPreview tableName={log.table_name} record={record} />
+          ) : (
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+              Registro não encontrado — pode já ter sido restaurado ou permanentemente removido.
+            </p>
+          )}
+        </div>
+
+        {/* Aviso */}
+        <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 20 }}>
+          <AlertTriangle size={14} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {isDelete
+              ? `O registro de ${tableLabel.toLowerCase()} será restaurado e voltará a aparecer no sistema.`
+              : `O registro de ${tableLabel.toLowerCase()} será excluído novamente (soft-delete).`
+            }
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary"
+            style={{ background: isDelete ? '#6366f1' : '#d97706' }}
+            onClick={onConfirm}
+            disabled={busy || loadingRecord}
+          >
+            {busy ? 'Aguarde…' : isDelete ? 'Restaurar' : 'Reverter criação'}
           </button>
         </div>
       </div>
