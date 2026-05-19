@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { Plus, X, Loader2, Pencil, Trash2, KeyRound } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -7,6 +7,7 @@ import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
+import { EmptyState } from '../components/EmptyState.jsx'
 import { fmtDate } from '../utils/format.js'
 
 const ROLES = [
@@ -17,15 +18,16 @@ const ROLES = [
 const roleLabel = (r) => ROLES.find((x) => x.value === r)?.label || r || '—'
 
 export function Usuarios() {
-  const { search } = useOutletContext()
+  const { search, registerRefresh } = useOutletContext()
   const { user, adminCreateUser } = useAuth()
   const { invalidate } = useStore()
-  const { showToast, confirm } = useToast()
+  const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [list, setList] = useState(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [editUser, setEditUser] = useState(null)
   const isAdmin = user?.role === 'admin'
+  const loadRef = useRef(null)
 
   const load = async () => {
     const { data, error } = await supabase
@@ -39,9 +41,13 @@ export function Usuarios() {
     }
     setList(data || [])
   }
+  loadRef.current = load
 
   useEffect(() => {
     load()
+    registerRefresh?.(() => loadRef.current?.())
+    return () => registerRefresh?.(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const filtered = useMemo(() => {
@@ -90,7 +96,7 @@ export function Usuarios() {
     const u = list.find((x) => x.id === userId)
     const ok = await confirm({
       title: 'Excluir usuário',
-      message: `Tem certeza que deseja excluir${u ? ` "${u.full_name || u.email}"` : ' este usuário'}? Esta ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir${u ? ` "${u.full_name || u.email}"` : ' este usuário'}?`,
       confirmText: 'Excluir',
       danger: true,
     })
@@ -109,9 +115,13 @@ export function Usuarios() {
       return
     }
     audit.deleted('profiles', userId, { full_name: u?.full_name, email: u?.email })
-    showToast('Usuário removido.', 'success')
     invalidate('profiles')
     await load()
+    showUndoToast(`Usuário "${u?.full_name || u?.email || 'sem nome'}" removido.`, async () => {
+      await supabase.from('profiles').update({ deleted_at: null }).eq('id', userId)
+      invalidate('profiles')
+      await load()
+    })
   }
 
   if (!list) return <SkeletonTable />
@@ -146,11 +156,12 @@ export function Usuarios() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td
-                  colSpan={colSpan}
-                  style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
-                >
-                  Nenhum usuário encontrado.
+                <td colSpan={colSpan}>
+                  <EmptyState
+                    preset={search ? 'search' : 'users'}
+                    title={search ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
+                    description={search ? 'Tente outro termo de busca.' : 'Adicione um usuário para começar.'}
+                  />
                 </td>
               </tr>
             ) : (

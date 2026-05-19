@@ -26,12 +26,67 @@
       try {
         if (localStorage.getItem('dark_mode') === '1') {
           document.documentElement.classList.add('dark-pre')
+          document.documentElement.style.background = '#0f172a'
           document.addEventListener('DOMContentLoaded', () => document.body.classList.add('dark'))
         }
       } catch (e) { /* localStorage bloqueado (modo privado) — ignora */ }
     </script>
   </head>
+  <style>
+    html, body, #root {
+      background: #f8fafc;
+      min-height: 100vh;
+    }
+    html.dark-pre, html.dark-pre body, html.dark-pre #root {
+      background: #0f172a;
+    }
+    #app-splash {
+      position: fixed; inset: 0;
+      background: #0c4a6e;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 28px;
+      font-family: 'Inter', -apple-system, sans-serif;
+      z-index: 99999;
+    }
+    .splash-logo {
+      width: 76px; height: 76px;
+      background: rgba(255,255,255,0.14);
+      border: 2px solid rgba(255,255,255,0.22);
+      border-radius: 22px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; font-weight: 800; color: #fff; letter-spacing: -1px;
+      animation: splash-breathe 1.8s ease-in-out infinite;
+    }
+    .splash-wordmark {
+      color: rgba(255,255,255,0.7);
+      font-size: 13px; font-weight: 600; letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .splash-track {
+      width: 100px; height: 3px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 99px; overflow: hidden;
+    }
+    .splash-fill {
+      height: 100%; background: #7dd3fc;
+      border-radius: 99px;
+      animation: splash-sweep 1.2s cubic-bezier(0.4,0,0.2,1) infinite;
+    }
+    @keyframes splash-breathe {
+      0%,100% { transform: scale(1);   box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+      50%      { transform: scale(1.04); box-shadow: 0 0 0 8px rgba(255,255,255,0.06); }
+    }
+    @keyframes splash-sweep {
+      0%   { transform: translateX(-110%); }
+      100% { transform: translateX(210%); }
+    }
+  </style>
   <body class="light">
+    <div id="app-splash">
+      <div class="splash-logo">FT</div>
+      <div class="splash-wordmark">Fundepar TI</div>
+      <div class="splash-track"><div class="splash-fill"></div></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

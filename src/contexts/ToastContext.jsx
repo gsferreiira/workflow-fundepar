@@ -22,6 +22,7 @@ export function ToastProvider({ children }) {
   // Counter por instância (em ref) em vez de variável module-level — evita
   // colisão de IDs entre múltiplos providers e em HMR.
   const uidRef = useRef(0)
+  const timerRefs = useRef({})
 
   const showToast = useCallback((message, type = 'success') => {
     const id = ++uidRef.current
@@ -29,6 +30,22 @@ export function ToastProvider({ children }) {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id))
     }, 3500)
+  }, [])
+
+  const showUndoToast = useCallback((message, onUndo, duration = 5000) => {
+    const id = ++uidRef.current
+    setToasts((prev) => [...prev, { id, message, type: 'undo', onUndo, duration }])
+    timerRefs.current[id] = setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id))
+      delete timerRefs.current[id]
+    }, duration)
+  }, [])
+
+  const handleUndoClick = useCallback((id, onUndo) => {
+    clearTimeout(timerRefs.current[id])
+    delete timerRefs.current[id]
+    setToasts((prev) => prev.filter((t) => t.id !== id))
+    onUndo?.()
   }, [])
 
   const confirm = useCallback((opts = {}) => {
@@ -50,14 +67,26 @@ export function ToastProvider({ children }) {
   }
 
   return (
-    <ToastContext.Provider value={{ showToast, confirm }}>
+    <ToastContext.Provider value={{ showToast, showUndoToast, confirm }}>
       {children}
       <div id="toast-container" className="toast-container">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.type}`}>
-            {iconFor(t.type)} {t.message}
-          </div>
-        ))}
+        {toasts.map((t) =>
+          t.type === 'undo' ? (
+            <div key={t.id} className="toast undo">
+              <div className="toast-undo-body">
+                <span className="toast-undo-msg">{t.message}</span>
+                <button className="toast-undo-btn" onClick={() => handleUndoClick(t.id, t.onUndo)}>
+                  Desfazer
+                </button>
+              </div>
+              <div className="toast-undo-bar" style={{ '--dur': `${t.duration}ms` }} />
+            </div>
+          ) : (
+            <div key={t.id} className={`toast ${t.type}`}>
+              {iconFor(t.type)} {t.message}
+            </div>
+          )
+        )}
       </div>
       {confirmState && (
         <ConfirmModal state={confirmState} onFinish={finishConfirm} />

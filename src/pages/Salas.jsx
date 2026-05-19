@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -6,13 +6,15 @@ import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
+import { EmptyState } from '../components/EmptyState.jsx'
 
 export function Salas() {
-  const { search } = useOutletContext()
+  const { search, registerRefresh } = useOutletContext()
   const { invalidate } = useStore()
-  const { showToast, confirm } = useToast()
+  const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [salas, setSalas] = useState(null)
+  const loadRef = useRef(null)
   const [sortOrder, setSortOrder] = useState('nome')
   const [createOpen, setCreateOpen] = useState(false)
   const [editSala, setEditSala] = useState(null)
@@ -29,8 +31,12 @@ export function Salas() {
     }
     setSalas(data || [])
   }
+  loadRef.current = load
   useEffect(() => {
     load()
+    registerRefresh?.(() => loadRef.current?.())
+    return () => registerRefresh?.(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const sorted = useMemo(() => {
@@ -65,7 +71,7 @@ export function Salas() {
     const sala = salas.find((s) => s.id === id)
     const ok = await confirm({
       title: 'Excluir sala',
-      message: `Tem certeza que deseja excluir a sala${sala ? ` "${sala.name}"` : ''}? Esta ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir a sala${sala ? ` "${sala.name}"` : ''}?`,
       confirmText: 'Excluir',
       danger: true,
     })
@@ -75,14 +81,15 @@ export function Salas() {
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
       .is('deleted_at', null)
-    if (error) {
-      showToast('Erro ao excluir: ' + error.message, 'danger')
-      return
-    }
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'danger'); return }
     audit.deleted('rooms', id, { name: sala?.name })
-    showToast('Sala excluída.', 'success')
     invalidate('rooms', 'roomsFull')
     await load()
+    showUndoToast(`Sala "${sala?.name || 'sem nome'}" excluída.`, async () => {
+      await supabase.from('rooms').update({ deleted_at: null }).eq('id', id)
+      invalidate('rooms', 'roomsFull')
+      await load()
+    })
   }
 
   if (!salas) return <SkeletonTable />
@@ -128,11 +135,12 @@ export function Salas() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td
-                  colSpan={6}
-                  style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
-                >
-                  Nenhuma sala cadastrada no sistema.
+                <td colSpan={6}>
+                  <EmptyState
+                    preset={search ? 'search' : 'folder'}
+                    title={search ? 'Nenhuma sala encontrada' : 'Nenhuma sala cadastrada'}
+                    description={search ? 'Tente outro termo de busca.' : 'Clique em "Nova Sala" para cadastrar.'}
+                  />
                 </td>
               </tr>
             ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { Plus, X, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -7,18 +7,20 @@ import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
+import { EmptyState } from '../components/EmptyState.jsx'
 
 
 export function Equipamentos() {
-  const { search } = useOutletContext()
+  const { search, registerRefresh } = useOutletContext()
   const { invalidate } = useStore()
-  const { showToast, confirm } = useToast()
+  const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [list, setList] = useState(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [editEq, setEditEq] = useState(null)
   const [filterCat, setFilterCat] = useState('')
   const [searchLocal, setSearchLocal] = useState('')
+  const loadRef = useRef(null)
 
   const load = async () => {
     const { data, error } = await supabase
@@ -32,8 +34,12 @@ export function Equipamentos() {
     }
     setList(data || [])
   }
+  loadRef.current = load
   useEffect(() => {
     load()
+    registerRefresh?.(() => loadRef.current?.())
+    return () => registerRefresh?.(null)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const categorias = useMemo(
@@ -59,7 +65,7 @@ export function Equipamentos() {
     const eq = list.find((e) => e.id === id)
     const ok = await confirm({
       title: 'Excluir equipamento',
-      message: `Tem certeza que deseja excluir o equipamento${eq ? ` "${eq.name}"` : ''}? Esta ação não pode ser desfeita.`,
+      message: `Tem certeza que deseja excluir o equipamento${eq ? ` "${eq.name}"` : ''}?`,
       confirmText: 'Excluir',
       danger: true,
     })
@@ -69,14 +75,15 @@ export function Equipamentos() {
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
       .is('deleted_at', null)
-    if (error) {
-      showToast('Erro ao excluir: ' + error.message, 'danger')
-      return
-    }
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'danger'); return }
     audit.deleted('equipment', id, { name: eq?.name })
-    showToast('Equipamento excluído.', 'success')
     invalidate('equipment')
     await load()
+    showUndoToast(`Equipamento "${eq?.name || 'sem nome'}" excluído.`, async () => {
+      await supabase.from('equipment').update({ deleted_at: null }).eq('id', id)
+      invalidate('equipment')
+      await load()
+    })
   }
 
   if (!list) return <SkeletonTable />
@@ -147,11 +154,12 @@ export function Equipamentos() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td
-                  colSpan={3}
-                  style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}
-                >
-                  Nenhum equipamento encontrado.
+                <td colSpan={3}>
+                  <EmptyState
+                    preset={search || filterCat ? 'search' : 'package'}
+                    title={search || filterCat ? 'Nenhum equipamento encontrado' : 'Nenhum equipamento cadastrado'}
+                    description={search || filterCat ? 'Tente ajustar o filtro ou a busca.' : 'Clique em "Novo Equipamento" para cadastrar.'}
+                  />
                 </td>
               </tr>
             ) : (

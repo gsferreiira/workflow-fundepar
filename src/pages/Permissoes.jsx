@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Lock, Save, Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
@@ -81,7 +81,7 @@ export function Permissoes() {
           </thead>
           <tbody>
             {sections.map((section) => (
-              <>
+              <Fragment key={section.label ?? section.pages[0]?.key}>
                 {section.label && (
                   <tr key={`sep-${section.label}`}>
                     <td
@@ -133,7 +133,7 @@ export function Permissoes() {
                     })}
                   </tr>
                 ))}
-              </>
+              </Fragment>
             ))}
 
             {/* Linha especial: Permissões (sempre admin, travada) */}

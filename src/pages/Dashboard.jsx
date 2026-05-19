@@ -7,8 +7,6 @@ import {
   CartesianGrid,
   Cell,
   Legend,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,7 +22,6 @@ import {
   Clock,
   MapPin,
   Package,
-  PieChart as PieChartIcon,
   Ticket,
   TrendingUp,
   UserRound,
@@ -273,10 +270,6 @@ export function Dashboard() {
         [...assetsByNumber.values()],
         (asset) => asset.categoria,
       )
-      const usersByRole = groupCount(
-        profiles || [],
-        (profile) => ROLE_LABELS[profile.role] || profile.role,
-      )
       const activitiesByAction = groupCount(
         auditLogs || [],
         (log) => ACTION_LABELS[log.action] || log.action,
@@ -396,7 +389,6 @@ export function Dashboard() {
         charts: {
           traffic: buckets,
           equipmentByCategory,
-          usersByRole,
           activitiesByAction,
           topEquipments,
           topRooms,
@@ -551,6 +543,41 @@ export function Dashboard() {
         </ChartCard>
 
         <ChartCard
+          title="Ranking de Salas"
+          subtitle="Top 5 com mais movimentações no período"
+          icon={MapPin}
+        >
+          {charts.topRooms.length === 0 ? (
+            <EmptyState message="Sem movimentações no período." />
+          ) : (
+            <div className="room-rank-list">
+              {charts.topRooms.slice(0, 5).map((room, i) => {
+                const maxTotal = charts.topRooms[0]?.total || 1
+                const medals = [
+                  { bg: 'rgba(234,179,8,.15)', color: '#ca8a04' },
+                  { bg: 'rgba(148,163,184,.15)', color: '#64748b' },
+                  { bg: 'rgba(180,83,9,.12)', color: '#b45309' },
+                ]
+                const medal = medals[i] || { bg: 'var(--bg-hover)', color: 'var(--text-secondary)' }
+                const barColor = i === 0 ? '#eab308' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : 'var(--accent-color)'
+                return (
+                  <div className="room-rank-item" key={room.id || i}>
+                    <div className="room-rank-pos" style={{ background: medal.bg, color: medal.color }}>{i + 1}</div>
+                    <div className="room-rank-bar-wrap">
+                      <div className="room-rank-name" title={room.name}>{room.name}</div>
+                      <div className="room-rank-bar-track">
+                        <div className="room-rank-bar-fill" style={{ width: `${(room.total / maxTotal) * 100}%`, background: barColor }} />
+                      </div>
+                    </div>
+                    <div className="room-rank-count">{room.total}</div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard
           title="Tempo Médio de Resolução"
           subtitle="Chamados resolvidos por prioridade (horas)"
           icon={Clock}
@@ -576,24 +603,6 @@ export function Dashboard() {
               ))}
             </div>
           )}
-        </ChartCard>
-
-        <ChartCard
-          title="Visitantes por Tipo"
-          subtitle="Distribuição dos usuários por perfil"
-          icon={PieChartIcon}
-        >
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie data={charts.usersByRole} dataKey="value" nameKey="name" innerRadius={58} outerRadius={94} paddingAngle={3}>
-                {charts.usersByRole.map((entry, index) => (
-                  <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<DashboardTooltip />} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
         </ChartCard>
 
         <ChartCard
