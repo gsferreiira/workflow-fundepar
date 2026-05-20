@@ -14,7 +14,6 @@ import {
 } from 'recharts'
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
   ArrowRightLeft,
   BarChart3,
@@ -52,8 +51,6 @@ const PERIODS = {
   '6m': { label: '6 meses', days: 30 * 6, bucket: 'month', buckets: 6 },
   '12m': { label: '12 meses', days: 30 * 12, bucket: 'month', buckets: 12 },
 }
-
-const ASSET_STALE_DAYS = 90 // equipamento sem movimentação por mais de N dias = "parado"
 
 const startOfPeriod = (period) => {
   const days = PERIODS[period].days
@@ -143,10 +140,6 @@ export function Dashboard() {
     const load = async () => {
       const startDate = startOfPeriod(period)
       const startIso = startDate.toISOString()
-      const staleDate = new Date()
-      staleDate.setDate(staleDate.getDate() - ASSET_STALE_DAYS)
-      const staleIso = staleDate.toISOString()
-
       const [
         { count: pendingTickets },
         { count: resolvedTickets },
@@ -350,21 +343,6 @@ export function Dashboard() {
           }
         })
 
-      // Equipamentos parados há > ASSET_STALE_DAYS sem movimentação
-      const staleAssets = (assetLocations || [])
-        .filter((a) => a.moved_at && new Date(a.moved_at) < new Date(staleIso))
-        .map((a) => ({
-          asset_number: a.asset_number,
-          serial_number: a.serial_number,
-          name: a.equipment?.name || equipmentMap[a.equipment_id]?.name || '—',
-          moved_at: a.moved_at,
-          days: Math.floor(
-            (Date.now() - new Date(a.moved_at).getTime()) / (24 * 3_600_000),
-          ),
-        }))
-        .sort((a, b) => b.days - a.days)
-        .slice(0, 10)
-
       const recent = (recentMovements || []).map((movement) => ({
         ...movement,
         profile: profileMap[movement.moved_by] || null,
@@ -393,7 +371,6 @@ export function Dashboard() {
           topEquipments,
           topRooms,
           resolutionData,
-          staleAssets,
           usability: [
             { name: 'Chamados resolvidos', value: percent(resolvedTickets || 0, totalTickets) },
             { name: 'Usuários ativos', value: percent(activeActors, totalUsers || 0) },
@@ -671,32 +648,6 @@ export function Dashboard() {
           </div>
         </ChartCard>
 
-        <ChartCard
-          title={`Equipamentos Parados (>${ASSET_STALE_DAYS} dias)`}
-          subtitle="Patrimônios sem movimentação registrada"
-          icon={AlertTriangle}
-          className="dashboard-chart-wide"
-        >
-          {charts.staleAssets.length === 0 ? (
-            <EmptyState message={`Nenhum equipamento parado há mais de ${ASSET_STALE_DAYS} dias.`} />
-          ) : (
-            <div className="stale-list">
-              {charts.staleAssets.map((asset, idx) => (
-                <div className="stale-row" key={`${asset.asset_number || idx}`}>
-                  <div className="stale-info">
-                    <strong>{asset.name}</strong>
-                    {asset.asset_number && (
-                      <span className="stale-pat">
-                        PAT {formatAssetNumber(asset.asset_number)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="stale-days">{asset.days} dias parado</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </ChartCard>
       </div>
 
       <div className="dashboard-section fade-in">

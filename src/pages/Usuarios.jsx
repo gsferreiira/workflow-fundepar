@@ -10,6 +10,15 @@ import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
 import { fmtDate } from '../utils/format.js'
 
+const DEFAULT_EMAIL_DOMAIN = 'fundepar.pr.gov.br'
+
+const normalizeEmail = (raw) => {
+  const trimmed = (raw || '').trim().toLowerCase()
+  if (!trimmed) return ''
+  if (trimmed.includes('@')) return trimmed
+  return `${trimmed}@${DEFAULT_EMAIL_DOMAIN}`
+}
+
 const ROLES = [
   { value: 'usuario', label: 'Usuário' },
   { value: 'tecnico', label: 'Técnico' },
@@ -286,21 +295,24 @@ function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('usuario')
 
+  const finalEmail = normalizeEmail(email)
+
   const submit = async (e) => {
     e.preventDefault()
+    if (!finalEmail) { showToast('Informe o e-mail ou usuário.', 'warning'); return }
     setBusy(true)
-    const newUser = await adminCreateUser(fullName.trim(), email.trim(), role)
+    const newUser = await adminCreateUser(fullName.trim(), finalEmail, role)
     if (!newUser) {
       setBusy(false)
       return
     }
     audit.created('profiles', newUser.id, {
       full_name: fullName.trim(),
-      email: email.trim(),
+      email: finalEmail,
       role,
     })
     showToast(
-      `Usuário "${fullName}" criado. Um e-mail de definição de senha foi enviado.`,
+      `Usuário "${fullName}" criado. Um e-mail de definição de senha foi enviado para ${finalEmail}.`,
       'success',
     )
     onSaved()
@@ -331,16 +343,21 @@ function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
           </div>
           <div className="form-group">
             <label>
-              E-mail <span style={{ color: 'var(--danger-color)' }}>*</span>
+              E-mail ou usuário <span style={{ color: 'var(--danger-color)' }}>*</span>
             </label>
             <input
-              type="email"
+              type="text"
               className="form-control"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="usuario@exemplo.com"
+              placeholder={`maria  ou  maria@${DEFAULT_EMAIL_DOMAIN}`}
             />
+            {email && !email.includes('@') && (
+              <small className="form-hint">
+                Será usado: <strong>{finalEmail}</strong>
+              </small>
+            )}
           </div>
           <div className="form-group">
             <label>Nível de Acesso</label>
