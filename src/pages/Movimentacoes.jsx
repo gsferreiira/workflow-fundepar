@@ -64,6 +64,7 @@ export function Movimentacoes() {
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const isAdmin = user?.role === 'admin'
+  const canEditMovements = isAdmin || user?.role === 'tecnico'
 
   const [list, setList] = useState(null)
   const [total, setTotal] = useState(0)
@@ -806,7 +807,7 @@ export function Movimentacoes() {
                       </td>
                       <td>
                         <div className="table-actions">
-                          {isAdmin && (
+                          {canEditMovements && (
                             <button className="btn-table-action edit" onClick={() => setEditMov(m)}>
                               <Pencil size={13} />
                             </button>
@@ -893,7 +894,7 @@ export function Movimentacoes() {
         />
       )}
 
-      {editMov && (
+      {editMov && canEditMovements && (
         <EditModal
           mov={editMov}
           rooms={rooms}
