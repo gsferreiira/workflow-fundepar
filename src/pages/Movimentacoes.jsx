@@ -316,12 +316,14 @@ export function Movimentacoes() {
           profileMap[m.moved_by]?.full_name || '—',
           m.received_by || '—',
           new Date(m.moved_at).toLocaleString('pt-BR'),
+          profileMap[m.edited_by]?.full_name || '—',
         ]),
       ]
+      wsData[0].push('Última edição por')
       const ws = XLSX.utils.aoa_to_sheet(wsData)
       ws['!cols'] = [
         { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
-        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 },
+        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 24 },
       ]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Movimentações')
@@ -757,13 +759,14 @@ export function Movimentacoes() {
                   <th>Responsável</th>
                   <th>Com quem está</th>
                   <th>Data / Hora</th>
+                  <th>Última edição</th>
                   <th style={{ width: 120 }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {listWithBatch.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+                    <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
                       Nenhuma movimentação encontrada.
                     </td>
                   </tr>
@@ -805,6 +808,7 @@ export function Movimentacoes() {
                       <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {fmtDateTime(m.moved_at)}
                       </td>
+                      <td style={{ color: 'var(--text-secondary)' }}>{m.editedBy?.full_name || '—'}</td>
                       <td>
                         <div className="table-actions">
                           {canEditMovements && (
@@ -897,6 +901,7 @@ export function Movimentacoes() {
       {editMov && canEditMovements && (
         <EditModal
           mov={editMov}
+          equipment={equipment}
           rooms={rooms}
           user={user}
           audit={audit}
@@ -1259,9 +1264,11 @@ function LoteModal({
   )
 }
 
-function EditModal({ mov, rooms, user, audit, onClose, onSaved }) {
+function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
+  const [eqId, setEqId] = useState(mov.equipment_id || '')
+  const [eqName, setEqName] = useState(mov.equipment?.name || '')
   const [originId, setOriginId] = useState(mov.origin_room_id || '')
   const [originName, setOriginName] = useState(mov.origin?.name || '')
   const [destId, setDestId] = useState(mov.destination_room_id || '')
@@ -1276,6 +1283,7 @@ function EditModal({ mov, rooms, user, audit, onClose, onSaved }) {
 
   const submit = async (e) => {
     e.preventDefault()
+    if (!eqId) { showToast('Selecione um equipamento da lista.', 'warning'); return }
     if (!originId) { showToast('Selecione a sala de origem.', 'warning'); return }
     if (!destId) { showToast('Selecione a sala de destino.', 'warning'); return }
     if (originId === destId) { showToast('Origem e destino não podem ser iguais.', 'warning'); return }
@@ -1291,6 +1299,7 @@ function EditModal({ mov, rooms, user, audit, onClose, onSaved }) {
     const { error } = await supabase
       .from('asset_movements')
       .update({
+        equipment_id: eqId,
         serial_number: serial || null,
         asset_number: assetNumber,
         origin_room_id: originId,
@@ -1330,6 +1339,17 @@ function EditModal({ mov, rooms, user, audit, onClose, onSaved }) {
           <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <Autocomplete
+              items={equipment}
+              value={eqId}
+              label={eqName}
+              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
+              placeholder="Selecione o equipamento..."
+              required
+            />
+          </div>
           <div className="form-2col">
             <div className="form-group">
               <label>Origem <span style={{ color: 'var(--danger-color)' }}>*</span></label>
