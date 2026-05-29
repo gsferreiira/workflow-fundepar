@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, MapPin, Package, FileSpreadsheet, RefreshCw } from 'lucide-react'
+import { X, MapPin, Package, FileSpreadsheet, RefreshCw, Download } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
@@ -129,6 +129,46 @@ export function MapaSalas() {
     }
   }
 
+  const exportAll = async () => {
+    try {
+      const allItems = (rooms || []).flatMap((r) =>
+        r.items.map((item) => ({ ...item, room_name: r.name, room_number: r.room_number || '' })),
+      )
+      if (allItems.length === 0) {
+        showToast('Nenhum equipamento para exportar.', 'warning')
+        return
+      }
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) {
+        showToast('Biblioteca de exportação não carregada.', 'danger')
+        return
+      }
+      const wsData = [
+        ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ...allItems.map((item) => [
+          item.room_name || '—',
+          item.room_number || '—',
+          item.name || '—',
+          formatAssetNumber(item.asset_number) || '—',
+          item.serial_number || '—',
+          item.received_by || '—',
+          item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Mapa de Salas')
+      XLSX.writeFile(wb, `mapa_salas_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      const roomsWithEquip = (rooms || []).filter((r) => r.items.length > 0).length
+      showToast(`Exportado: ${allItems.length} equipamento${allItems.length !== 1 ? 's' : ''} em ${roomsWithEquip} sala${roomsWithEquip !== 1 ? 's' : ''}`, 'success')
+    } catch (err) {
+      console.error('exportAll erro:', err)
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
+    }
+  }
+
   if (!rooms) return <SkeletonCards />
 
   return (
@@ -138,14 +178,25 @@ export function MapaSalas() {
           <h2>Mapa de Salas</h2>
           <p>Visualize os equipamentos alocados em cada ambiente.</p>
         </div>
-        <button
-          className="btn-primary"
-          style={{ background: '#64748b' }}
-          onClick={refresh}
-          title="Recarregar dados"
-        >
-          <RefreshCw size={14} /> Atualizar
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn-primary"
+            style={{ background: '#059669' }}
+            onClick={exportAll}
+            disabled={!rooms || rooms.every((r) => r.items.length === 0)}
+            title="Exportar todos os equipamentos de todas as salas"
+          >
+            <Download size={14} /> Exportar Tudo
+          </button>
+          <button
+            className="btn-primary"
+            style={{ background: '#64748b' }}
+            onClick={refresh}
+            title="Recarregar dados"
+          >
+            <RefreshCw size={14} /> Atualizar
+          </button>
+        </div>
       </div>
 
       <div className="filter-bar fade-in">
@@ -310,19 +361,49 @@ function RoomCard({ room, onDetail }) {
 }
 
 function RoomDetailModal({ room, onClose, onExport }) {
+  const [search, setSearch] = useState('')
+  const [filterReceiver, setFilterReceiver] = useState('')
+
+  const uniqueReceivers = useMemo(
+    () => [...new Set(room.items.map((i) => i.received_by).filter(Boolean))].sort(),
+    [room.items],
+  )
+
+  const filteredItems = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    return room.items.filter((item) => {
+      if (filterReceiver && item.received_by !== filterReceiver) return false
+      if (q) {
+        const hay = [
+          item.name || '',
+          formatAssetNumber(item.asset_number) || '',
+          item.serial_number || '',
+          item.received_by || '',
+        ]
+          .join(' ')
+          .toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [room.items, search, filterReceiver])
+
+  const hasFilter = search || filterReceiver
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content" style={{ maxWidth: 560 }}>
+      <div className="modal-content" style={{ maxWidth: 900, width: '95vw' }}>
         <div className="modal-header">
           <div>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <MapPin size={16} style={{ color: 'var(--accent-color)' }} />
               {room.name}
             </h3>
-            {room.room_number && (
+            {(room.room_number || room.coordinator) && (
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
-                Nº {room.room_number}
-                {room.coordinator ? ` · ${room.coordinator}` : ''}
+                {room.room_number ? `Nº ${room.room_number}` : ''}
+                {room.room_number && room.coordinator ? ' · ' : ''}
+                {room.coordinator || ''}
               </div>
             )}
           </div>
@@ -331,46 +412,82 @@ function RoomDetailModal({ room, onClose, onExport }) {
           </button>
         </div>
 
-        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, fontWeight: 600 }}>
-            {room.items.length} equipamento{room.items.length !== 1 ? 's' : ''}
-          </span>
-          {room.items.length > 0 && (
-            <button
-              className="btn-table-action"
-              onClick={onExport}
-              style={{ color: '#059669', gap: 6 }}
-            >
-              <FileSpreadsheet size={14} /> Exportar Excel
-            </button>
-          )}
-        </div>
+        {room.items.length > 0 && (
+          <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+            <input
+              type="text"
+              className="form-control filter-control"
+              placeholder="Buscar equipamento, patrimônio, série..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ flex: '1 1 200px', minWidth: 160 }}
+            />
+            {uniqueReceivers.length > 0 && (
+              <select
+                className="form-control filter-control"
+                value={filterReceiver}
+                onChange={(e) => setFilterReceiver(e.target.value)}
+                style={{ flex: '0 0 180px' }}
+              >
+                <option value="">Todos os recebedores</option>
+                {uniqueReceivers.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                {filteredItems.length !== room.items.length
+                  ? `${filteredItems.length} de ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`
+                  : `${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`}
+              </span>
+              {hasFilter && (
+                <button
+                  className="btn-filter-clear"
+                  onClick={() => { setSearch(''); setFilterReceiver('') }}
+                >
+                  <X size={12} /> Limpar
+                </button>
+              )}
+              <button
+                className="btn-table-action"
+                onClick={onExport}
+                style={{ color: '#059669', gap: 6 }}
+              >
+                <FileSpreadsheet size={14} /> Exportar Excel
+              </button>
+            </div>
+          </div>
+        )}
 
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 460, overflowY: 'auto' }}>
           {room.items.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
               Nenhum equipamento nesta sala.
             </div>
+          ) : filteredItems.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+              Nenhum equipamento encontrado para esse filtro.
+            </div>
           ) : (
-            <table className="data-table" style={{ minWidth: 0 }}>
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>Equipamento</th>
+                  <th>Nº Série</th>
                   <th>Nº Patrimônio</th>
                   <th>Recebedor</th>
                   <th>Última Movimentação</th>
                 </tr>
               </thead>
               <tbody>
-                {room.items.map((item, i) => (
+                {filteredItems.map((item, i) => (
                   <tr key={item.asset_number || item.serial_number || `${item.name}-${i}`}>
                     <td>
                       <strong>{item.name}</strong>
-                      {item.serial_number && (
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                          Série: {item.serial_number}
-                        </div>
-                      )}
+                    </td>
+                    <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                      {item.serial_number || '—'}
                     </td>
                     <td style={{ color: 'var(--text-secondary)' }}>
                       {formatAssetNumber(item.asset_number) || '—'}
