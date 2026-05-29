@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { X, MapPin, Package, FileSpreadsheet } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { X, MapPin, Package, FileSpreadsheet, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
@@ -18,8 +18,17 @@ export function MapaSalas() {
   const [rooms, setRooms] = useState(null)
   const [search, setSearch] = useState('')
   const [detailRoom, setDetailRoom] = useState(null)
+  const [reloadToken, setReloadToken] = useState(0)
+  const refresh = useCallback(() => {
+    setDetailRoom(null)
+    setReloadToken((t) => t + 1)
+  }, [])
+
+  const showToastRef = useRef(showToast)
+  showToastRef.current = showToast
 
   useEffect(() => {
+    setRooms(null)
     const load = async () => {
       const [{ data: roomList, error }, { data: movements }] = await Promise.all([
         supabase.from('rooms').select('*').is('deleted_at', null).order('name'),
@@ -29,11 +38,12 @@ export function MapaSalas() {
             'equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id',
           )
           .is('deleted_at', null)
-          .order('moved_at', { ascending: false }),
+          .order('moved_at', { ascending: false })
+          .limit(5000),
       ])
 
       if (error) {
-        showToast(error.message, 'danger')
+        showToastRef.current(error.message, 'danger')
         return
       }
 
@@ -67,7 +77,7 @@ export function MapaSalas() {
       )
     }
     load()
-  }, [])
+  }, [reloadToken])
 
   const filtered = useMemo(() => {
     if (!rooms) return []
@@ -128,6 +138,14 @@ export function MapaSalas() {
           <h2>Mapa de Salas</h2>
           <p>Visualize os equipamentos alocados em cada ambiente.</p>
         </div>
+        <button
+          className="btn-primary"
+          style={{ background: '#64748b' }}
+          onClick={refresh}
+          title="Recarregar dados"
+        >
+          <RefreshCw size={14} /> Atualizar
+        </button>
       </div>
 
       <div className="filter-bar fade-in">
