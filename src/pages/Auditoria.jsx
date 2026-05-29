@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react'
+import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2, ArrowRightLeft, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -19,6 +19,9 @@ const ACTIONS = [
   { value: 'restore', label: 'Restauração' },
   { value: 'import', label: 'Importação' },
   { value: 'batch_movement', label: 'Movimentação em Lote' },
+  { value: 'bulk_move', label: 'Bulk Move (Rastreio)' },
+  { value: 'bulk_revert', label: 'Reversão de Lote' },
+  { value: 'bulk_delete', label: 'Exclusão de Lote' },
   { value: 'password_reset', label: 'Redefinição de Senha' },
 ]
 
@@ -66,6 +69,8 @@ export function Auditoria() {
   const [detailLog, setDetailLog] = useState(null)
   const [undoLog, setUndoLog] = useState(null)
   const [undoBusy, setUndoBusy] = useState(false)
+  const [deleteLog, setDeleteLog] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const isAdmin = user?.role === 'admin'
 
@@ -119,13 +124,217 @@ export function Auditoria() {
     window.scrollTo(0, 0)
   }
 
+  // Reverte bulk_move ou batch_movement: cria movimentações inversas e soft-deleta as originais
+  const executeBulkRevert = async (log) => {
+    const movementIds = log.details?.movement_ids
+    let originalMovs
+
+    if (movementIds && movementIds.length > 0) {
+      // Caminho novo: IDs estão salvos no log
+      const { data, error: fetchError } = await supabase
+        .from('asset_movements')
+        .select('*')
+        .in('id', movementIds)
+        .is('deleted_at', null)
+
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      originalMovs = data
+    } else {
+      // Caminho legado: log antigo sem IDs — busca por ator + destino + janela de tempo
+      const logTime = new Date(log.created_at)
+      const windowStart = new Date(logTime.getTime() - 10 * 60 * 1000).toISOString() // −10 min
+      const windowEnd   = new Date(logTime.getTime() + 10 * 60 * 1000).toISOString() // +10 min
+
+      // Resolve nome da sala → ID
+      let destRoomId = null
+      const destName = log.details?.destination || log.details?.to
+      if (destName) {
+        const { data: rooms } = await supabase
+          .from('rooms')
+          .select('id, name')
+          .ilike('name', destName.trim())
+          .limit(1)
+        destRoomId = rooms?.[0]?.id || null
+      }
+
+      let query = supabase
+        .from('asset_movements')
+        .select('*')
+        .eq('moved_by', log.actor_id)
+        .gte('moved_at', windowStart)
+        .lte('moved_at', windowEnd)
+        .is('deleted_at', null)
+
+      if (destRoomId) query = query.eq('destination_room_id', destRoomId)
+
+      const { data, error: fetchError } = await query
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      originalMovs = data
+    }
+
+    if (!originalMovs || originalMovs.length === 0) {
+      showToast('Nenhuma movimentação encontrada para reverter — podem já ter sido revertidas ou excluídas.', 'warning')
+      setUndoBusy(false)
+      return
+    }
+
+    // 2. Cria movimentações inversas (troca origem ↔ destino)
+    const movedAt = new Date().toISOString()
+    const reverseMovs = originalMovs.map((m) => ({
+      equipment_id: m.equipment_id,
+      serial_number: m.serial_number,
+      asset_number: m.asset_number,
+      origin_room_id: m.destination_room_id,
+      destination_room_id: m.origin_room_id,
+      moved_by: user.id,
+      received_by: null,
+      moved_at: movedAt,
+    }))
+
+    const { error: insertError } = await supabase.from('asset_movements').insert(reverseMovs)
+    if (insertError) {
+      showToast('Erro ao criar movimentações inversas: ' + insertError.message, 'danger')
+      setUndoBusy(false)
+      return
+    }
+
+    // 3. Soft-delete das movimentações originais
+    const originalIds = originalMovs.map((m) => m.id)
+    const { error: delError } = await supabase
+      .from('asset_movements')
+      .update({ deleted_at: new Date().toISOString() })
+      .in('id', originalIds)
+      .is('deleted_at', null)
+
+    if (delError) {
+      showToast('Movimentações inversas criadas, mas erro ao excluir as originais: ' + delError.message, 'warning')
+    }
+
+    // 4. Atualiza equipment_locations para os itens com asset_number
+    const locUpserts = reverseMovs
+      .filter((m) => m.asset_number)
+      .map((m) => ({
+        equipment_id: m.equipment_id,
+        asset_number: m.asset_number,
+        serial_number: m.serial_number,
+        current_room_id: m.destination_room_id,
+        moved_by: user.id,
+        received_by: null,
+        moved_at: movedAt,
+      }))
+    if (locUpserts.length > 0) {
+      await supabase.from('equipment_locations').upsert(locUpserts, { onConflict: 'asset_number' })
+    }
+
+    // 5. Loga a reversão
+    audit.log('bulk_revert', 'asset_movements', null, {
+      reverted_log_id: log.id,
+      count: originalMovs.length,
+      reverted_by: user.id,
+    })
+
+    showToast(
+      `${originalMovs.length} movimentaç${originalMovs.length === 1 ? 'ão revertida' : 'ões revertidas'} com sucesso. Equipamentos voltaram às salas de origem.`,
+      'success',
+    )
+    setUndoBusy(false)
+    setUndoLog(null)
+    fetchPage(page)
+  }
+
+  const executeDeleteBatch = async (log) => {
+    setDeleteBusy(true)
+
+    const isRevertLog = log.action === 'bulk_revert'
+    const movementIds = log.details?.movement_ids
+    let movIds
+
+    if (!isRevertLog && movementIds && movementIds.length > 0) {
+      // Caminho direto: IDs gravados no log de bulk_move/batch_movement
+      movIds = movementIds
+    } else {
+      // Busca por ator + janela de tempo (bulk_revert sempre, bulk_move legado sem IDs)
+      const logTime = new Date(log.created_at)
+      const windowStart = new Date(logTime.getTime() - 10 * 60 * 1000).toISOString()
+      const windowEnd   = new Date(logTime.getTime() + 10 * 60 * 1000).toISOString()
+
+      let query = supabase.from('asset_movements').select('id')
+        .eq('moved_by', log.actor_id)
+        .gte('moved_at', windowStart)
+        .lte('moved_at', windowEnd)
+        .is('deleted_at', null)
+
+      // bulk_move/batch_movement: filtra também pela sala de destino se disponível
+      if (!isRevertLog) {
+        const destName = log.details?.destination || log.details?.to
+        if (destName) {
+          const { data: rooms } = await supabase.from('rooms').select('id, name').ilike('name', destName.trim()).limit(1)
+          const destRoomId = rooms?.[0]?.id || null
+          if (destRoomId) query = query.eq('destination_room_id', destRoomId)
+        }
+      }
+
+      const { data, error: fetchError } = await query
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setDeleteBusy(false)
+        return
+      }
+      movIds = (data || []).map((r) => r.id)
+    }
+
+    if (!movIds || movIds.length === 0) {
+      showToast('Nenhuma movimentação encontrada — podem já ter sido excluídas.', 'warning')
+      setDeleteBusy(false)
+      return
+    }
+
+    const { error: delError } = await supabase
+      .from('asset_movements')
+      .update({ deleted_at: new Date().toISOString() })
+      .in('id', movIds)
+      .is('deleted_at', null)
+
+    if (delError) {
+      showToast('Erro ao excluir: ' + delError.message, 'danger')
+      setDeleteBusy(false)
+      return
+    }
+
+    audit.log('bulk_delete', 'asset_movements', null, {
+      deleted_log_id: log.id,
+      count: movIds.length,
+    })
+
+    showToast(
+      `${movIds.length} movimentaç${movIds.length === 1 ? 'ão excluída' : 'ões excluídas'} com sucesso.`,
+      'success',
+    )
+    setDeleteBusy(false)
+    setDeleteLog(null)
+    fetchPage(page)
+  }
+
   const executeUndo = async (log) => {
     setUndoBusy(true)
+
+    if (log.action === 'bulk_move' || log.action === 'batch_movement') {
+      await executeBulkRevert(log)
+      return
+    }
+
     const isDelete = log.action === 'delete'
     const isCreate = log.action === 'create'
 
     if (isDelete) {
-      // Restaura o registro removendo o deleted_at
       const { error } = await supabase
         .from(log.table_name)
         .update({ deleted_at: null })
@@ -138,7 +347,6 @@ export function Auditoria() {
       audit.restored(log.table_name, log.record_id, { undone_log_id: log.id })
       showToast(`${TABLE_LABELS[log.table_name] || 'Registro'} restaurado com sucesso.`, 'success')
     } else if (isCreate) {
-      // Reverte a criação fazendo soft-delete do registro
       const { error } = await supabase
         .from(log.table_name)
         .update({ deleted_at: new Date().toISOString() })
@@ -153,7 +361,6 @@ export function Auditoria() {
       showToast(`Criação de ${TABLE_LABELS[log.table_name] || 'registro'} revertida.`, 'success')
     }
 
-    // Invalida caches relevantes
     if (log.table_name === 'rooms') invalidate('rooms', 'roomsFull')
     else if (log.table_name === 'equipment') invalidate('equipment')
     else if (log.table_name === 'profiles') invalidate('profiles')
@@ -275,8 +482,8 @@ export function Auditoria() {
                   <th>Usuário</th>
                   <th>Ação</th>
                   <th>Tabela</th>
-                  <th>ID do Registro</th>
-                  <th style={{ width: 110 }}>Ações</th>
+                  <th>Detalhes</th>
+                  <th style={{ width: 120 }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -287,47 +494,84 @@ export function Auditoria() {
                     </td>
                   </tr>
                 ) : (
-                  data.map((log) => (
-                    <tr key={log.id}>
-                      <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontSize: 13 }}>
-                        {fmtDateTime(log.created_at)}
-                      </td>
-                      <td>
-                        <strong>{log.actor_name || '—'}</strong>
-                      </td>
-                      <td>
-                        <ActionBadge action={log.action} />
-                      </td>
-                      <td style={{ color: 'var(--text-secondary)' }}>
-                        {TABLE_LABELS[log.table_name] || log.table_name || '—'}
-                      </td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: 12, fontFamily: 'monospace' }}>
-                        {log.record_id ? log.record_id.slice(0, 8) + '…' : '—'}
-                      </td>
-                      <td>
-                        <div className="table-actions">
-                          {log.details && (
-                            <button
-                              className="btn-table-action edit"
-                              onClick={() => setDetailLog(log)}
-                              title="Ver detalhes"
-                            >
-                              <Eye size={14} />
-                            </button>
-                          )}
-                          {(log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id && (
-                            <button
-                              className="btn-table-action restore"
-                              onClick={() => setUndoLog(log)}
-                              title={log.action === 'delete' ? 'Restaurar registro' : 'Reverter criação'}
-                            >
-                              {log.action === 'delete' ? <Undo2 size={14} /> : <RotateCcw size={14} />}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                  data.map((log) => {
+                    const isBulk = log.action === 'bulk_move' || log.action === 'batch_movement'
+                    const isRevert = log.action === 'bulk_revert'
+                    const canRevertBulk = isBulk // mostra sempre; lida com logs antigos na execução
+                    const canDeleteBulk = isBulk || isRevert
+                    const canUndoRecord = (log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id
+                    return (
+                      <tr key={log.id}>
+                        <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontSize: 13 }}>
+                          {fmtDateTime(log.created_at)}
+                        </td>
+                        <td>
+                          <strong>{log.actor_name || '—'}</strong>
+                        </td>
+                        <td>
+                          <ActionBadge action={log.action} />
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>
+                          {TABLE_LABELS[log.table_name] || log.table_name || '—'}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                          {isBulk && log.details ? (
+                            <span>
+                              {log.details.count || '?'} item{log.details.count !== 1 ? 's' : ''}
+                              {log.details.destination ? ` → ${log.details.destination}` : ''}
+                              {log.details.from && log.details.to ? ` (${log.details.from} → ${log.details.to})` : ''}
+                            </span>
+                          ) : isRevert && log.details ? (
+                            <span>{log.details.count || '?'} item{log.details.count !== 1 ? 's' : ''} revertido{log.details.count !== 1 ? 's' : ''}</span>
+                          ) : log.record_id ? (
+                            <span style={{ fontFamily: 'monospace' }}>{log.record_id.slice(0, 8)}…</span>
+                          ) : '—'}
+                        </td>
+                        <td>
+                          <div className="table-actions">
+                            {log.details && (
+                              <button
+                                className="btn-table-action edit"
+                                onClick={() => setDetailLog(log)}
+                                title="Ver detalhes"
+                              >
+                                <Eye size={14} />
+                              </button>
+                            )}
+                            {canRevertBulk && (
+                              <button
+                                className="btn-table-action restore"
+                                onClick={() => setUndoLog(log)}
+                                title="Reverter — desfaz o lote e retorna equipamentos às salas de origem"
+                                style={{ color: '#6366f1' }}
+                              >
+                                <RotateCcw size={14} />
+                              </button>
+                            )}
+                            {canDeleteBulk && (
+                              <button
+                                className="btn-table-action"
+                                onClick={() => setDeleteLog(log)}
+                                title="Excluir registros — remove as movimentações sem desfazê-las"
+                                style={{ color: '#dc2626' }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                            {canUndoRecord && (
+                              <button
+                                className="btn-table-action restore"
+                                onClick={() => setUndoLog(log)}
+                                title={log.action === 'delete' ? 'Restaurar registro' : 'Reverter criação'}
+                              >
+                                {log.action === 'delete' ? <Undo2 size={14} /> : <RotateCcw size={14} />}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
                 )}
               </tbody>
             </table>
@@ -351,19 +595,30 @@ export function Auditoria() {
           onClose={() => setUndoLog(null)}
         />
       )}
+      {deleteLog && (
+        <DeleteBatchModal
+          log={deleteLog}
+          busy={deleteBusy}
+          onConfirm={() => executeDeleteBatch(deleteLog)}
+          onClose={() => setDeleteLog(null)}
+        />
+      )}
     </>
   )
 }
 
 function ActionBadge({ action }) {
   const map = {
-    create: { bg: 'rgba(16,185,129,.12)', color: '#059669', label: 'Criação' },
-    update: { bg: 'rgba(245,158,11,.12)', color: '#d97706', label: 'Edição' },
-    delete: { bg: 'rgba(239,68,68,.12)', color: '#dc2626', label: 'Exclusão' },
-    restore: { bg: 'rgba(99,102,241,.12)', color: '#6366f1', label: 'Restauração' },
-    import: { bg: 'rgba(59,130,246,.12)', color: '#2563eb', label: 'Importação' },
-    batch_movement: { bg: 'rgba(16,185,129,.12)', color: '#059669', label: 'Lote' },
-    password_reset: { bg: 'rgba(245,158,11,.12)', color: '#d97706', label: 'Senha' },
+    create:           { bg: 'rgba(16,185,129,.12)',  color: '#059669', label: 'Criação' },
+    update:           { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Edição' },
+    delete:           { bg: 'rgba(239,68,68,.12)',   color: '#dc2626', label: 'Exclusão' },
+    restore:          { bg: 'rgba(99,102,241,.12)',  color: '#6366f1', label: 'Restauração' },
+    import:           { bg: 'rgba(59,130,246,.12)',  color: '#2563eb', label: 'Importação' },
+    batch_movement:   { bg: 'rgba(16,185,129,.12)',  color: '#059669', label: 'Lote' },
+    bulk_move:        { bg: 'rgba(14,165,233,.12)',  color: '#0284c7', label: 'Bulk Move' },
+    bulk_revert:      { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Reversão' },
+    bulk_delete:      { bg: 'rgba(239,68,68,.12)',   color: '#dc2626', label: 'Excl. Lote' },
+    password_reset:   { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Senha' },
   }
   const c = map[action] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)', label: action }
   return (
@@ -397,7 +652,7 @@ function DetailModal({ log, onClose }) {
           <Row label="Usuário" value={log.actor_name || log.actor_id || '—'} />
           <Row label="Ação" value={log.action} />
           <Row label="Tabela" value={TABLE_LABELS[log.table_name] || log.table_name || '—'} />
-          <Row label="ID" value={log.record_id || '—'} mono />
+          {log.record_id && <Row label="ID" value={log.record_id} mono />}
         </div>
         {log.details && (
           <>
@@ -428,10 +683,8 @@ function DetailModal({ log, onClose }) {
   )
 }
 
-// Campos que não precisam aparecer na prévia (são técnicos/internos)
 const SKIP_FIELDS = new Set(['id', 'created_at', 'updated_at', 'deleted_at'])
 
-// Labels legíveis por tabela
 const FIELD_LABELS = {
   equipment: { name: 'Nome', categoria: 'Categoria', status: 'Estado', asset_number: 'Nº Patrimônio', serial_number: 'Nº Série', observacao: 'Observação' },
   rooms: { name: 'Nome', room_number: 'Número', coordinator: 'Coordenador', description: 'Descrição', priority_level: 'Prioridade' },
@@ -500,28 +753,38 @@ function RecordPreview({ tableName, record }) {
 }
 
 function UndoModal({ log, busy, onConfirm, onClose }) {
+  const isBulk = log.action === 'bulk_move' || log.action === 'batch_movement'
   const isDelete = log.action === 'delete'
   const tableLabel = TABLE_LABELS[log.table_name] || log.table_name
   const [record, setRecord] = useState(null)
-  const [loadingRecord, setLoadingRecord] = useState(true)
+  const [loadingRecord, setLoadingRecord] = useState(!isBulk)
 
   useEffect(() => {
+    if (isBulk) return
     fetchFullRecord(log.table_name, log.record_id).then(data => {
       setRecord(data)
       setLoadingRecord(false)
     })
-  }, [log.table_name, log.record_id])
+  }, [log.table_name, log.record_id, isBulk])
+
+  const count = log.details?.count || log.details?.movement_ids?.length || '?'
+  const destination = log.details?.destination || log.details?.to || '—'
+  const origin = log.details?.from || '—'
+  const hasIds = (log.details?.movement_ids?.length || 0) > 0
+  const isLegacyLog = isBulk && !hasIds
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-content" style={{ maxWidth: 500 }}>
+      <div className="modal-content" style={{ maxWidth: 520 }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ background: isDelete ? 'rgba(99,102,241,.1)' : 'rgba(245,158,11,.1)', color: isDelete ? '#6366f1' : '#d97706', padding: 10, borderRadius: 10, flexShrink: 0 }}>
-              {isDelete ? <Undo2 size={20} /> : <RotateCcw size={20} />}
+            <div style={{ background: 'rgba(99,102,241,.1)', color: '#6366f1', padding: 10, borderRadius: 10, flexShrink: 0 }}>
+              {isBulk ? <ArrowRightLeft size={20} /> : isDelete ? <Undo2 size={20} /> : <RotateCcw size={20} />}
             </div>
             <div>
-              <h3 style={{ margin: 0 }}>{isDelete ? 'Restaurar registro' : 'Reverter criação'}</h3>
+              <h3 style={{ margin: 0 }}>
+                {isBulk ? 'Reverter movimentação em lote' : isDelete ? 'Restaurar registro' : 'Reverter criação'}
+              </h3>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                 {fmtDateTime(log.created_at)} · por <strong>{log.actor_name || '—'}</strong>
               </div>
@@ -530,31 +793,172 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
           <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
 
-        {/* Registro completo */}
-        <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0', minHeight: 60 }}>
-          <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
-            {tableLabel} — dados do registro
-          </p>
-          {loadingRecord ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
-              <Loader2 size={14} className="spin" /> Carregando...
+        {isBulk ? (
+          // Vista de reversão de lote
+          <>
+            <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0' }}>
+              <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
+                Resumo do lote
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <Row label="Qtd. itens" value={String(count)} />
+                {log.action === 'bulk_move' && <Row label="Destino" value={destination} />}
+                {log.action === 'batch_movement' && (
+                  <>
+                    <Row label="Origem" value={origin} />
+                    <Row label="Destino" value={destination} />
+                  </>
+                )}
+                <Row label="IDs gravados" value={hasIds ? `${log.details.movement_ids.length} ID(s)` : 'Não (log anterior à atualização) — busca por ator + sala + horário'} />
+              </div>
             </div>
-          ) : record ? (
-            <RecordPreview tableName={log.table_name} record={record} />
-          ) : (
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
-              Registro não encontrado — pode já ter sido restaurado ou permanentemente removido.
+
+            <div style={{
+              background: 'rgba(99,102,241,.06)',
+              border: '1px solid rgba(99,102,241,.2)',
+              borderRadius: 10,
+              padding: '10px 14px',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'flex-start',
+              marginBottom: isLegacyLog ? 8 : 20,
+            }}>
+              <AlertTriangle size={14} style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                {hasIds
+                  ? `Isso criará ${count} movimentaç${count !== 1 ? 'ões inversas' : 'ão inversa'} devolvendo cada equipamento à sua sala de origem, e excluirá as movimentações originais.`
+                  : `Log anterior à atualização — o sistema vai buscar automaticamente as movimentações desse usuário para a sala "${destination}" no horário do log (janela ±10 min) e revertê-las.`
+                }
+              </span>
+            </div>
+            {isLegacyLog && (
+              <div style={{
+                background: 'rgba(245,158,11,.08)',
+                border: '1px solid rgba(245,158,11,.2)',
+                borderRadius: 10,
+                padding: '10px 14px',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+                marginBottom: 20,
+              }}>
+                <AlertTriangle size={14} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  Confirme que não houve outra movimentação para essa mesma sala no mesmo período, para evitar reverter registros errados.
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          // Vista de registro único
+          <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0', minHeight: 60 }}>
+            <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
+              {tableLabel} — dados do registro
             </p>
-          )}
+            {loadingRecord ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
+                <Loader2 size={14} className="spin" /> Carregando...
+              </div>
+            ) : record ? (
+              <RecordPreview tableName={log.table_name} record={record} />
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                Registro não encontrado — pode já ter sido restaurado ou permanentemente removido.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!isBulk && (
+          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 20 }}>
+            <AlertTriangle size={14} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {isDelete
+                ? `O registro de ${tableLabel.toLowerCase()} será restaurado e voltará a aparecer no sistema.`
+                : `O registro de ${tableLabel.toLowerCase()} será excluído novamente (soft-delete).`
+              }
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary"
+            style={{ background: '#6366f1' }}
+            onClick={onConfirm}
+            disabled={busy || loadingRecord}
+          >
+            {busy
+              ? <><Loader2 size={14} className="spin" /> Revertendo...</>
+              : isBulk
+                ? `Reverter ${count} item${count !== 1 ? 's' : ''}`
+                : isDelete ? 'Restaurar' : 'Reverter criação'
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeleteBatchModal({ log, busy, onConfirm, onClose }) {
+  const isRevertLog = log.action === 'bulk_revert'
+  const count = log.details?.count || log.details?.movement_ids?.length || '?'
+  const destination = log.details?.destination || log.details?.to || '—'
+  const hasIds = !isRevertLog && (log.details?.movement_ids?.length || 0) > 0
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 480 }}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: 'rgba(239,68,68,.1)', color: '#dc2626', padding: 10, borderRadius: 10, flexShrink: 0 }}>
+              <Trash2 size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0 }}>
+                {isRevertLog ? 'Excluir registros da reversão' : 'Excluir registros do lote'}
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                {fmtDateTime(log.created_at)} · por <strong>{log.actor_name || '—'}</strong>
+              </div>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
 
-        {/* Aviso */}
-        <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 20 }}>
-          <AlertTriangle size={14} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+        <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0' }}>
+          <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
+            {isRevertLog ? 'Resumo da reversão' : 'Resumo do lote'}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Row label="Qtd. itens" value={String(count)} />
+            {!isRevertLog && <Row label="Destino" value={destination} />}
+            <Row
+              label="Busca"
+              value={hasIds ? `${log.details.movement_ids.length} ID(s) gravados` : 'Por ator + horário (±10 min)'}
+            />
+          </div>
+        </div>
+
+        <div style={{
+          background: 'rgba(239,68,68,.06)',
+          border: '1px solid rgba(239,68,68,.2)',
+          borderRadius: 10,
+          padding: '10px 14px',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'flex-start',
+          marginBottom: 20,
+        }}>
+          <AlertTriangle size={14} style={{ color: '#dc2626', flexShrink: 0, marginTop: 1 }} />
           <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            {isDelete
-              ? `O registro de ${tableLabel.toLowerCase()} será restaurado e voltará a aparecer no sistema.`
-              : `O registro de ${tableLabel.toLowerCase()} será excluído novamente (soft-delete).`
+            {isRevertLog
+              ? 'As movimentações inversas criadas pela reversão serão excluídas. Os equipamentos voltarão a aparecer na sala destino original (como se a reversão nunca tivesse ocorrido).'
+              : <>Os registros de movimentação serão <strong>excluídos</strong> sem criar movimentações inversas. Os equipamentos <strong>não voltam</strong> às salas de origem — use &ldquo;Reverter&rdquo; se quiser desfazer o lote.</>
             }
           </span>
         </div>
@@ -565,11 +969,14 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
           </button>
           <button
             className="btn-primary"
-            style={{ background: isDelete ? '#6366f1' : '#d97706' }}
+            style={{ background: '#dc2626' }}
             onClick={onConfirm}
-            disabled={busy || loadingRecord}
+            disabled={busy}
           >
-            {busy ? 'Aguarde…' : isDelete ? 'Restaurar' : 'Reverter criação'}
+            {busy
+              ? <><Loader2 size={14} className="spin" /> Excluindo...</>
+              : `Excluir ${count} registro${count !== 1 ? 's' : ''}`
+            }
           </button>
         </div>
       </div>
@@ -580,7 +987,7 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
 function Row({ label, value, mono = false }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-      <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, minWidth: 70 }}>
+      <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, minWidth: 100 }}>
         {label}
       </span>
       <span style={{ fontSize: 13, fontFamily: mono ? 'monospace' : undefined }}>{value}</span>

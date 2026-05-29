@@ -253,6 +253,7 @@ export function Movimentacoes() {
     })
   }
 
+
   // scope: 'page' = só a página visível (rápido) | 'all' = todos os filtrados
   const exportExcel = async (scope = 'all') => {
     try {
@@ -527,7 +528,7 @@ export function Movimentacoes() {
         comentario: loteComentario || null,
       }
     })
-    const { error } = await supabase.from('asset_movements').insert(inserts)
+    const { data: inserted, error } = await supabase.from('asset_movements').insert(inserts).select('id')
     if (error) {
       showToast('Erro ao registrar: ' + error.message, 'danger')
       setLoteBusy(false)
@@ -559,6 +560,7 @@ export function Movimentacoes() {
       count: inserts.length,
       from: loteOriginName,
       to: loteDestName,
+      movement_ids: (inserted || []).map((r) => r.id),
     })
     closeLote()
     showToast(

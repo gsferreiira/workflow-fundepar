@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -8,7 +8,7 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
-import { formatAssetNumber, fmtDate, fmtDateTime } from '../utils/format.js'
+import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
 
 const STATUS_MAP = {
   novo: { bg: 'rgba(16,185,129,.12)', color: '#059669' },
@@ -44,6 +44,8 @@ export function Rastreio() {
   const [filterRoom, setFilterRoom] = useState('')
   const [filterCat, setFilterCat] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
+  const [filterMovedFrom, setFilterMovedFrom] = useState('')
+  const [filterMovedTo, setFilterMovedTo] = useState('')
   const [sort, setSort] = useState('az')
   const [historyEq, setHistoryEq] = useState(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
@@ -58,6 +60,11 @@ export function Rastreio() {
     return () => registerRefresh?.(null)
   }, [registerRefresh])
 
+  // showToast não pertence às deps — é estável o suficiente e sua presença
+  // causaria re-execuções desnecessárias do efeito caso o contexto recrie a função.
+  const showToastRef = useRef(showToast)
+  showToastRef.current = showToast
+
   useEffect(() => {
     const load = async () => {
       const [
@@ -71,13 +78,14 @@ export function Rastreio() {
             'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by',
           )
           .is('deleted_at', null)
-          .order('moved_at', { ascending: false }),
+          .order('moved_at', { ascending: false })
+          .limit(5000),
         supabase.from('rooms').select('id, name').is('deleted_at', null),
         supabase.from('profiles').select('id, full_name').is('deleted_at', null),
       ])
 
       if (error) {
-        showToast(error.message, 'danger')
+        showToastRef.current(error.message, 'danger')
         return
       }
 
@@ -116,7 +124,7 @@ export function Rastreio() {
       setData(items)
     }
     load()
-  }, [reloadToken, showToast])
+  }, [reloadToken])
 
   const uniqueRooms = useMemo(() => {
     if (!data) return []
@@ -135,11 +143,15 @@ export function Rastreio() {
   const filtered = useMemo(() => {
     if (!data) return []
     const q = (search || '').toLowerCase().trim()
+    const fromTs = filterMovedFrom ? new Date(filterMovedFrom).toISOString() : null
+    const toTs = filterMovedTo ? new Date(filterMovedTo).toISOString() : null
 
     let result = data.filter((d) => {
       if (filterRoom && d.destination_room_id !== filterRoom) return false
       if (filterCat && (d.categoria || '') !== filterCat) return false
       if (filterStatus && (d.status || '') !== filterStatus) return false
+      if (fromTs && (d.moved_at || '') < fromTs) return false
+      if (toTs && (d.moved_at || '') > toTs) return false
       if (q) {
         const hay = [
           d.equipment?.name || '',
@@ -178,9 +190,13 @@ export function Rastreio() {
       result.sort((a, b) =>
         (a.categoria || 'zzz').localeCompare(b.categoria || 'zzz', 'pt-BR'),
       )
+    else if (sort === 'data_desc')
+      result.sort((a, b) => (b.moved_at || '').localeCompare(a.moved_at || ''))
+    else if (sort === 'data_asc')
+      result.sort((a, b) => (a.moved_at || '').localeCompare(b.moved_at || ''))
 
     return result
-  }, [data, search, filterRoom, filterCat, filterStatus, sort])
+  }, [data, search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
 
   const exportExcel = async () => {
     try {
@@ -228,10 +244,14 @@ export function Rastreio() {
     setFilterRoom('')
     setFilterCat('')
     setFilterStatus('')
+    setFilterMovedFrom('')
+    setFilterMovedTo('')
     setSort('az')
   }
 
-  // ── Seleção múltipla / Bulk move (Onda 4 #8) ──────────────────────
+  const hasFilters = search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo || sort !== 'az'
+
+  // ── Seleção múltipla / Bulk move ──────────────────────────────────
   const toggleSelected = useCallback((key) => {
     setSelectedKeys((prev) => {
       const next = new Set(prev)
@@ -258,7 +278,6 @@ export function Rastreio() {
 
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), [])
 
-  // Pega só os itens filtrados que estão selecionados (descarta seleção fora do filtro atual)
   const selectedItems = useMemo(
     () => filtered.filter((d) => selectedKeys.has(d.key)),
     [filtered, selectedKeys],
@@ -354,15 +373,41 @@ export function Rastreio() {
               <option value="pat">Nº Patrimônio</option>
               <option value="sala">Sala</option>
               <option value="cat">Categoria</option>
+              <option value="data_desc">Mais recentes primeiro</option>
+              <option value="data_asc">Mais antigos primeiro</option>
             </select>
           </div>
         </div>
+
+        <div className="filter-row" style={{ marginTop: 8 }}>
+          <div className="filter-group" style={{ flex: 1 }}>
+            <label className="filter-label">Última mov. a partir de</label>
+            <input
+              type="datetime-local"
+              className="form-control filter-control"
+              value={filterMovedFrom}
+              onChange={(e) => setFilterMovedFrom(e.target.value)}
+            />
+          </div>
+          <div className="filter-group" style={{ flex: 1 }}>
+            <label className="filter-label">Última mov. até</label>
+            <input
+              type="datetime-local"
+              className="form-control filter-control"
+              value={filterMovedTo}
+              onChange={(e) => setFilterMovedTo(e.target.value)}
+            />
+          </div>
+          <div className="filter-group" style={{ flex: 2 }} />
+        </div>
+
         <div className="filter-actions">
           <span className="filter-count">
             {filtered.length} equipamento{filtered.length !== 1 ? 's' : ''}
+            {data && filtered.length !== data.length ? ` de ${data.length}` : ''}
           </span>
-          <button className="btn-filter-clear" onClick={clearFilters}>
-            <X size={13} /> Limpar
+          <button className="btn-filter-clear" onClick={clearFilters} disabled={!hasFilters}>
+            <X size={13} /> Limpar filtros
           </button>
         </div>
       </div>
@@ -411,7 +456,7 @@ export function Rastreio() {
               <th>Nº Patrimônio</th>
               <th>Localização Atual</th>
               <th>Com quem está</th>
-              <th>Última Mov.</th>
+              <th>Última Movimentação</th>
               <th style={{ width: 80 }}>Histórico</th>
             </tr>
           </thead>
@@ -420,16 +465,24 @@ export function Rastreio() {
               <tr>
                 <td colSpan={9}>
                   <EmptyState
-                    preset={search || filterRoom || filterCat || filterStatus ? 'search' : 'package'}
-                    title={search || filterRoom || filterCat || filterStatus ? 'Nenhum patrimônio encontrado' : 'Nenhum patrimônio rastreado'}
-                    description={search || filterRoom || filterCat || filterStatus ? 'Tente ajustar os filtros.' : 'Registre movimentações para rastrear equipamentos.'}
+                    preset={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'search' : 'package'}
+                    title={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Nenhum patrimônio encontrado' : 'Nenhum patrimônio rastreado'}
+                    description={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Tente ajustar os filtros.' : 'Registre movimentações para rastrear equipamentos.'}
                   />
                 </td>
               </tr>
             ) : (
               filtered.map((d) => (
-                <tr key={d.key} className={selectedKeys.has(d.key) ? 'row-selected' : ''}>
-                  <td>
+                <tr
+                  key={d.key}
+                  className={selectedKeys.has(d.key) ? 'row-selected' : ''}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return
+                    toggleSelected(d.key)
+                  }}
+                >
+                  <td onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       className="bulk-checkbox"
@@ -488,13 +541,13 @@ export function Rastreio() {
                     )}
                   </td>
                   <td style={{ color: 'var(--text-secondary)' }}>{d.received_by || '—'}</td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                    {d.moved_at ? fmtDate(d.moved_at) : '—'}
+                  <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                    {d.moved_at ? fmtDateTime(d.moved_at) : '—'}
                   </td>
                   <td>
                     <button
                       className="btn-table-action edit"
-                      onClick={() => setHistoryEq(d)}
+                      onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}
                       title="Ver histórico"
                     >
                       <History size={14} />
@@ -533,19 +586,30 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
   const [destRoomId, setDestRoomId] = useState('')
+  // receivedBy: texto para sobrescrever todos; clearReceiver: remove o recebedor de todos
   const [receivedBy, setReceivedBy] = useState('')
+  const [clearReceiver, setClearReceiver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     roomsFetcher().then(setRooms)
   }, [roomsFetcher])
 
-  // Itens cuja sala atual coincide com a destino — serão pulados na execução
   const skippable = useMemo(
     () => items.filter((i) => destRoomId && i.destination_room_id === destRoomId),
     [items, destRoomId],
   )
   const toMove = items.length - skippable.length
+
+  // Recebedor resultante por item:
+  //   clearReceiver → null
+  //   receivedBy preenchido → novo valor para todos
+  //   senão → mantém o existente de cada item
+  const resolveReceiver = (item) => {
+    if (clearReceiver) return null
+    if (receivedBy.trim()) return receivedBy.trim()
+    return item.received_by || null
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -561,24 +625,23 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
     const movedAt = new Date().toISOString()
     const destRoom = rooms.find((r) => r.id === destRoomId)
 
-    // Insere uma movimentação por item (pula os que já estão no destino)
     const movements = items
       .filter((i) => i.destination_room_id !== destRoomId)
       .map((i) => ({
         equipment_id: i.equipment_id,
         serial_number: i.serial_number,
         asset_number: i.asset_number,
-        origin_room_id: i.destination_room_id, // sala atual vira origem
+        origin_room_id: i.destination_room_id,
         destination_room_id: destRoomId,
         moved_by: user?.id,
-        received_by: receivedBy.trim() || null,
+        received_by: resolveReceiver(i),
         moved_at: movedAt,
       }))
 
     const { data: inserted, error } = await supabase
       .from('asset_movements')
       .insert(movements)
-      .select('id, asset_number')
+      .select('id')
 
     if (error) {
       showToast('Erro ao mover: ' + error.message, 'danger')
@@ -586,7 +649,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       return
     }
 
-    // Atualiza equipment_locations para cada patrimônio físico (asset_number)
+    // Atualiza equipment_locations para itens com asset_number
     const locationUpserts = movements
       .filter((m) => m.asset_number)
       .map((m) => ({
@@ -602,13 +665,14 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       const { error: locError } = await supabase
         .from('equipment_locations')
         .upsert(locationUpserts, { onConflict: 'asset_number' })
-      if (locError) console.warn('Bulk move — localização atual não atualizada:', locError.message)
+      if (locError) console.warn('Bulk move — equipment_locations não atualizado:', locError.message)
     }
 
-    // Audit: registra a operação em lote
+    // Salva IDs no audit para permitir reversão pela Auditoria
     audit.log('bulk_move', 'asset_movements', null, {
       count: movements.length,
       destination: destRoom?.name,
+      movement_ids: (inserted || []).map((r) => r.id),
       asset_numbers: movements.map((m) => m.asset_number).filter(Boolean),
     })
 
@@ -657,46 +721,106 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
               </small>
             )}
           </div>
+
           <div className="form-group">
-            <label>Recebedor <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(opcional)</span></label>
-            <input
-              type="text"
-              className="form-control"
-              value={receivedBy}
-              onChange={(e) => setReceivedBy(e.target.value)}
-              placeholder="Nome de quem recebe os equipamentos..."
-            />
+            <label>Recebedor</label>
+            {clearReceiver ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+                background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)',
+                borderRadius: 8,
+              }}>
+                <UserMinus size={14} style={{ color: '#dc2626', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: '#dc2626', flex: 1 }}>
+                  Recebedor será removido de todos os equipamentos
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setClearReceiver(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, display: 'flex' }}
+                  title="Cancelar redefinição"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={receivedBy}
+                  onChange={(e) => setReceivedBy(e.target.value)}
+                  placeholder="Trocar recebedor de todos... (vazio = manter atual)"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => { setReceivedBy(''); setClearReceiver(true) }}
+                  title="Redefinir — remove o recebedor de todos os equipamentos"
+                  style={{
+                    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '0 12px', border: '1px solid rgba(239,68,68,.35)',
+                    borderRadius: 8, background: 'rgba(239,68,68,.04)',
+                    color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <UserMinus size={13} /> Redefinir
+                </button>
+              </div>
+            )}
+            {!clearReceiver && !receivedBy && (
+              <small style={{ display: 'block', marginTop: 4, color: 'var(--text-secondary)' }}>
+                Se deixar vazio, cada equipamento mantém seu recebedor atual.
+              </small>
+            )}
           </div>
-          <div style={{ maxHeight: 180, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
+
+          <div style={{ maxHeight: 200, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
               Itens selecionados ({items.length})
             </div>
-            {items.map((i) => (
-              <div
-                key={i.key}
-                style={{
-                  fontSize: 13,
-                  padding: '4px 0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  borderBottom: '1px solid var(--border-color)',
-                }}
-              >
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {i.equipment?.name || '—'}
-                  {i.asset_number && (
-                    <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>
-                      ({formatAssetNumber(i.asset_number)})
-                    </span>
-                  )}
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                  {i.room?.name || '—'}
-                </span>
-              </div>
-            ))}
+            {items.map((i) => {
+              const resultReceiver = resolveReceiver(i)
+              const keepingExisting = !clearReceiver && !receivedBy.trim() && i.received_by
+              return (
+                <div
+                  key={i.key}
+                  style={{
+                    fontSize: 13,
+                    padding: '5px 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                    borderBottom: '1px solid var(--border-color)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {i.equipment?.name || '—'}
+                      {i.asset_number && (
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: 6, fontSize: 12 }}>
+                          {formatAssetNumber(i.asset_number)}
+                        </span>
+                      )}
+                    </div>
+                    {resultReceiver ? (
+                      <div style={{ fontSize: 11, color: keepingExisting ? '#0284c7' : '#059669', marginTop: 1 }}>
+                        {keepingExisting ? '↪ mantendo: ' : '→ '}{resultReceiver}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>sem recebedor</div>
+                    )}
+                  </div>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                    {i.room?.name || '—'}
+                  </span>
+                </div>
+              )
+            })}
           </div>
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
             <button
               type="button"
@@ -722,7 +846,6 @@ function HistoryModal({ item, onClose }) {
 
   useEffect(() => {
     const load = async () => {
-      // Busca os movimentos sem join (mesmo padrão do resto do app)
       let query = supabase
         .from('asset_movements')
         .select('id, asset_number, moved_at, received_by, origin_room_id, destination_room_id, moved_by')
@@ -744,7 +867,6 @@ function HistoryModal({ item, onClose }) {
       }
       if (!movs || movs.length === 0) { setMovements([]); return }
 
-      // Resolve salas e perfis separadamente (igual Movimentacoes.jsx)
       const roomIds = [...new Set([
         ...movs.map(m => m.origin_room_id),
         ...movs.map(m => m.destination_room_id),
