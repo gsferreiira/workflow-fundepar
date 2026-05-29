@@ -38,7 +38,7 @@ export function Layout() {
   const { user } = useAuth()
   const { rooms: roomsFetcher } = useStore()
   const [rooms, setRooms] = useState([])
-  const { items, badge, refresh, markAsSeen } = useNotifications()
+  const { items, badge, seenAt, refresh, markAsSeen } = useNotifications()
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
   const refreshFnRef = useRef(null)
   const registerRefresh = useCallback((fn) => { refreshFnRef.current = fn }, [])
@@ -188,6 +188,7 @@ export function Layout() {
               open={notifOpen}
               onClose={() => setNotifOpen(false)}
               items={items}
+              seenAt={seenAt}
               onShowDetail={(item) => {
                 setNotifOpen(false)
                 setNotifDetail(item)

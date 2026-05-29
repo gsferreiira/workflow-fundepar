@@ -32,13 +32,7 @@ const safeSetItem = (key, value) => {
   }
 }
 
-export function NotificationsPanel({ open, onClose, items, onShowDetail }) {
-  // Lê lastSeen UMA VEZ por render. Antes era lido dentro de cada iteração do .map.
-  const lastSeen = useMemo(() => {
-    const raw = safeGetItem('notif_last_seen')
-    return raw ? new Date(raw) : null
-  }, [open, items])
-
+export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt }) {
   if (!open) return null
   return (
     <>
@@ -58,7 +52,7 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail }) {
             </div>
           ) : (
             items.map((item) => {
-              const isNew = !lastSeen || item.date > lastSeen
+              const isNew = !seenAt || item.date > seenAt
               return (
                 <div className={`notif-item${isNew ? ' unread' : ''}`} key={item.id}>
                   <div className={`notif-icon ${item.type}`}>
@@ -100,10 +94,22 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail }) {
 
 /**
  * Hook que busca e mantém em estado as notificações + badge.
+ *
+ * `seenAt` é o estado React (fonte de verdade). O localStorage serve apenas
+ * para persistir entre sessões — se falhar silenciosamente, o sistema continua
+ * funcionando dentro da sessão sem entrar em loop infinito.
  */
 export function useNotifications() {
   const [items, setItems] = useState([])
   const [badge, setBadge] = useState(0)
+  const [seenAt, setSeenAt] = useState(() => {
+    const raw = safeGetItem('notif_last_seen')
+    return raw ? new Date(raw) : null
+  })
+  // Ref sempre atualizado — permite que refresh() (async) leia o valor corrente
+  // sem depender de closure ou localStorage.
+  const seenAtRef = useRef(seenAt)
+  seenAtRef.current = seenAt
 
   const refresh = useCallback(async () => {
     const [{ data: movements }, { data: equipment }, { data: profiles }] = await Promise.all([
@@ -125,8 +131,6 @@ export function useNotifications() {
     ])
 
     const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]))
-    const lastSeenRaw = safeGetItem('notif_last_seen')
-    const lastSeen = lastSeenRaw ? new Date(lastSeenRaw) : null
 
     const collected = [
       ...(movements || []).map((m) => ({
@@ -150,7 +154,9 @@ export function useNotifications() {
       .slice(0, 25)
 
     setItems(collected)
-    const unseen = lastSeen ? collected.filter((i) => i.date > lastSeen).length : collected.length
+    // Usa ref (não localStorage) — garante consistência mesmo se localStorage falhar
+    const seen = seenAtRef.current
+    const unseen = seen ? collected.filter((i) => i.date > seen).length : collected.length
     setBadge(unseen)
   }, [])
 
@@ -176,12 +182,15 @@ export function useNotifications() {
     if (throttleRef.current) clearTimeout(throttleRef.current)
   }, [])
 
-  const markAsSeen = () => {
-    safeSetItem('notif_last_seen', new Date().toISOString())
+  const markAsSeen = useCallback(() => {
+    const now = new Date()
+    safeSetItem('notif_last_seen', now.toISOString())
+    seenAtRef.current = now
+    setSeenAt(now)
     setBadge(0)
-  }
+  }, [])
 
-  return { items, badge, refresh, markAsSeen }
+  return { items, badge, seenAt, refresh, markAsSeen }
 }
 
 export function NotificationDetailModal({ item, onClose }) {
