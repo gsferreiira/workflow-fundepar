@@ -124,27 +124,61 @@ export function Auditoria() {
   // Reverte bulk_move ou batch_movement: cria movimentações inversas e soft-deleta as originais
   const executeBulkRevert = async (log) => {
     const movementIds = log.details?.movement_ids
-    if (!movementIds || movementIds.length === 0) {
-      showToast('Este log não contém IDs de movimentação. Registros antigos precisam ser revertidos manualmente em Movimentações.', 'warning')
-      setUndoBusy(false)
-      return
-    }
+    let originalMovs
 
-    // 1. Busca as movimentações originais
-    const { data: originalMovs, error: fetchError } = await supabase
-      .from('asset_movements')
-      .select('*')
-      .in('id', movementIds)
-      .is('deleted_at', null)
+    if (movementIds && movementIds.length > 0) {
+      // Caminho novo: IDs estão salvos no log
+      const { data, error: fetchError } = await supabase
+        .from('asset_movements')
+        .select('*')
+        .in('id', movementIds)
+        .is('deleted_at', null)
 
-    if (fetchError) {
-      showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
-      setUndoBusy(false)
-      return
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      originalMovs = data
+    } else {
+      // Caminho legado: log antigo sem IDs — busca por ator + destino + janela de tempo
+      const logTime = new Date(log.created_at)
+      const windowStart = new Date(logTime.getTime() - 10 * 60 * 1000).toISOString() // −10 min
+      const windowEnd   = new Date(logTime.getTime() + 10 * 60 * 1000).toISOString() // +10 min
+
+      // Resolve nome da sala → ID
+      let destRoomId = null
+      const destName = log.details?.destination || log.details?.to
+      if (destName) {
+        const { data: rooms } = await supabase
+          .from('rooms')
+          .select('id, name')
+          .ilike('name', destName.trim())
+          .limit(1)
+        destRoomId = rooms?.[0]?.id || null
+      }
+
+      let query = supabase
+        .from('asset_movements')
+        .select('*')
+        .eq('moved_by', log.actor_id)
+        .gte('moved_at', windowStart)
+        .lte('moved_at', windowEnd)
+        .is('deleted_at', null)
+
+      if (destRoomId) query = query.eq('destination_room_id', destRoomId)
+
+      const { data, error: fetchError } = await query
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setUndoBusy(false)
+        return
+      }
+      originalMovs = data
     }
 
     if (!originalMovs || originalMovs.length === 0) {
-      showToast('Movimentações não encontradas — podem já ter sido revertidas ou excluídas.', 'warning')
+      showToast('Nenhuma movimentação encontrada para reverter — podem já ter sido revertidas ou excluídas.', 'warning')
       setUndoBusy(false)
       return
     }
@@ -385,7 +419,7 @@ export function Auditoria() {
                 ) : (
                   data.map((log) => {
                     const isBulk = log.action === 'bulk_move' || log.action === 'batch_movement'
-                    const canRevertBulk = isBulk && log.details?.movement_ids?.length > 0
+                    const canRevertBulk = isBulk // mostra sempre; lida com logs antigos na execução
                     const canUndoRecord = (log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id
                     return (
                       <tr key={log.id}>
@@ -637,6 +671,7 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
   const destination = log.details?.destination || log.details?.to || '—'
   const origin = log.details?.from || '—'
   const hasIds = (log.details?.movement_ids?.length || 0) > 0
+  const isLegacyLog = isBulk && !hasIds
 
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -674,28 +709,45 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
                     <Row label="Destino" value={destination} />
                   </>
                 )}
-                <Row label="IDs gravados" value={hasIds ? `${log.details.movement_ids.length} ID(s)` : 'Não — log antigo'} />
+                <Row label="IDs gravados" value={hasIds ? `${log.details.movement_ids.length} ID(s)` : 'Não (log anterior à atualização) — busca por ator + sala + horário'} />
               </div>
             </div>
 
             <div style={{
-              background: hasIds ? 'rgba(99,102,241,.06)' : 'rgba(245,158,11,.08)',
-              border: `1px solid ${hasIds ? 'rgba(99,102,241,.2)' : 'rgba(245,158,11,.2)'}`,
+              background: 'rgba(99,102,241,.06)',
+              border: '1px solid rgba(99,102,241,.2)',
               borderRadius: 10,
               padding: '10px 14px',
               display: 'flex',
               gap: 8,
               alignItems: 'flex-start',
-              marginBottom: 20,
+              marginBottom: isLegacyLog ? 8 : 20,
             }}>
-              <AlertTriangle size={14} style={{ color: hasIds ? '#6366f1' : '#d97706', flexShrink: 0, marginTop: 1 }} />
+              <AlertTriangle size={14} style={{ color: '#6366f1', flexShrink: 0, marginTop: 1 }} />
               <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                 {hasIds
                   ? `Isso criará ${count} movimentaç${count !== 1 ? 'ões inversas' : 'ão inversa'} devolvendo cada equipamento à sua sala de origem, e excluirá as movimentações originais.`
-                  : 'Este log não possui IDs de movimentação armazenados (foi feito antes da atualização do sistema). Não é possível reverter automaticamente — acesse a página de Movimentações para desfazer manualmente.'
+                  : `Log anterior à atualização — o sistema vai buscar automaticamente as movimentações desse usuário para a sala "${destination}" no horário do log (janela ±10 min) e revertê-las.`
                 }
               </span>
             </div>
+            {isLegacyLog && (
+              <div style={{
+                background: 'rgba(245,158,11,.08)',
+                border: '1px solid rgba(245,158,11,.2)',
+                borderRadius: 10,
+                padding: '10px 14px',
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
+                marginBottom: 20,
+              }}>
+                <AlertTriangle size={14} style={{ color: '#d97706', flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  Confirme que não houve outra movimentação para essa mesma sala no mesmo período, para evitar reverter registros errados.
+                </span>
+              </div>
+            )}
           </>
         ) : (
           // Vista de registro único
@@ -737,7 +789,7 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
             className="btn-primary"
             style={{ background: '#6366f1' }}
             onClick={onConfirm}
-            disabled={busy || loadingRecord || (isBulk && !hasIds)}
+            disabled={busy || loadingRecord}
           >
             {busy
               ? <><Loader2 size={14} className="spin" /> Revertendo...</>
