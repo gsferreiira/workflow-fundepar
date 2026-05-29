@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   AlertCircle,
+  Check,
 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -105,6 +106,60 @@ export function Movimentacoes() {
   const [importRows, setImportRows] = useState(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
 
+  // ── Seleção múltipla ──────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+
+  const toggleSelected = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  const allPageSelected = useMemo(
+    () => listWithBatch?.length > 0 && listWithBatch.every((m) => selectedIds.has(m.id)),
+    [listWithBatch, selectedIds],
+  )
+
+  const toggleAllPage = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allPageSelected) {
+        listWithBatch.forEach((m) => next.delete(m.id))
+      } else {
+        listWithBatch.forEach((m) => next.add(m.id))
+      }
+      return next
+    })
+  }, [listWithBatch, allPageSelected])
+
+  const deleteSelected = async () => {
+    const ids = [...selectedIds]
+    const count = ids.length
+    const ok = await confirm({
+      title: `Excluir ${count} movimentaç${count !== 1 ? 'ões' : 'ão'}`,
+      message: `Tem certeza que deseja excluir ${count} movimentaç${count !== 1 ? 'ões selecionadas' : 'ão selecionada'}? Esta ação não pode ser desfeita facilmente.`,
+      confirmText: 'Excluir',
+      danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase
+      .from('asset_movements')
+      .update({ deleted_at: new Date().toISOString() })
+      .in('id', ids)
+      .is('deleted_at', null)
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'danger'); return }
+    audit.log('delete', 'asset_movements', null, { ids, count })
+    clearSelection()
+    showToast(`${count} movimentaç${count !== 1 ? 'ões excluídas' : 'ão excluída'}.`, 'success')
+    refresh()
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanMode, setScanMode] = useState('single')
   const [scanResult, setScanResult] = useState(null)
@@ -179,6 +234,7 @@ export function Movimentacoes() {
 
   const applyFilters = () => {
     setPage(1)
+    clearSelection()
     fetchPage(1, filters, search)
   }
 
@@ -206,6 +262,7 @@ export function Movimentacoes() {
     }
     setFilters(cleared)
     setPage(1)
+    clearSelection()
     fetchPage(1, cleared, search)
   }
 
@@ -220,6 +277,7 @@ export function Movimentacoes() {
   const onPrev = () => {
     const p = page - 1
     setPage(p)
+    clearSelection()
     fetchPage(p, filters, search)
     window.scrollTo(0, 0)
   }
@@ -227,6 +285,7 @@ export function Movimentacoes() {
   const onNext = () => {
     const p = page + 1
     setPage(p)
+    clearSelection()
     fetchPage(p, filters, search)
     window.scrollTo(0, 0)
   }
@@ -746,6 +805,25 @@ export function Movimentacoes() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="bulk-action-bar fade-in">
+          <div className="bulk-action-info">
+            <Check size={16} />
+            <strong>{selectedIds.size}</strong> selecionada{selectedIds.size !== 1 ? 's' : ''}
+          </div>
+          <div className="bulk-action-buttons">
+            {isAdmin && (
+              <button type="button" className="btn-primary" style={{ background: '#dc2626' }} onClick={deleteSelected}>
+                <Trash2 size={14} /> Excluir {selectedIds.size} {selectedIds.size === 1 ? 'movimentação' : 'movimentações'}
+              </button>
+            )}
+            <button type="button" className="btn-filter-clear" onClick={clearSelection}>
+              <X size={13} /> Limpar seleção
+            </button>
+          </div>
+        </div>
+      )}
+
       {!listWithBatch ? (
         <SkeletonTable />
       ) : (
@@ -754,6 +832,15 @@ export function Movimentacoes() {
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}>
+                    <input
+                      type="checkbox"
+                      className="bulk-checkbox"
+                      checked={allPageSelected}
+                      onChange={toggleAllPage}
+                      aria-label="Selecionar todas desta página"
+                    />
+                  </th>
                   <th>Equipamento</th>
                   <th>Nº Série / Patrimônio</th>
                   <th>Origem</th>
@@ -768,13 +855,30 @@ export function Movimentacoes() {
               <tbody>
                 {listWithBatch.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
                       Nenhuma movimentação encontrada.
                     </td>
                   </tr>
                 ) : (
                   listWithBatch.map((m) => (
-                    <tr key={m.id}>
+                    <tr
+                      key={m.id}
+                      className={selectedIds.has(m.id) ? 'row-selected' : ''}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return
+                        toggleSelected(m.id)
+                      }}
+                    >
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="bulk-checkbox"
+                          checked={selectedIds.has(m.id)}
+                          onChange={() => toggleSelected(m.id)}
+                          aria-label={`Selecionar ${m.equipment?.name || m.id}`}
+                        />
+                      </td>
                       <td>
                         <strong>{m.equipment?.name || '—'}</strong>
                         {m.isBatch && (
