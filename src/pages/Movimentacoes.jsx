@@ -137,6 +137,38 @@ export function Movimentacoes() {
     })
   }, [listWithBatch, allPageSelected])
 
+  const exportSelected = async () => {
+    try {
+      const selected = (listWithBatch || []).filter((m) => selectedIds.has(m.id))
+      if (selected.length === 0) return
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
+      const wsData = [
+        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição por'],
+        ...selected.map((m) => [
+          m.equipment?.name || '—',
+          m.serial_number || '—',
+          formatAssetNumber(m.asset_number) || '—',
+          m.origin?.name || '—',
+          m.destination?.name || '—',
+          m.profiles?.full_name || '—',
+          m.received_by || '—',
+          new Date(m.moved_at).toLocaleString('pt-BR'),
+          m.editedBy?.full_name || '—',
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 24 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Selecionadas')
+      XLSX.writeFile(wb, `movimentacoes_selecionadas_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      showToast(`${selected.length} linha${selected.length !== 1 ? 's' : ''} exportada${selected.length !== 1 ? 's' : ''}!`, 'success')
+    } catch (err) {
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
+    }
+  }
+
   const deleteSelected = async () => {
     const ids = [...selectedIds]
     const count = ids.length
@@ -812,9 +844,12 @@ export function Movimentacoes() {
             <strong>{selectedIds.size}</strong> selecionada{selectedIds.size !== 1 ? 's' : ''}
           </div>
           <div className="bulk-action-buttons">
+            <button type="button" className="btn-primary" style={{ background: '#059669' }} onClick={exportSelected}>
+              <FileSpreadsheet size={14} /> Exportar Excel
+            </button>
             {isAdmin && (
               <button type="button" className="btn-primary" style={{ background: '#dc2626' }} onClick={deleteSelected}>
-                <Trash2 size={14} /> Excluir {selectedIds.size} {selectedIds.size === 1 ? 'movimentação' : 'movimentações'}
+                <Trash2 size={14} /> Excluir {selectedIds.size === 1 ? 'movimentação' : 'movimentações'}
               </button>
             )}
             <button type="button" className="btn-filter-clear" onClick={clearSelection}>
