@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2, ArrowRightLeft } from 'lucide-react'
+import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2, ArrowRightLeft, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -21,6 +21,7 @@ const ACTIONS = [
   { value: 'batch_movement', label: 'Movimentação em Lote' },
   { value: 'bulk_move', label: 'Bulk Move (Rastreio)' },
   { value: 'bulk_revert', label: 'Reversão de Lote' },
+  { value: 'bulk_delete', label: 'Exclusão de Lote' },
   { value: 'password_reset', label: 'Redefinição de Senha' },
 ]
 
@@ -68,6 +69,8 @@ export function Auditoria() {
   const [detailLog, setDetailLog] = useState(null)
   const [undoLog, setUndoLog] = useState(null)
   const [undoBusy, setUndoBusy] = useState(false)
+  const [deleteLog, setDeleteLog] = useState(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const isAdmin = user?.role === 'admin'
 
@@ -204,10 +207,11 @@ export function Auditoria() {
     }
 
     // 3. Soft-delete das movimentações originais
+    const originalIds = originalMovs.map((m) => m.id)
     const { error: delError } = await supabase
       .from('asset_movements')
       .update({ deleted_at: new Date().toISOString() })
-      .in('id', movementIds)
+      .in('id', originalIds)
       .is('deleted_at', null)
 
     if (delError) {
@@ -243,6 +247,79 @@ export function Auditoria() {
     )
     setUndoBusy(false)
     setUndoLog(null)
+    fetchPage(page)
+  }
+
+  const executeDeleteBatch = async (log) => {
+    setDeleteBusy(true)
+
+    const isRevertLog = log.action === 'bulk_revert'
+    const movementIds = log.details?.movement_ids
+    let movIds
+
+    if (!isRevertLog && movementIds && movementIds.length > 0) {
+      // Caminho direto: IDs gravados no log de bulk_move/batch_movement
+      movIds = movementIds
+    } else {
+      // Busca por ator + janela de tempo (bulk_revert sempre, bulk_move legado sem IDs)
+      const logTime = new Date(log.created_at)
+      const windowStart = new Date(logTime.getTime() - 10 * 60 * 1000).toISOString()
+      const windowEnd   = new Date(logTime.getTime() + 10 * 60 * 1000).toISOString()
+
+      let query = supabase.from('asset_movements').select('id')
+        .eq('moved_by', log.actor_id)
+        .gte('moved_at', windowStart)
+        .lte('moved_at', windowEnd)
+        .is('deleted_at', null)
+
+      // bulk_move/batch_movement: filtra também pela sala de destino se disponível
+      if (!isRevertLog) {
+        const destName = log.details?.destination || log.details?.to
+        if (destName) {
+          const { data: rooms } = await supabase.from('rooms').select('id, name').ilike('name', destName.trim()).limit(1)
+          const destRoomId = rooms?.[0]?.id || null
+          if (destRoomId) query = query.eq('destination_room_id', destRoomId)
+        }
+      }
+
+      const { data, error: fetchError } = await query
+      if (fetchError) {
+        showToast('Erro ao buscar movimentações: ' + fetchError.message, 'danger')
+        setDeleteBusy(false)
+        return
+      }
+      movIds = (data || []).map((r) => r.id)
+    }
+
+    if (!movIds || movIds.length === 0) {
+      showToast('Nenhuma movimentação encontrada — podem já ter sido excluídas.', 'warning')
+      setDeleteBusy(false)
+      return
+    }
+
+    const { error: delError } = await supabase
+      .from('asset_movements')
+      .update({ deleted_at: new Date().toISOString() })
+      .in('id', movIds)
+      .is('deleted_at', null)
+
+    if (delError) {
+      showToast('Erro ao excluir: ' + delError.message, 'danger')
+      setDeleteBusy(false)
+      return
+    }
+
+    audit.log('bulk_delete', 'asset_movements', null, {
+      deleted_log_id: log.id,
+      count: movIds.length,
+    })
+
+    showToast(
+      `${movIds.length} movimentaç${movIds.length === 1 ? 'ão excluída' : 'ões excluídas'} com sucesso.`,
+      'success',
+    )
+    setDeleteBusy(false)
+    setDeleteLog(null)
     fetchPage(page)
   }
 
@@ -419,7 +496,9 @@ export function Auditoria() {
                 ) : (
                   data.map((log) => {
                     const isBulk = log.action === 'bulk_move' || log.action === 'batch_movement'
+                    const isRevert = log.action === 'bulk_revert'
                     const canRevertBulk = isBulk // mostra sempre; lida com logs antigos na execução
+                    const canDeleteBulk = isBulk || isRevert
                     const canUndoRecord = (log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id
                     return (
                       <tr key={log.id}>
@@ -442,6 +521,8 @@ export function Auditoria() {
                               {log.details.destination ? ` → ${log.details.destination}` : ''}
                               {log.details.from && log.details.to ? ` (${log.details.from} → ${log.details.to})` : ''}
                             </span>
+                          ) : isRevert && log.details ? (
+                            <span>{log.details.count || '?'} item{log.details.count !== 1 ? 's' : ''} revertido{log.details.count !== 1 ? 's' : ''}</span>
                           ) : log.record_id ? (
                             <span style={{ fontFamily: 'monospace' }}>{log.record_id.slice(0, 8)}…</span>
                           ) : '—'}
@@ -465,6 +546,16 @@ export function Auditoria() {
                                 style={{ color: '#6366f1' }}
                               >
                                 <RotateCcw size={14} />
+                              </button>
+                            )}
+                            {canDeleteBulk && (
+                              <button
+                                className="btn-table-action"
+                                onClick={() => setDeleteLog(log)}
+                                title="Excluir registros — remove as movimentações sem desfazê-las"
+                                style={{ color: '#dc2626' }}
+                              >
+                                <Trash2 size={14} />
                               </button>
                             )}
                             {canUndoRecord && (
@@ -504,6 +595,14 @@ export function Auditoria() {
           onClose={() => setUndoLog(null)}
         />
       )}
+      {deleteLog && (
+        <DeleteBatchModal
+          log={deleteLog}
+          busy={deleteBusy}
+          onConfirm={() => executeDeleteBatch(deleteLog)}
+          onClose={() => setDeleteLog(null)}
+        />
+      )}
     </>
   )
 }
@@ -518,6 +617,7 @@ function ActionBadge({ action }) {
     batch_movement:   { bg: 'rgba(16,185,129,.12)',  color: '#059669', label: 'Lote' },
     bulk_move:        { bg: 'rgba(14,165,233,.12)',  color: '#0284c7', label: 'Bulk Move' },
     bulk_revert:      { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Reversão' },
+    bulk_delete:      { bg: 'rgba(239,68,68,.12)',   color: '#dc2626', label: 'Excl. Lote' },
     password_reset:   { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Senha' },
   }
   const c = map[action] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)', label: action }
@@ -796,6 +896,86 @@ function UndoModal({ log, busy, onConfirm, onClose }) {
               : isBulk
                 ? `Reverter ${count} item${count !== 1 ? 's' : ''}`
                 : isDelete ? 'Restaurar' : 'Reverter criação'
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeleteBatchModal({ log, busy, onConfirm, onClose }) {
+  const isRevertLog = log.action === 'bulk_revert'
+  const count = log.details?.count || log.details?.movement_ids?.length || '?'
+  const destination = log.details?.destination || log.details?.to || '—'
+  const hasIds = !isRevertLog && (log.details?.movement_ids?.length || 0) > 0
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 480 }}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ background: 'rgba(239,68,68,.1)', color: '#dc2626', padding: 10, borderRadius: 10, flexShrink: 0 }}>
+              <Trash2 size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0 }}>
+                {isRevertLog ? 'Excluir registros da reversão' : 'Excluir registros do lote'}
+              </h3>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                {fmtDateTime(log.created_at)} · por <strong>{log.actor_name || '—'}</strong>
+              </div>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div style={{ background: 'var(--bg-main)', borderRadius: 10, padding: '14px 16px', margin: '14px 0' }}>
+          <p style={{ fontWeight: 700, fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.6px', margin: '0 0 12px' }}>
+            {isRevertLog ? 'Resumo da reversão' : 'Resumo do lote'}
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Row label="Qtd. itens" value={String(count)} />
+            {!isRevertLog && <Row label="Destino" value={destination} />}
+            <Row
+              label="Busca"
+              value={hasIds ? `${log.details.movement_ids.length} ID(s) gravados` : 'Por ator + horário (±10 min)'}
+            />
+          </div>
+        </div>
+
+        <div style={{
+          background: 'rgba(239,68,68,.06)',
+          border: '1px solid rgba(239,68,68,.2)',
+          borderRadius: 10,
+          padding: '10px 14px',
+          display: 'flex',
+          gap: 8,
+          alignItems: 'flex-start',
+          marginBottom: 20,
+        }}>
+          <AlertTriangle size={14} style={{ color: '#dc2626', flexShrink: 0, marginTop: 1 }} />
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            {isRevertLog
+              ? 'As movimentações inversas criadas pela reversão serão excluídas. Os equipamentos voltarão a aparecer na sala destino original (como se a reversão nunca tivesse ocorrido).'
+              : <>Os registros de movimentação serão <strong>excluídos</strong> sem criar movimentações inversas. Os equipamentos <strong>não voltam</strong> às salas de origem — use &ldquo;Reverter&rdquo; se quiser desfazer o lote.</>
+            }
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary"
+            style={{ background: '#dc2626' }}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy
+              ? <><Loader2 size={14} className="spin" /> Excluindo...</>
+              : `Excluir ${count} registro${count !== 1 ? 's' : ''}`
             }
           </button>
         </div>

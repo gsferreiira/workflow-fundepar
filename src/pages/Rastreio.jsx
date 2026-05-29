@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -586,7 +586,9 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
   const [destRoomId, setDestRoomId] = useState('')
+  // receivedBy: texto para sobrescrever todos; clearReceiver: remove o recebedor de todos
   const [receivedBy, setReceivedBy] = useState('')
+  const [clearReceiver, setClearReceiver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -598,6 +600,16 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
     [items, destRoomId],
   )
   const toMove = items.length - skippable.length
+
+  // Recebedor resultante por item:
+  //   clearReceiver → null
+  //   receivedBy preenchido → novo valor para todos
+  //   senão → mantém o existente de cada item
+  const resolveReceiver = (item) => {
+    if (clearReceiver) return null
+    if (receivedBy.trim()) return receivedBy.trim()
+    return item.received_by || null
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -622,7 +634,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         origin_room_id: i.destination_room_id,
         destination_room_id: destRoomId,
         moved_by: user?.id,
-        received_by: receivedBy.trim() || null,
+        received_by: resolveReceiver(i),
         moved_at: movedAt,
       }))
 
@@ -709,46 +721,106 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
               </small>
             )}
           </div>
+
           <div className="form-group">
-            <label>Recebedor <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(opcional)</span></label>
-            <input
-              type="text"
-              className="form-control"
-              value={receivedBy}
-              onChange={(e) => setReceivedBy(e.target.value)}
-              placeholder="Nome de quem recebe os equipamentos..."
-            />
+            <label>Recebedor</label>
+            {clearReceiver ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+                background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)',
+                borderRadius: 8,
+              }}>
+                <UserMinus size={14} style={{ color: '#dc2626', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: '#dc2626', flex: 1 }}>
+                  Recebedor será removido de todos os equipamentos
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setClearReceiver(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, display: 'flex' }}
+                  title="Cancelar redefinição"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={receivedBy}
+                  onChange={(e) => setReceivedBy(e.target.value)}
+                  placeholder="Trocar recebedor de todos... (vazio = manter atual)"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => { setReceivedBy(''); setClearReceiver(true) }}
+                  title="Redefinir — remove o recebedor de todos os equipamentos"
+                  style={{
+                    flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '0 12px', border: '1px solid rgba(239,68,68,.35)',
+                    borderRadius: 8, background: 'rgba(239,68,68,.04)',
+                    color: '#dc2626', cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <UserMinus size={13} /> Redefinir
+                </button>
+              </div>
+            )}
+            {!clearReceiver && !receivedBy && (
+              <small style={{ display: 'block', marginTop: 4, color: 'var(--text-secondary)' }}>
+                Se deixar vazio, cada equipamento mantém seu recebedor atual.
+              </small>
+            )}
           </div>
-          <div style={{ maxHeight: 180, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
+
+          <div style={{ maxHeight: 200, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
               Itens selecionados ({items.length})
             </div>
-            {items.map((i) => (
-              <div
-                key={i.key}
-                style={{
-                  fontSize: 13,
-                  padding: '4px 0',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  borderBottom: '1px solid var(--border-color)',
-                }}
-              >
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {i.equipment?.name || '—'}
-                  {i.asset_number && (
-                    <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>
-                      ({formatAssetNumber(i.asset_number)})
-                    </span>
-                  )}
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                  {i.room?.name || '—'}
-                </span>
-              </div>
-            ))}
+            {items.map((i) => {
+              const resultReceiver = resolveReceiver(i)
+              const keepingExisting = !clearReceiver && !receivedBy.trim() && i.received_by
+              return (
+                <div
+                  key={i.key}
+                  style={{
+                    fontSize: 13,
+                    padding: '5px 0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 8,
+                    borderBottom: '1px solid var(--border-color)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {i.equipment?.name || '—'}
+                      {i.asset_number && (
+                        <span style={{ color: 'var(--text-secondary)', marginLeft: 6, fontSize: 12 }}>
+                          {formatAssetNumber(i.asset_number)}
+                        </span>
+                      )}
+                    </div>
+                    {resultReceiver ? (
+                      <div style={{ fontSize: 11, color: keepingExisting ? '#0284c7' : '#059669', marginTop: 1 }}>
+                        {keepingExisting ? '↪ mantendo: ' : '→ '}{resultReceiver}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>sem recebedor</div>
+                    )}
+                  </div>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                    {i.room?.name || '—'}
+                  </span>
+                </div>
+              )
+            })}
           </div>
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
             <button
               type="button"
