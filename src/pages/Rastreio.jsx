@@ -626,9 +626,10 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         moved_at: movedAt,
       }))
 
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
       .from('asset_movements')
       .insert(movements)
+      .select('id')
 
     if (error) {
       showToast('Erro ao mover: ' + error.message, 'danger')
@@ -655,9 +656,11 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       if (locError) console.warn('Bulk move — equipment_locations não atualizado:', locError.message)
     }
 
+    // Salva IDs no audit para permitir reversão pela Auditoria
     audit.log('bulk_move', 'asset_movements', null, {
       count: movements.length,
       destination: destRoom?.name,
+      movement_ids: (inserted || []).map((r) => r.id),
       asset_numbers: movements.map((m) => m.asset_number).filter(Boolean),
     })
 

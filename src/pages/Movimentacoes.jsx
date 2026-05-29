@@ -253,26 +253,6 @@ export function Movimentacoes() {
     })
   }
 
-  // Exclui todas as movimentações do mesmo lote (mesmo moved_at + moved_by)
-  const deleteMovBatch = async (movedAt, movedBy) => {
-    const ok = await confirm({
-      title: 'Excluir lote inteiro',
-      message: 'Isso excluirá TODAS as movimentações deste lote de uma vez. Tem certeza?',
-      confirmText: 'Excluir lote',
-      danger: true,
-    })
-    if (!ok) return
-    const { error } = await supabase
-      .from('asset_movements')
-      .update({ deleted_at: new Date().toISOString() })
-      .eq('moved_at', movedAt)
-      .eq('moved_by', movedBy)
-      .is('deleted_at', null)
-    if (error) { showToast('Erro ao excluir lote: ' + error.message, 'danger'); return }
-    audit.deleted('asset_movements', null, { batch: true, moved_at: movedAt })
-    refresh()
-    showToast('Lote excluído com sucesso.', 'success')
-  }
 
   // scope: 'page' = só a página visível (rápido) | 'all' = todos os filtrados
   const exportExcel = async (scope = 'all') => {
@@ -548,7 +528,7 @@ export function Movimentacoes() {
         comentario: loteComentario || null,
       }
     })
-    const { error } = await supabase.from('asset_movements').insert(inserts)
+    const { data: inserted, error } = await supabase.from('asset_movements').insert(inserts).select('id')
     if (error) {
       showToast('Erro ao registrar: ' + error.message, 'danger')
       setLoteBusy(false)
@@ -580,6 +560,7 @@ export function Movimentacoes() {
       count: inserts.length,
       from: loteOriginName,
       to: loteDestName,
+      movement_ids: (inserted || []).map((r) => r.id),
     })
     closeLote()
     showToast(
@@ -848,21 +829,9 @@ export function Movimentacoes() {
                             </button>
                           )}
                           {isAdmin && (
-                            <>
-                              {m.isBatch && (
-                                <button
-                                  className="btn-table-action delete"
-                                  title="Excluir lote inteiro"
-                                  style={{ fontSize: 11, padding: '3px 6px', gap: 3 }}
-                                  onClick={() => deleteMovBatch(m.moved_at, m.moved_by)}
-                                >
-                                  <Trash2 size={12} /> Lote
-                                </button>
-                              )}
-                              <button className="btn-table-action delete" onClick={() => deleteMov(m.id)}>
-                                <Trash2 size={13} />
-                              </button>
-                            </>
+                            <button className="btn-table-action delete" onClick={() => deleteMov(m.id)}>
+                              <Trash2 size={13} />
+                            </button>
                           )}
                         </div>
                       </td>
