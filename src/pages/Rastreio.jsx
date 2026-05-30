@@ -286,6 +286,37 @@ export function Rastreio() {
     [filtered, selectedKeys],
   )
 
+  const exportSelected = async () => {
+    try {
+      if (selectedItems.length === 0) return
+      const xlsxMod = await import('xlsx')
+      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
+      if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
+      const wsData = [
+        ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Última Movimentação', 'Observação'],
+        ...selectedItems.map((d) => [
+          d.equipment?.name || '—',
+          d.categoria || '—',
+          d.status || '—',
+          formatAssetNumber(d.asset_number) || '—',
+          d.serial_number || '—',
+          d.room?.name || 'Não localizado',
+          d.received_by || '—',
+          d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca movimentado',
+          d.observacao || '—',
+        ]),
+      ]
+      const ws = XLSX.utils.aoa_to_sheet(wsData)
+      ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Selecionados')
+      XLSX.writeFile(wb, `rastreio_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      showToast(`${selectedItems.length} item${selectedItems.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
+    } catch (err) {
+      showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
+    }
+  }
+
   if (!data) return <SkeletonTable />
 
   return (
@@ -449,6 +480,14 @@ export function Rastreio() {
               onClick={exportSelected}
             >
               <FileSpreadsheet size={14} /><span className="btn-text"> Exportar Excel</span>
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#059669' }}
+              onClick={exportSelected}
+            >
+              <FileSpreadsheet size={14} /> Exportar Excel
             </button>
             <button
               type="button"
