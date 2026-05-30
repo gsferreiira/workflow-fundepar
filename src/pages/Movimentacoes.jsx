@@ -14,6 +14,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   AlertCircle,
+  Check,
+  Filter,
 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -104,6 +106,7 @@ export function Movimentacoes() {
   const [editInfoMovId, setEditInfoMovId] = useState(null)
   const [importRows, setImportRows] = useState(null)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const [filtersOpen, setFiltersOpen] = useState(false)
 
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanMode, setScanMode] = useState('single')
@@ -585,6 +588,8 @@ export function Movimentacoes() {
     setLoteBusy(false)
   }
 
+  const filterCount = [filters.dateFrom, filters.dateTo, filters.equipmentId, filters.categoria, filters.originId, filters.destId, filters.responsible, filters.assetDigits].filter(Boolean).length
+
   return (
     <>
       <div className="view-header">
@@ -674,7 +679,19 @@ export function Movimentacoes() {
         </div>
       </div>
 
-      <div className="filter-bar fade-in">
+      <div className={`filter-bar fade-in${filtersOpen ? ' filters-open' : ''}`}>
+        <button
+          type="button"
+          className={`mobile-filter-btn${filterCount > 0 ? ' has-filters' : ''}`}
+          onClick={() => setFiltersOpen((v) => !v)}
+        >
+          <Filter size={15} />
+          <span className="mobile-filter-btn-label">
+            Filtros{filterCount > 0 ? ` (${filterCount} ativo${filterCount !== 1 ? 's' : ''})` : ''}
+          </span>
+          <ChevronDown size={14} className="filter-chevron" />
+        </button>
+        <div className="filter-collapsible">
         <div className="filter-row">
           <div className="filter-group">
             <label className="filter-label">De</label>
@@ -733,6 +750,7 @@ export function Movimentacoes() {
               onChange={(e) => setFilters((f) => ({ ...f, assetDigits: e.target.value.replace(/\D/g, '') }))} />
           </div>
         </div>
+        </div>
         <div className="filter-actions">
           <span className="filter-count">
             {total} resultado{total !== 1 ? 's' : ''}
@@ -746,11 +764,33 @@ export function Movimentacoes() {
         </div>
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="bulk-action-bar fade-in">
+          <div className="bulk-action-info">
+            <Check size={16} />
+            <strong>{selectedIds.size}</strong> selecionada{selectedIds.size !== 1 ? 's' : ''}
+          </div>
+          <div className="bulk-action-buttons">
+            <button type="button" className="btn-primary" style={{ background: '#059669' }} onClick={exportSelected}>
+              <FileSpreadsheet size={14} /><span className="btn-text"> Exportar Excel</span>
+            </button>
+            {isAdmin && (
+              <button type="button" className="btn-primary" style={{ background: '#dc2626' }} onClick={deleteSelected}>
+                <Trash2 size={14} /><span className="btn-text"> Excluir {selectedIds.size} {selectedIds.size === 1 ? 'movimentação' : 'movimentações'}</span>
+              </button>
+            )}
+            <button type="button" className="btn-filter-clear" onClick={clearSelection}>
+              <X size={13} /><span className="btn-text"> Limpar seleção</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {!listWithBatch ? (
         <SkeletonTable />
       ) : (
         <>
-          <div className="table-card fade-in">
+          <div className="table-card fade-in table-card-view">
             <table className="data-table">
               <thead>
                 <tr>
@@ -774,8 +814,25 @@ export function Movimentacoes() {
                   </tr>
                 ) : (
                   listWithBatch.map((m) => (
-                    <tr key={m.id}>
-                      <td>
+                    <tr
+                      key={m.id}
+                      className={selectedIds.has(m.id) ? 'row-selected' : ''}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON' || e.target.closest('button')) return
+                        toggleSelected(m.id)
+                      }}
+                    >
+                      <td className="card-checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="bulk-checkbox"
+                          checked={selectedIds.has(m.id)}
+                          onChange={() => toggleSelected(m.id)}
+                          aria-label={`Selecionar ${m.equipment?.name || m.id}`}
+                        />
+                      </td>
+                      <td data-label="Equipamento">
                         <strong>{m.equipment?.name || '—'}</strong>
                         {m.isBatch && (
                           <span style={{ marginLeft: 6, fontSize: 10, background: 'rgba(99,102,241,.12)', color: '#6366f1', padding: '1px 6px', borderRadius: 10, fontWeight: 700 }} title="Movimentado em lote">
@@ -788,30 +845,30 @@ export function Movimentacoes() {
                           </span>
                         )}
                       </td>
-                      <td style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                      <td data-label="PAT / Série" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                         {m.serial_number && <div>Série: {m.serial_number}</div>}
                         {m.asset_number && <div>PAT: {formatAssetNumber(m.asset_number)}</div>}
                         {!m.serial_number && !m.asset_number && '—'}
                       </td>
-                      <td style={{ color: 'var(--text-secondary)' }}>
+                      <td data-label="Origem" style={{ color: 'var(--text-secondary)' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                           <MapPin size={11} style={{ flexShrink: 0 }} />
                           {m.origin?.name || '—'}
                         </span>
                       </td>
-                      <td>
+                      <td data-label="Destino">
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--accent-color)' }}>
                           <MapPin size={11} style={{ flexShrink: 0 }} />
                           {m.destination?.name || '—'}
                         </span>
                       </td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{m.profiles?.full_name || '—'}</td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{m.received_by || '—'}</td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                      <td data-label="Responsável" style={{ color: 'var(--text-secondary)' }}>{m.profiles?.full_name || '—'}</td>
+                      <td data-label="Recebedor" style={{ color: 'var(--text-secondary)' }}>{m.received_by || '—'}</td>
+                      <td data-label="Data / Hora" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {fmtDateTime(m.moved_at)}
                       </td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{m.editedBy?.full_name || '—'}</td>
-                      <td>
+                      <td data-label="Editado por" style={{ color: 'var(--text-secondary)' }}>{m.editedBy?.full_name || '—'}</td>
+                      <td className="card-actions-cell">
                         <div className="table-actions">
                           {canEditMovements && (
                             <button className="btn-table-action edit" onClick={() => setEditMov(m)}>

@@ -390,8 +390,7 @@ input[type="time"] { min-width: 0; max-width: 100%; }
 
     /* Topbar */
     .topbar { padding: 12px 16px; }
-    .topbar .search-bar { background: transparent; border: none; padding: 0; width: auto; }
-    .topbar .search-bar input { display: none; }
+    .topbar .search-bar { display: none; }
     .btn-icon { min-height: 44px; min-width: 44px; }
 
     /* Conteúdo */
@@ -448,8 +447,10 @@ input[type="time"] { min-width: 0; max-width: 100%; }
     .modal-close { width: 40px; height: 40px; }
 
     /* Botões de ação em formulários de modal: empilha full-width */
-    .modal-content form > div:last-child { flex-direction: column-reverse !important; gap: 10px !important; }
-    .modal-content form > div:last-child .btn-primary { width: 100%; min-height: 48px; justify-content: center; }
+    .modal-content form > div:last-child,
+    .modal-content > div:last-child:has(.btn-primary) { flex-direction: column-reverse !important; gap: 10px !important; }
+    .modal-content form > div:last-child .btn-primary,
+    .modal-content > div:last-child:has(.btn-primary) .btn-primary { width: 100%; min-height: 48px; justify-content: center; }
 
     /* Inputs — font-size 16px evita zoom automático no iOS */
     .form-control { font-size: 16px; }
@@ -699,7 +700,7 @@ body.dark .skel { background: linear-gradient(90deg, #1e293b 0%, #334155 50%, #1
 .bulk-action-info { display: flex; align-items: center; gap: 8px; color: var(--accent-color); font-size: 14px; }
 .bulk-action-info strong { font-size: 18px; }
 .bulk-action-buttons { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.bulk-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent-color); }
+.bulk-checkbox { width: 20px; height: 20px; cursor: pointer; accent-color: var(--accent-color); }
 .bulk-checkbox:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .data-table tr.row-selected td { background: rgba(14,165,233,.06); }
 .data-table tr.row-selected:hover td { background: rgba(14,165,233,.1); }
@@ -775,3 +776,190 @@ body.dark .global-search-dropdown { box-shadow: 0 12px 32px rgba(0,0,0,.4); }
 /* ── Sidebar — PWA install ───────────────────────────────────────── */
 .sidebar-install-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; background: rgba(125,211,252,.08); border: 1px solid rgba(125,211,252,.2); border-radius: 10px; color: #7dd3fc; font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s; margin-bottom: 10px; }
 .sidebar-install-btn:hover { background: rgba(125,211,252,.15); }
+
+/* ── Utilitário ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .hidden-mobile { display: none !important; }
+}
+
+/* ── Safe area (notch / home indicator iOS) ───────────────────────── */
+@supports (padding: env(safe-area-inset-top)) {
+  .topbar { padding-top: max(16px, env(safe-area-inset-top)); }
+  .sidebar { padding-top: max(24px, env(safe-area-inset-top)); }
+  .toast-container { bottom: max(24px, calc(16px + env(safe-area-inset-bottom))); }
+}
+@media (max-width: 768px) {
+  @supports (padding: env(safe-area-inset-bottom)) {
+    .view-content { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+    .modal-content { padding-bottom: max(36px, calc(20px + env(safe-area-inset-bottom))); }
+  }
+}
+
+/* ── Mobile search overlay ────────────────────────────────────────── */
+.mobile-search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+}
+.mobile-search-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: var(--bg-card);
+}
+.mobile-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+  outline: none;
+}
+.mobile-search-results { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.mobile-search-group { border-bottom: 1px solid var(--border-color); }
+.mobile-search-group:last-child { border-bottom: none; }
+.mobile-search-group-label {
+  display: flex; align-items: center; gap: 5px;
+  padding: 10px 16px 4px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--text-secondary);
+}
+.mobile-search-item {
+  width: 100%; display: flex; flex-direction: column; gap: 3px;
+  padding: 13px 16px; background: none; border: none; cursor: pointer;
+  text-align: left; font-family: inherit; transition: background .1s;
+  min-height: 52px; justify-content: center; border-bottom: 1px solid var(--border-color);
+}
+.mobile-search-item:last-child { border-bottom: none; }
+.mobile-search-item:hover, .mobile-search-item:active { background: var(--bg-hover); }
+.mobile-search-item-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.mobile-search-item-sub { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+.mobile-search-empty {
+  padding: 48px 16px; text-align: center;
+  color: var(--text-secondary); font-size: 14px; line-height: 1.6;
+}
+
+/* ── Filter accordion (mobile) ────────────────────────────────────── */
+.mobile-filter-btn { display: none; }
+.filter-collapsible { /* visível no desktop por padrão */ }
+
+@media (max-width: 640px) {
+  .mobile-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 11px 14px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mobile-filter-btn.has-filters {
+    color: var(--accent-color);
+    background: rgba(14,165,233,.06);
+    border-color: rgba(14,165,233,.3);
+  }
+  .mobile-filter-btn-label { flex: 1; text-align: left; }
+  .filter-chevron { transition: transform 0.2s; flex-shrink: 0; }
+  .filter-bar.filters-open .filter-chevron { transform: rotate(180deg); }
+  .filter-collapsible { display: none; }
+  .filter-bar.filters-open .filter-collapsible { display: block; }
+}
+
+/* ── Table card view (mobile) ──────────────────────────────────────── */
+@media (max-width: 640px) {
+  .table-card-view .data-table {
+    min-width: 0 !important;
+    display: block;
+  }
+  .table-card-view .data-table thead { display: none; }
+  .table-card-view .data-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+  }
+  .table-card-view .data-table tr {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-card);
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .table-card-view .data-table tr.row-selected {
+    border-color: var(--accent-color);
+    background: rgba(14,165,233,.03);
+  }
+  .table-card-view .data-table td {
+    display: flex;
+    align-items: flex-start;
+    padding: 9px 14px;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    gap: 10px;
+    min-height: 38px;
+  }
+  .table-card-view .data-table td:last-child { border-bottom: none; }
+  .table-card-view .data-table td[data-label]::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    width: 88px;
+    padding-top: 2px;
+    line-height: 1.4;
+  }
+  /* Linha de checkbox (topo do card) */
+  .table-card-view .data-table .card-checkbox-cell {
+    background: var(--bg-hover);
+    border-bottom: 1px solid var(--border-color);
+    min-height: 44px;
+    align-items: center;
+    padding: 8px 14px;
+    gap: 10px;
+  }
+  .table-card-view .data-table .card-checkbox-cell::before { display: none; }
+  /* Linha de ações (rodapé do card) */
+  .table-card-view .data-table .card-actions-cell {
+    background: var(--bg-hover);
+    border-top: 1px solid var(--border-color);
+    border-bottom: none;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 8px 14px;
+    min-height: 44px;
+  }
+  .table-card-view .data-table .card-actions-cell::before { display: none; }
+  /* Desabilita hover default da tabela nas cards */
+  .table-card-view .data-table tr:hover td { background: inherit; }
+  .table-card-view .data-table tr.row-selected td { background: rgba(14,165,233,.03); }
+  .table-card-view .data-table tr.row-selected .card-checkbox-cell,
+  .table-card-view .data-table tr.row-selected .card-actions-cell { background: rgba(14,165,233,.06); }
+}
+
+/* ── Bulk action bar — texto curto em telas muito pequenas ──────────── */
+@media (max-width: 480px) {
+  .bulk-action-buttons .btn-text { display: none; }
+  .bulk-action-buttons .btn-primary,
+  .bulk-action-buttons .btn-filter-clear { padding: 10px 12px; }
+}

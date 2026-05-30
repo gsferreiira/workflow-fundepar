@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -51,6 +51,7 @@ export function Rastreio() {
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const refetch = useCallback(() => setReloadToken((t) => t + 1), [])
   const refetchRef = useRef(refetch)
   refetchRef.current = refetch
@@ -251,6 +252,8 @@ export function Rastreio() {
 
   const hasFilters = search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo || sort !== 'az'
 
+  const filterCount = [search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo].filter(Boolean).length + (sort !== 'az' ? 1 : 0)
+
   // ── Seleção múltipla / Bulk move ──────────────────────────────────
   const toggleSelected = useCallback((key) => {
     setSelectedKeys((prev) => {
@@ -304,7 +307,19 @@ export function Rastreio() {
         </button>
       </div>
 
-      <div className="filter-bar fade-in">
+      <div className={`filter-bar fade-in${filtersOpen ? ' filters-open' : ''}`}>
+        <button
+          type="button"
+          className={`mobile-filter-btn${filterCount > 0 ? ' has-filters' : ''}`}
+          onClick={() => setFiltersOpen((v) => !v)}
+        >
+          <Filter size={15} />
+          <span className="mobile-filter-btn-label">
+            Filtros{filterCount > 0 ? ` (${filterCount} ativo${filterCount !== 1 ? 's' : ''})` : ''}
+          </span>
+          <ChevronDown size={14} className="filter-chevron" />
+        </button>
+        <div className="filter-collapsible">
         <div className="filter-row">
           <div className="filter-group" style={{ flex: 2, minWidth: 180 }}>
             <label className="filter-label">Pesquisar</label>
@@ -400,6 +415,7 @@ export function Rastreio() {
           </div>
           <div className="filter-group" style={{ flex: 2 }} />
         </div>
+        </div>
 
         <div className="filter-actions">
           <span className="filter-count">
@@ -424,20 +440,28 @@ export function Rastreio() {
               className="btn-primary"
               onClick={() => setBulkModalOpen(true)}
             >
-              <ArrowRightLeft size={14} /> Mover {selectedItems.length} para outra sala
+              <ArrowRightLeft size={14} /><span className="btn-text"> Mover {selectedItems.length} para outra sala</span>
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#059669' }}
+              onClick={exportSelected}
+            >
+              <FileSpreadsheet size={14} /><span className="btn-text"> Exportar Excel</span>
             </button>
             <button
               type="button"
               className="btn-filter-clear"
               onClick={clearSelection}
             >
-              <X size={13} /> Limpar seleção
+              <X size={13} /><span className="btn-text"> Limpar seleção</span>
             </button>
           </div>
         </div>
       )}
 
-      <div className="table-card fade-in">
+      <div className="table-card fade-in table-card-view">
         <table className="data-table">
           <thead>
             <tr>
@@ -482,7 +506,7 @@ export function Rastreio() {
                     toggleSelected(d.key)
                   }}
                 >
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td className="card-checkbox-cell" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       className="bulk-checkbox"
@@ -491,7 +515,7 @@ export function Rastreio() {
                       aria-label={`Selecionar ${d.equipment?.name || d.key}`}
                     />
                   </td>
-                  <td>
+                  <td data-label="Equipamento">
                     <strong>{d.equipment?.name || '—'}</strong>
                     {d.serial_number && (
                       <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -499,7 +523,7 @@ export function Rastreio() {
                       </div>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Categoria">
                     {d.categoria ? (
                       <span
                         style={{
@@ -517,13 +541,13 @@ export function Rastreio() {
                       <span style={{ color: 'var(--text-secondary)' }}>—</span>
                     )}
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <StatusBadge status={d.status} />
                   </td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                  <td data-label="Patrimônio" style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                     {formatAssetNumber(d.asset_number) || '—'}
                   </td>
-                  <td>
+                  <td data-label="Localização">
                     {d.room ? (
                       <span
                         style={{
@@ -540,11 +564,11 @@ export function Rastreio() {
                       <span style={{ color: 'var(--text-secondary)' }}>Não localizado</span>
                     )}
                   </td>
-                  <td style={{ color: 'var(--text-secondary)' }}>{d.received_by || '—'}</td>
-                  <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  <td data-label="Recebedor" style={{ color: 'var(--text-secondary)' }}>{d.received_by || '—'}</td>
+                  <td data-label="Movimentado em" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                     {d.moved_at ? fmtDateTime(d.moved_at) : '—'}
                   </td>
-                  <td>
+                  <td className="card-actions-cell">
                     <button
                       className="btn-table-action edit"
                       onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}
