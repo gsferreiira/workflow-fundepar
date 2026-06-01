@@ -15,11 +15,21 @@ const STATUS_MAP = {
   bom: { bg: 'rgba(59,130,246,.12)', color: '#2563eb' },
   regular: { bg: 'rgba(245,158,11,.12)', color: '#d97706' },
   inservível: { bg: 'rgba(239,68,68,.12)', color: '#dc2626' },
+  'com defeito': { bg: 'rgba(168,85,247,.12)', color: '#7e22ce' },
 }
+
+const STATUS_OPTIONS = [
+  { value: 'novo', label: 'Novo' },
+  { value: 'bom', label: 'Bom' },
+  { value: 'regular', label: 'Regular' },
+  { value: 'inservível', label: 'Inservível' },
+  { value: 'com defeito', label: 'Com Defeito' },
+]
 
 function StatusBadge({ status }) {
   const s = (status || '').toLowerCase()
   const c = STATUS_MAP[s] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)' }
+  const label = STATUS_OPTIONS.find((option) => option.value === s)?.label
   return (
     <span
       style={{
@@ -31,7 +41,7 @@ function StatusBadge({ status }) {
         fontWeight: 600,
       }}
     >
-      {status ? status.charAt(0).toUpperCase() + status.slice(1) : '—'}
+      {status ? label || status.charAt(0).toUpperCase() + status.slice(1) : '—'}
     </span>
   )
 }
@@ -400,9 +410,9 @@ export function Rastreio() {
               onChange={(e) => setFilterStatus(e.target.value)}
             >
               <option value="">Todos</option>
-              {['novo', 'bom', 'regular', 'inservível'].map((s) => (
-                <option key={s} value={s}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
                 </option>
               ))}
             </select>
