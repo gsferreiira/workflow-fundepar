@@ -30,6 +30,13 @@ import { Scanner, ScanResultModal } from '../components/Scanner.jsx'
 import { formatAssetNumber, applyAssetMask, fmtDate, fmtDateTime } from '../utils/format.js'
 
 const PAGE_SIZE = 25
+const EQUIPMENT_STATUS_OPTIONS = [
+  { value: 'novo', label: 'Novo' },
+  { value: 'bom', label: 'Bom' },
+  { value: 'regular', label: 'Regular' },
+  { value: 'inservível', label: 'Inservível' },
+  { value: 'com defeito', label: 'Com Defeito' },
+]
 
 function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
   let q = supabase
@@ -1266,10 +1273,9 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
               <select className="form-control" value={itemStatus}
                 onChange={(e) => setItemStatus(e.target.value)}>
                 <option value="">Não alterar</option>
-                <option value="novo">Novo</option>
-                <option value="bom">Bom</option>
-                <option value="regular">Regular</option>
-                <option value="inservível">Inservível</option>
+                {EQUIPMENT_STATUS_OPTIONS.map((status) => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -1348,10 +1354,9 @@ function LoteModal({
               <label>Status dos itens</label>
               <select className="form-control" value={itemStatus} onChange={(e) => setItemStatus(e.target.value)}>
                 <option value="">Não alterar</option>
-                <option value="novo">Novo</option>
-                <option value="bom">Bom</option>
-                <option value="regular">Regular</option>
-                <option value="inservível">Inservível</option>
+                {EQUIPMENT_STATUS_OPTIONS.map((status) => (
+                  <option key={status.value} value={status.value}>{status.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -1434,6 +1439,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const [serial, setSerial] = useState(mov.serial_number || '')
   const [asset, setAsset] = useState(formatAssetNumber(mov.asset_number) || '')
   const [receivedBy, setReceivedBy] = useState(mov.received_by || '')
+  const [itemStatus, setItemStatus] = useState(mov.item_status || '')
   const [movedAt, setMovedAt] = useState(
     mov.moved_at ? new Date(mov.moved_at).toISOString().slice(0, 16) : '',
   )
@@ -1463,6 +1469,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         origin_room_id: originId,
         destination_room_id: destId,
         received_by: receivedBy || null,
+        item_status: itemStatus || null,
         moved_at: movedAt ? new Date(movedAt).toISOString() : undefined,
         is_edited: true,
         edited_by: user.id,
@@ -1475,6 +1482,16 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
       showToast('Erro ao atualizar: ' + error.message, 'danger')
       setBusy(false)
       return
+    }
+
+    if (itemStatus) {
+      const { error: statusError } = await supabase
+        .from('equipment')
+        .update({ status: itemStatus })
+        .eq('id', eqId)
+      if (statusError) {
+        showToast('Movimentação atualizada, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+      }
     }
 
     await supabase.from('movement_edits').insert([{
@@ -1545,6 +1562,16 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
               <input type="datetime-local" className="form-control" value={movedAt}
                 onChange={(e) => setMovedAt(e.target.value)} />
             </div>
+          </div>
+          <div className="form-group">
+            <label>Status do item</label>
+            <select className="form-control" value={itemStatus}
+              onChange={(e) => setItemStatus(e.target.value)}>
+              <option value="">Não alterar</option>
+              {EQUIPMENT_STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
+              ))}
+            </select>
           </div>
           <div className="form-group">
             <label>Justificativa da edição <span style={{ color: 'var(--danger-color)' }}>*</span></label>
