@@ -17,7 +17,7 @@ import {
   Check,
   Filter,
 } from 'lucide-react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -44,6 +44,14 @@ const EQUIPMENT_STATUS_OPTIONS = [
   { value: 'inservível', label: 'Inservível' },
   { value: 'com defeito', label: 'Com Defeito' },
 ]
+
+const normalizeAssetNumber = (value) => {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (digits.length === 12) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
+  }
+  return String(value || '').trim()
+}
 
 function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
   let q = supabase
@@ -74,6 +82,8 @@ function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
 
 export function Movimentacoes() {
   const { search, registerRefresh } = useOutletContext()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { rooms: roomsFetcher, equipment: equipmentFetcher, profiles: profilesFetcher, invalidate } =
     useStore()
@@ -214,6 +224,23 @@ export function Movimentacoes() {
   const [scanResult, setScanResult] = useState(null)
   const [createPrefill, setCreatePrefill] = useState(null)
 
+  useEffect(() => {
+    const modalState = location.state?.openCreateModal
+    if (!modalState) return
+
+    const prefill =
+      typeof modalState === 'object'
+        ? {
+            asset: modalState.prefillAsset || '',
+            originId: modalState.prefillOriginId || '',
+            originName: modalState.prefillOriginName || '',
+          }
+        : null
+    setCreatePrefill(prefill?.asset || prefill?.originId ? prefill : null)
+    setCreateOpen(true)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate])
+
   const [loteItems, setLoteItems] = useState([])
   const [loteUid, setLoteUid] = useState(0)
   const [loteOriginId, setLoteOriginId] = useState('')
@@ -254,12 +281,25 @@ export function Movimentacoes() {
         setList([])
         return
       }
-      const [rm, pr] = await Promise.all([roomsFetcher(), profilesFetcher()])
+      const assetNumbers = [...new Set((data || []).map((m) => m.asset_number).filter(Boolean))]
+      const [rm, pr, locResult] = await Promise.all([
+        roomsFetcher(),
+        profilesFetcher(),
+        assetNumbers.length > 0
+          ? supabase
+              .from('equipment_locations')
+              .select('asset_number, equipment_id, equipment:equipment_id(name)')
+              .in('asset_number', assetNumbers)
+          : Promise.resolve({ data: [] }),
+      ])
       const roomMap = Object.fromEntries(rm.map((r) => [r.id, r]))
       const profileMap = Object.fromEntries(pr.map((p2) => [p2.id, p2]))
+      const locationMap = Object.fromEntries((locResult.data || []).map((loc) => [loc.asset_number, loc]))
       setList(
         (data || []).map((m) => ({
           ...m,
+          equipment_id: locationMap[m.asset_number]?.equipment_id || m.equipment_id,
+          equipment: locationMap[m.asset_number]?.equipment || m.equipment,
           origin: roomMap[m.origin_room_id] || null,
           destination: roomMap[m.destination_room_id] || null,
           profiles: profileMap[m.moved_by] || null,
@@ -414,10 +454,18 @@ export function Movimentacoes() {
         showToast('Nenhuma movimentação para exportar.', 'warning')
         return
       }
+      const exportAssets = [...new Set(all.map((m) => m.asset_number).filter(Boolean))]
+      const { data: exportLocations } = exportAssets.length > 0
+        ? await supabase
+            .from('equipment_locations')
+            .select('asset_number, equipment:equipment_id(name)')
+            .in('asset_number', exportAssets)
+        : { data: [] }
+      const exportLocationMap = Object.fromEntries((exportLocations || []).map((loc) => [loc.asset_number, loc]))
       const wsData = [
         ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição', 'Último Editor'],
         ...all.map((m) => [
-          m.equipment?.name || '—',
+          exportLocationMap[m.asset_number]?.equipment?.name || m.equipment?.name || '—',
           m.serial_number || '—',
           formatAssetNumber(m.asset_number) || '—',
           roomMap[m.origin_room_id]?.name || '—',
@@ -610,22 +658,34 @@ export function Movimentacoes() {
     if (!loteOriginId) { showToast('Selecione a sala de origem.', 'warning'); return }
     if (!loteDestId) { showToast('Selecione a sala de destino.', 'warning'); return }
     if (loteOriginId === loteDestId) { showToast('Origem e destino não podem ser iguais.', 'warning'); return }
-    if (loteItems.length === 0) { showToast('Adicione ao menos um equipamento.', 'warning'); return }
-    if (loteItems.some((i) => !i.equipmentId)) {
-      showToast('Preencha ou remova os itens sem equipamento selecionado.', 'warning')
+    if (loteItems.length === 0) { showToast('Adicione ao menos um patrimônio.', 'warning'); return }
+    const assetNumbers = loteItems.map((item) => normalizeAssetNumber(item.assetNumber)).filter(Boolean)
+    if (assetNumbers.length !== loteItems.length) {
+      showToast('Preencha o Nº Patrimônio de todos os itens.', 'warning')
+      return
+    }
+    const { data: registrations, error: regError } = await supabase
+      .from('equipment_locations')
+      .select('asset_number, equipment_id, serial_number')
+      .in('asset_number', assetNumbers)
+    if (regError) {
+      showToast('Erro ao verificar registros: ' + regError.message, 'danger')
+      return
+    }
+    const regMap = Object.fromEntries((registrations || []).map((reg) => [reg.asset_number, reg]))
+    const missing = assetNumbers.filter((assetNumber) => !regMap[assetNumber]?.equipment_id)
+    if (missing.length > 0) {
+      showToast(`Patrimônio sem registro: ${missing.slice(0, 3).map(formatAssetNumber).join(', ')}${missing.length > 3 ? '...' : ''}`, 'warning')
       return
     }
     setLoteBusy(true)
     const movedAt = new Date().toISOString()
     const inserts = loteItems.map((item) => {
-      const digits = (item.assetNumber || '').replace(/\D/g, '')
-      const assetNumber =
-        digits.length === 12
-          ? `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
-          : item.assetNumber || null
+      const assetNumber = normalizeAssetNumber(item.assetNumber)
+      const registration = regMap[assetNumber]
       return {
-        equipment_id: item.equipmentId,
-        serial_number: item.serialNumber || null,
+        equipment_id: registration.equipment_id,
+        serial_number: item.serialNumber || registration.serial_number || null,
         asset_number: assetNumber,
         origin_room_id: loteOriginId,
         destination_room_id: loteDestId,
@@ -649,8 +709,6 @@ export function Movimentacoes() {
         asset_number: r.asset_number,
         serial_number: r.serial_number,
         current_room_id: loteDestId,
-        moved_by: user.id,
-        received_by: loteReceivedBy || null,
         moved_at: movedAt,
       }))
     if (locUpserts.length > 0) {
@@ -659,7 +717,7 @@ export function Movimentacoes() {
         .upsert(locUpserts, { onConflict: 'asset_number' })
     }
     if (loteItemStatus) {
-      const uniqueEqIds = [...new Set(loteItems.map((i) => i.equipmentId))]
+      const uniqueEqIds = [...new Set(inserts.map((i) => i.equipment_id))]
       for (const eqId of uniqueEqIds) {
         const { error: statusError } = await supabase
           .from('equipment')
@@ -1130,9 +1188,8 @@ export function Movimentacoes() {
 function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved }) {
   const { showToast } = useToast()
   const { invalidate } = useStore()
+  const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
-  const [eqId, setEqId] = useState('')
-  const [eqName, setEqName] = useState('')
   const [originId, setOriginId] = useState(prefill?.originId || '')
   const [originName, setOriginName] = useState(prefill?.originName || '')
   const [destId, setDestId] = useState('')
@@ -1160,20 +1217,50 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
       setOriginId(room.id)
       setOriginName(room.name)
       showToast(`Origem preenchida automaticamente: ${room.name}`, 'success')
+      return
+    }
+
+    const { data: loc } = await supabase
+      .from('equipment_locations')
+      .select('current_room_id')
+      .eq('asset_number', assetNumber)
+      .maybeSingle()
+    if (loc?.current_room_id) {
+      const room = rooms.find((r) => r.id === loc.current_room_id)
+      setOriginId(loc.current_room_id)
+      setOriginName(room?.name || '')
+      if (room) showToast(`Origem preenchida pelo registro: ${room.name}`, 'success')
     }
   }
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!eqId) { showToast('Selecione um equipamento da lista.', 'warning'); return }
     if (!originId) { showToast('Selecione a sala de origem.', 'warning'); return }
     if (!destId) { showToast('Selecione a sala de destino.', 'warning'); return }
 
-    const digits = asset.replace(/\D/g, '')
-    const assetNumber =
-      digits.length === 12
-        ? `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
-        : asset || null
+    const assetNumber = normalizeAssetNumber(asset)
+    if (!assetNumber) {
+      showToast('Informe o Nº Patrimônio.', 'warning')
+      return
+    }
+
+    const { data: registration, error: regError } = await supabase
+      .from('equipment_locations')
+      .select('equipment_id, serial_number, current_room_id')
+      .eq('asset_number', assetNumber)
+      .maybeSingle()
+    if (regError) {
+      showToast('Erro ao verificar registro: ' + regError.message, 'danger')
+      return
+    }
+    if (!registration?.equipment_id) {
+      showToast('Patrimônio não registrado. Cadastre o equipamento antes de movimentar.', 'warning')
+      navigate('/registro', { state: { newRegistroAsset: assetNumber } })
+      return
+    }
+
+    const eqId = registration.equipment_id
+    const serialNumber = serial || registration.serial_number || null
 
     if (originId === destId) {
       if (assetNumber) {
@@ -1213,7 +1300,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
       .from('asset_movements')
       .insert([{
         equipment_id: eqId,
-        serial_number: serial || null,
+        serial_number: serialNumber,
         asset_number: assetNumber,
         origin_room_id: originId,
         destination_room_id: destId,
@@ -1244,7 +1331,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
     }
     if (assetNumber) {
       await supabase.from('equipment_locations').upsert(
-        { equipment_id: eqId, asset_number: assetNumber, serial_number: serial || null, current_room_id: destId, moved_by: user.id, received_by: receivedBy || null, moved_at: movedAt },
+        { equipment_id: eqId, asset_number: assetNumber, serial_number: serialNumber, current_room_id: destId, moved_at: movedAt },
         { onConflict: 'asset_number' },
       )
     }
@@ -1261,12 +1348,6 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
           <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={submit}>
-          <div className="form-group">
-            <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <Autocomplete items={equipment} value={eqId} label={eqName}
-              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
-              placeholder="Buscar equipamento..." required />
-          </div>
           <div className="form-2col">
             <div className="form-group">
               <label>Origem <span style={{ color: 'var(--danger-color)' }}>*</span></label>
@@ -1400,7 +1481,7 @@ function LoteModal({
 
           <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <strong style={{ fontSize: 13 }}>Equipamentos</strong>
+              <strong style={{ fontSize: 13 }}>Patrimônios</strong>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="btn-primary" style={{ background: 'var(--warning-color)', padding: '5px 12px', fontSize: 12 }} onClick={onScan}>
                   <ScanLine size={13} /> Scanner
@@ -1413,24 +1494,15 @@ function LoteModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
               {loteItems.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
-                  Use o botão "Adicionar" ou o scanner para incluir equipamentos.
+                  Use o botão "Adicionar" ou o scanner para incluir patrimônios.
                 </div>
               ) : (
                 loteItems.map((item) => (
                   <div key={item.uid} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                     <div style={{ flex: 2, minWidth: 0 }}>
-                      <Autocomplete
-                        items={equipment}
-                        value={item.equipmentId}
-                        label={item.equipmentName}
-                        onChange={(id, name) => { updateItem(item.uid, 'equipmentId', id); updateItem(item.uid, 'equipmentName', name || '') }}
-                        placeholder="Equipamento *"
-                      />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
                       <input type="text" className="form-control" value={item.assetNumber}
                         onChange={(e) => updateItem(item.uid, 'assetNumber', applyAssetMask(e.target.value))}
-                        placeholder="Nº Patrimônio" />
+                        placeholder="Nº Patrimônio *" />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <input type="text" className="form-control" value={item.serialNumber}

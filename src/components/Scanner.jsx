@@ -269,8 +269,28 @@ export function Scanner({
       }
       onMaquinaLocalizada?.(mov, assetNumber)
     } else {
-      showToast(`PAT "${assetNumber}" não encontrado — preencha a movimentação.`, 'warning')
-      onSemHistorico?.(assetNumber)
+      const { data: loc, error: locError } = await supabase
+        .from('equipment_locations')
+        .select('equipment_id, equipment:equipment_id(name), asset_number, serial_number, current_room_id, destination_room:current_room_id(id,name)')
+        .eq('asset_number', assetNumber)
+        .maybeSingle()
+
+      if (locError) {
+        showToast('Erro ao buscar registro: ' + locError.message, 'danger')
+        onClose?.()
+        return
+      }
+
+      if (loc) {
+        onMaquinaLocalizada?.({
+          ...loc,
+          destination_room_id: loc.current_room_id,
+          moved_at: null,
+        }, assetNumber)
+      } else {
+        showToast(`PAT "${assetNumber}" não registrado — cadastre o equipamento.`, 'warning')
+        onSemHistorico?.(assetNumber)
+      }
     }
   }
 
@@ -527,7 +547,9 @@ export function ScanResultModal({ movement, assetNumber, onClose, onRegistrar })
                 opacity: 0.7,
               }}
             >
-              Última movimentação: {new Date(m.moved_at).toLocaleDateString('pt-BR')}
+              {m.moved_at
+                ? `Última movimentação: ${new Date(m.moved_at).toLocaleDateString('pt-BR')}`
+                : 'Sem movimentação anterior'}
             </div>
           </div>
           <div
