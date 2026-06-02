@@ -25,7 +25,6 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { Pagination } from '../components/Pagination.jsx'
-import { Autocomplete } from '../components/Autocomplete.jsx'
 import { Scanner, ScanResultModal } from '../components/Scanner.jsx'
 import {
   formatAssetNumber,
@@ -604,12 +603,6 @@ export function Movimentacoes() {
     fetchPage(1, filters, search)
   }
 
-  const openScanSingle = () => {
-    setScanMode('single')
-    setScanResult(null)
-    setScannerOpen(true)
-  }
-
   const onMaquinaLocalizada = (mov, assetNumber) => {
     setScannerOpen(false)
     setScanResult({ mov, assetNumber })
@@ -617,8 +610,7 @@ export function Movimentacoes() {
 
   const onSemHistorico = (assetNumber) => {
     setScannerOpen(false)
-    setCreatePrefill({ asset: assetNumber, originId: '', originName: '' })
-    setCreateOpen(true)
+    navigate('/registro', { state: { newRegistroAsset: assetNumber } })
   }
 
   const onScanRegist = () => {
@@ -655,9 +647,7 @@ export function Movimentacoes() {
 
   const submitLote = async (e) => {
     e.preventDefault()
-    if (!loteOriginId) { showToast('Selecione a sala de origem.', 'warning'); return }
     if (!loteDestId) { showToast('Selecione a sala de destino.', 'warning'); return }
-    if (loteOriginId === loteDestId) { showToast('Origem e destino não podem ser iguais.', 'warning'); return }
     if (loteItems.length === 0) { showToast('Adicione ao menos um patrimônio.', 'warning'); return }
     const assetNumbers = loteItems.map((item) => normalizeAssetNumber(item.assetNumber)).filter(Boolean)
     if (assetNumbers.length !== loteItems.length) {
@@ -666,7 +656,7 @@ export function Movimentacoes() {
     }
     const { data: registrations, error: regError } = await supabase
       .from('equipment_locations')
-      .select('asset_number, equipment_id, serial_number')
+      .select('asset_number, equipment_id, serial_number, current_room_id')
       .in('asset_number', assetNumbers)
     if (regError) {
       showToast('Erro ao verificar registros: ' + regError.message, 'danger')
@@ -678,6 +668,16 @@ export function Movimentacoes() {
       showToast(`Patrimônio sem registro: ${missing.slice(0, 3).map(formatAssetNumber).join(', ')}${missing.length > 3 ? '...' : ''}`, 'warning')
       return
     }
+    const withoutOrigin = assetNumbers.filter((assetNumber) => !regMap[assetNumber]?.current_room_id)
+    if (withoutOrigin.length > 0) {
+      showToast(`Patrimônio sem localização atual: ${withoutOrigin.slice(0, 3).map(formatAssetNumber).join(', ')}${withoutOrigin.length > 3 ? '...' : ''}`, 'warning')
+      return
+    }
+    const alreadyAtDestination = assetNumbers.filter((assetNumber) => regMap[assetNumber]?.current_room_id === loteDestId)
+    if (alreadyAtDestination.length > 0) {
+      showToast(`Patrimônio já está no destino: ${alreadyAtDestination.slice(0, 3).map(formatAssetNumber).join(', ')}${alreadyAtDestination.length > 3 ? '...' : ''}`, 'warning')
+      return
+    }
     setLoteBusy(true)
     const movedAt = new Date().toISOString()
     const inserts = loteItems.map((item) => {
@@ -687,7 +687,7 @@ export function Movimentacoes() {
         equipment_id: registration.equipment_id,
         serial_number: item.serialNumber || registration.serial_number || null,
         asset_number: assetNumber,
-        origin_room_id: loteOriginId,
+        origin_room_id: registration.current_room_id,
         destination_room_id: loteDestId,
         moved_by: user.id,
         received_by: loteReceivedBy || null,
@@ -734,7 +734,6 @@ export function Movimentacoes() {
     }
     audit.log('batch_movement', 'asset_movements', null, {
       count: inserts.length,
-      from: loteOriginName,
       to: loteDestName,
       movement_ids: (inserted || []).map((r) => r.id),
     })
@@ -840,9 +839,6 @@ export function Movimentacoes() {
               />
             </>
           )}
-          <button className="btn-primary" style={{ background: 'var(--warning-color)' }} onClick={openScanSingle}>
-            <ScanLine size={14} /> Scanner
-          </button>
           <button className="btn-primary" onClick={() => setLoteOpen(true)}>
             <Plus size={14} /> Movimentação em Lote
           </button>
@@ -1122,10 +1118,6 @@ export function Movimentacoes() {
           setLoteItems={setLoteItems}
           loteUid={loteUid}
           setLoteUid={setLoteUid}
-          originId={loteOriginId}
-          setOriginId={setLoteOriginId}
-          originName={loteOriginName}
-          setOriginName={setLoteOriginName}
           destId={loteDestId}
           setDestId={setLoteDestId}
           destName={loteDestName}
@@ -1190,8 +1182,6 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
   const { invalidate } = useStore()
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
-  const [originId, setOriginId] = useState(prefill?.originId || '')
-  const [originName, setOriginName] = useState(prefill?.originName || '')
   const [destId, setDestId] = useState('')
   const [destName, setDestName] = useState('')
   const [serial, setSerial] = useState('')
@@ -1199,43 +1189,10 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
   const [receivedBy, setReceivedBy] = useState('')
   const [itemStatus, setItemStatus] = useState('')
   const [comentario, setComentario] = useState('')
-
-  const lookupOrigin = async (rawAsset) => {
-    const digits = rawAsset.replace(/\D/g, '')
-    if (digits.length !== 12) return
-    if (originId) return
-    const assetNumber = `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
-    const { data } = await supabase
-      .from('asset_movements')
-      .select('destination_room_id, destination_room:destination_room_id(id, name)')
-      .eq('asset_number', assetNumber)
-      .is('deleted_at', null)
-      .order('moved_at', { ascending: false })
-      .limit(1)
-    if (data && data.length > 0 && data[0].destination_room) {
-      const room = data[0].destination_room
-      setOriginId(room.id)
-      setOriginName(room.name)
-      showToast(`Origem preenchida automaticamente: ${room.name}`, 'success')
-      return
-    }
-
-    const { data: loc } = await supabase
-      .from('equipment_locations')
-      .select('current_room_id')
-      .eq('asset_number', assetNumber)
-      .maybeSingle()
-    if (loc?.current_room_id) {
-      const room = rooms.find((r) => r.id === loc.current_room_id)
-      setOriginId(loc.current_room_id)
-      setOriginName(room?.name || '')
-      if (room) showToast(`Origem preenchida pelo registro: ${room.name}`, 'success')
-    }
-  }
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!originId) { showToast('Selecione a sala de origem.', 'warning'); return }
     if (!destId) { showToast('Selecione a sala de destino.', 'warning'); return }
 
     const assetNumber = normalizeAssetNumber(asset)
@@ -1261,8 +1218,14 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
 
     const eqId = registration.equipment_id
     const serialNumber = serial || registration.serial_number || null
+    const originRoomId = registration.current_room_id
+    const originRoom = rooms.find((room) => room.id === originRoomId)
+    if (!originRoomId) {
+      showToast('Este patrimônio não possui localização atual no Registro.', 'warning')
+      return
+    }
 
-    if (originId === destId) {
+    if (originRoomId === destId) {
       if (assetNumber) {
         const { data: lastMov } = await supabase
           .from('asset_movements')
@@ -1302,7 +1265,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
         equipment_id: eqId,
         serial_number: serialNumber,
         asset_number: assetNumber,
-        origin_room_id: originId,
+        origin_room_id: originRoomId,
         destination_room_id: destId,
         moved_by: user.id,
         received_by: receivedBy || null,
@@ -1335,7 +1298,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
         { onConflict: 'asset_number' },
       )
     }
-    audit.created('asset_movements', inserted?.id, { equipment_id: eqId, asset_number: assetNumber, from: originName, to: destName })
+    audit.created('asset_movements', inserted?.id, { equipment_id: eqId, asset_number: assetNumber, from: originRoom?.name || originRoomId, to: destName })
     showToast('Movimentação registrada!', 'success')
     onSaved()
   }
@@ -1348,19 +1311,20 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
           <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={submit}>
-          <div className="form-2col">
-            <div className="form-group">
-              <label>Origem <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={originId} label={originName}
-                onChange={(id, name) => { setOriginId(id); setOriginName(name || '') }}
-                placeholder="Sala de origem..." required />
-            </div>
-            <div className="form-group">
-              <label>Destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={destId} label={destName}
-                onChange={(id, name) => { setDestId(id); setDestName(name || '') }}
-                placeholder="Sala de destino..." required />
-            </div>
+          <div className="form-group">
+            <label>Destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <select
+              className="form-control"
+              value={destId}
+              onChange={(e) => {
+                setDestId(e.target.value)
+                setDestName(e.target.selectedOptions[0]?.textContent || '')
+              }}
+              required
+            >
+              <option value="">Selecione...</option>
+              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+            </select>
           </div>
           <div className="form-2col">
             <div className="form-group">
@@ -1370,9 +1334,15 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
             </div>
             <div className="form-group">
               <label>Nº Patrimônio</label>
-              <input type="text" className="form-control" value={asset}
-                onChange={(e) => { setAsset(applyAssetMask(e.target.value)); lookupOrigin(e.target.value) }}
-                placeholder="000.000.000.000" />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="text" className="form-control" value={asset}
+                  onChange={(e) => setAsset(applyAssetMask(e.target.value))}
+                  placeholder="000.000.000.000"
+                  style={{ flex: 1 }} />
+                <button type="button" className="btn-scanner" onClick={() => setScannerOpen(true)}>
+                  <ScanLine size={14} /> Scanner
+                </button>
+              </div>
             </div>
           </div>
           <div className="form-2col">
@@ -1405,13 +1375,23 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
           </div>
         </form>
       </div>
+      <Scanner
+        open={scannerOpen}
+        mode="lote"
+        onClose={() => setScannerOpen(false)}
+        onLoteItem={(assetNumber) => {
+          setAsset(applyAssetMask(normalizeAssetNumber(assetNumber)))
+          setScannerOpen(false)
+          return true
+        }}
+        onConcluirLote={() => setScannerOpen(false)}
+      />
     </div>
   )
 }
 
 function LoteModal({
   equipment, rooms, loteItems, setLoteItems, loteUid, setLoteUid,
-  originId, setOriginId, originName, setOriginName,
   destId, setDestId, destName, setDestName,
   receivedBy, setReceivedBy, itemStatus, setItemStatus,
   comentario, setComentario, busy, onScan, onSubmit, onClose,
@@ -1443,19 +1423,20 @@ function LoteModal({
           <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={onSubmit}>
-          <div className="form-2col">
-            <div className="form-group">
-              <label>Origem <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={originId} label={originName}
-                onChange={(id, name) => { setOriginId(id); setOriginName(name || '') }}
-                placeholder="Sala de origem..." />
-            </div>
-            <div className="form-group">
-              <label>Destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={destId} label={destName}
-                onChange={(id, name) => { setDestId(id); setDestName(name || '') }}
-                placeholder="Sala de destino..." />
-            </div>
+          <div className="form-group">
+            <label>Destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <select
+              className="form-control"
+              value={destId}
+              onChange={(e) => {
+                setDestId(e.target.value)
+                setDestName(e.target.selectedOptions[0]?.textContent || '')
+              }}
+              required
+            >
+              <option value="">Selecione...</option>
+              {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+            </select>
           </div>
           <div className="form-2col">
             <div className="form-group">
@@ -1621,27 +1602,49 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <Autocomplete
-              items={equipment}
+            <select
+              className="form-control"
               value={eqId}
-              label={eqName}
-              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
-              placeholder="Selecione o equipamento..."
+              onChange={(e) => {
+                setEqId(e.target.value)
+                setEqName(e.target.selectedOptions[0]?.textContent || '')
+              }}
               required
-            />
+            >
+              <option value="">Selecione...</option>
+              {equipment.map((eq) => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+            </select>
           </div>
           <div className="form-2col">
             <div className="form-group">
               <label>Origem <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={originId} label={originName}
-                onChange={(id, name) => { setOriginId(id); setOriginName(name || '') }}
-                placeholder="Sala de origem..." />
+              <select
+                className="form-control"
+                value={originId}
+                onChange={(e) => {
+                  setOriginId(e.target.value)
+                  setOriginName(e.target.selectedOptions[0]?.textContent || '')
+                }}
+                required
+              >
+                <option value="">Selecione...</option>
+                {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+              </select>
             </div>
             <div className="form-group">
               <label>Destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-              <Autocomplete items={rooms} value={destId} label={destName}
-                onChange={(id, name) => { setDestId(id); setDestName(name || '') }}
-                placeholder="Sala de destino..." />
+              <select
+                className="form-control"
+                value={destId}
+                onChange={(e) => {
+                  setDestId(e.target.value)
+                  setDestName(e.target.selectedOptions[0]?.textContent || '')
+                }}
+                required
+              >
+                <option value="">Selecione...</option>
+                {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+              </select>
             </div>
           </div>
           <div className="form-2col">
