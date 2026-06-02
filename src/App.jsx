@@ -1,55 +1,67 @@
-import { lazy, Suspense } from 'react'
-import { HashRouter, Routes, Route, Navigate, Outlet, useOutletContext } from 'react-router-dom'
-import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
-import { StoreProvider } from './contexts/StoreContext.jsx'
-import { ToastProvider } from './contexts/ToastContext.jsx'
-import { NavPermissionsProvider, useNavPermissions } from './contexts/NavPermissionsContext.jsx'
-import { Layout } from './components/Layout.jsx'
-import { PWAUpdater } from './components/PWAUpdater.jsx'
-import { Login } from './pages/Login.jsx'
-import { Inicio } from './pages/Inicio.jsx'
-import { Workflow } from './pages/Workflow.jsx'
-import { Equipamentos } from './pages/Equipamentos.jsx'
-import { Movimentacoes } from './pages/Movimentacoes.jsx'
-import { Rastreio } from './pages/Rastreio.jsx'
-import { MapaSalas } from './pages/MapaSalas.jsx'
-import { Salas } from './pages/Salas.jsx'
-import { Usuarios } from './pages/Usuarios.jsx'
-import { Perfil } from './pages/Perfil.jsx'
-import { Auditoria } from './pages/Auditoria.jsx'
-import { Permissoes } from './pages/Permissoes.jsx'
+import { lazy, Suspense } from "react";
+import {
+  HashRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useOutletContext,
+} from "react-router-dom";
+import { AuthProvider, useAuth } from "./contexts/AuthContext.jsx";
+import { StoreProvider } from "./contexts/StoreContext.jsx";
+import { ToastProvider } from "./contexts/ToastContext.jsx";
+import {
+  NavPermissionsProvider,
+  useNavPermissions,
+} from "./contexts/NavPermissionsContext.jsx";
+import { Layout } from "./components/Layout.jsx";
+import { PWAUpdater } from "./components/PWAUpdater.jsx";
+import { Login } from "./pages/Login.jsx";
+import { Inicio } from "./pages/Inicio.jsx";
+import { Workflow } from "./pages/Workflow.jsx";
+import { Equipamentos } from "./pages/Equipamentos.jsx";
+import { Movimentacoes } from "./pages/Movimentacoes.jsx";
+import { Registro } from "./pages/Registro.jsx";
+import { MapaSalas } from "./pages/MapaSalas.jsx";
+import { Salas } from "./pages/Salas.jsx";
+import { Usuarios } from "./pages/Usuarios.jsx";
+import { Perfil } from "./pages/Perfil.jsx";
+import { Auditoria } from "./pages/Auditoria.jsx";
+import { Permissoes } from "./pages/Permissoes.jsx";
 
 const Dashboard = lazy(() =>
-  import('./pages/Dashboard.jsx').then((module) => ({ default: module.Dashboard })),
-)
+  import("./pages/Dashboard.jsx").then((module) => ({
+    default: module.Dashboard,
+  })),
+);
 
 function LoadingScreen() {
-  return null
+  return null;
 }
 
 function ProtectedRoute() {
-  const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  return <Outlet />
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  return <Outlet />;
 }
 
 // Protege rotas por permissão dinâmica (lida do banco via NavPermissionsContext)
 function RoleRoute({ pageKey }) {
-  const { user, loading: authLoading } = useAuth()
-  const { permissions, loading: permLoading } = useNavPermissions()
-  const ctx = useOutletContext()
-  if (authLoading || permLoading) return <LoadingScreen />
-  const allowed = permissions[pageKey]?.includes(user?.role) ?? false
-  if (!allowed) return <Navigate to="/inicio" replace />
-  return <Outlet context={ctx} />
+  const { user, loading: authLoading } = useAuth();
+  const { permissions, loading: permLoading } = useNavPermissions();
+  const ctx = useOutletContext();
+  if (authLoading || permLoading) return <LoadingScreen />;
+  const allowed = permissions[pageKey]?.includes(user?.role) ?? false;
+  if (!allowed) return <Navigate to="/inicio" replace />;
+  return <Outlet context={ctx} />;
 }
 
 function PublicRoute() {
-  const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (user) return <Navigate to="/inicio" replace />
-  return <Outlet />
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (user) return <Navigate to="/inicio" replace />;
+  return <Outlet />;
 }
 
 function App() {
@@ -66,7 +78,10 @@ function App() {
                 </Route>
                 <Route element={<ProtectedRoute />}>
                   <Route element={<Layout />}>
-                    <Route path="/" element={<Navigate to="/inicio" replace />} />
+                    <Route
+                      path="/"
+                      element={<Navigate to="/inicio" replace />}
+                    />
                     <Route path="/inicio" element={<Inicio />} />
                     <Route
                       path="/dashboard"
@@ -79,7 +94,8 @@ function App() {
                     <Route path="/workflow" element={<Workflow />} />
                     <Route path="/equipamentos" element={<Equipamentos />} />
                     <Route path="/movimentacoes" element={<Movimentacoes />} />
-                    <Route path="/rastreio" element={<Rastreio />} />
+                    <Route path="/registro" element={<Registro />} />
+                    <Route path="/rastreio" element={<Navigate to="/registro" replace />} />
                     <Route path="/mapa-salas" element={<MapaSalas />} />
                     <Route element={<RoleRoute pageKey="salas" />}>
                       <Route path="/salas" element={<Salas />} />
@@ -97,9 +113,9 @@ function App() {
                     <Route
                       path="*"
                       element={
-                        <div style={{ textAlign: 'center', padding: 40 }}>
+                        <div style={{ textAlign: "center", padding: 40 }}>
                           <h2>Erro 404</h2>
-                          <p style={{ color: 'var(--text-secondary)' }}>
+                          <p style={{ color: "var(--text-secondary)" }}>
                             A tela procurada não existe.
                           </p>
                         </div>
@@ -113,7 +129,7 @@ function App() {
         </StoreProvider>
       </AuthProvider>
     </ToastProvider>
-  )
+  );
 }
 
-export default App
+export default App;

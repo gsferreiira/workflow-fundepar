@@ -15,7 +15,7 @@ export const NAV_PAGES = [
 
   { key: 'equipamentos',  to: '/equipamentos',  icon: Package,         label: 'Equipamentos' },
   { key: 'movimentacoes', to: '/movimentacoes', icon: ArrowRightLeft,  label: 'Movimentações' },
-  { key: 'rastreio',      to: '/rastreio',      icon: Search,          label: 'Rastreio' },
+  { key: 'rastreio',      to: '/registro',      icon: Search,          label: 'Registro' },
   { key: 'mapa-salas',    to: '/mapa-salas',    icon: LayoutGrid,      label: 'Mapa de Salas' },
 
   { separator: 'Administração' },

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown } from 'lucide-react'
-import { useOutletContext } from 'react-router-dom'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
-import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
-import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { Autocomplete } from '../components/Autocomplete.jsx'
+import { applyAssetMask, formatAssetNumber, fmtDateTime } from '../utils/format.js'
 
 const STATUS_MAP = {
   novo: { bg: 'rgba(16,185,129,.12)', color: '#059669' },
@@ -25,6 +25,14 @@ const STATUS_OPTIONS = [
   { value: 'inservível', label: 'Inservível' },
   { value: 'com defeito', label: 'Com Defeito' },
 ]
+
+const normalizeAssetNumber = (value) => {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (digits.length === 12) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
+  }
+  return String(value || '').trim()
+}
 
 function StatusBadge({ status }) {
   const s = (status || '').toLowerCase()
@@ -46,9 +54,12 @@ function StatusBadge({ status }) {
   )
 }
 
-export function Rastreio() {
+export function Registro() {
   const { registerRefresh } = useOutletContext() || {}
+  const location = useLocation()
+  const navigate = useNavigate()
   const { showToast } = useToast()
+  const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
   const [filterRoom, setFilterRoom] = useState('')
@@ -58,6 +69,9 @@ export function Rastreio() {
   const [filterMovedTo, setFilterMovedTo] = useState('')
   const [sort, setSort] = useState('az')
   const [historyEq, setHistoryEq] = useState(null)
+  const [assetLookupOpen, setAssetLookupOpen] = useState(false)
+  const [batchRegisterOpen, setBatchRegisterOpen] = useState(false)
+  const [newRegistroAsset, setNewRegistroAsset] = useState(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
@@ -71,6 +85,13 @@ export function Rastreio() {
     return () => registerRefresh?.(null)
   }, [registerRefresh])
 
+  useEffect(() => {
+    const assetNumber = location.state?.newRegistroAsset
+    if (!assetNumber) return
+    setNewRegistroAsset(normalizeAssetNumber(assetNumber))
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate])
+
   // showToast não pertence às deps — é estável o suficiente e sua presença
   // causaria re-execuções desnecessárias do efeito caso o contexto recrie a função.
   const showToastRef = useRef(showToast)
@@ -79,20 +100,17 @@ export function Rastreio() {
   useEffect(() => {
     const load = async () => {
       const [
-        { data: movements, error },
+        { data: locations, error },
         { data: rooms },
-        { data: profilesList },
       ] = await Promise.all([
         supabase
-          .from('asset_movements')
+          .from('equipment_locations')
           .select(
-            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by, item_status',
+            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, moved_at, current_room_id',
           )
-          .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(5000),
         supabase.from('rooms').select('id, name').is('deleted_at', null),
-        supabase.from('profiles').select('id, full_name').is('deleted_at', null),
       ])
 
       if (error) {
@@ -101,34 +119,51 @@ export function Rastreio() {
       }
 
       const roomMap = Object.fromEntries((rooms || []).map((r) => [r.id, r]))
-      const profileMap = Object.fromEntries((profilesList || []).map((p) => [p.id, p]))
+      const assetNumbers = [...new Set((locations || []).map((m) => m.asset_number).filter(Boolean))]
+      let receiverByAsset = {}
+      if (assetNumbers.length > 0) {
+        const { data: latestMovements, error: movementsError } = await supabase
+          .from('asset_movements')
+          .select('asset_number, received_by, moved_at')
+          .in('asset_number', assetNumbers)
+          .is('deleted_at', null)
+          .order('moved_at', { ascending: false })
 
-      const seen = new Set()
+        if (movementsError) {
+          console.warn('Registro — recebedor não carregado:', movementsError.message)
+        } else {
+          ;(latestMovements || []).forEach((movement) => {
+            if (!receiverByAsset[movement.asset_number]) {
+              receiverByAsset[movement.asset_number] = movement.received_by || null
+            }
+          })
+        }
+      }
+
       const items = []
-      ;(movements || []).forEach((m) => {
+      ;(locations || []).forEach((m) => {
+        if (!m.current_room_id) return
         const key = m.asset_number
           ? `pat_${m.asset_number}`
           : m.serial_number
             ? `eq_${m.equipment_id}_ser_${m.serial_number}`
             : `eq_${m.equipment_id}`
-        if (seen.has(key)) return
-        seen.add(key)
-        if (!m.destination_room_id) return
         items.push({
           key,
           equipment_id: m.equipment_id,
           equipment: m.equipment,
           categoria: m.equipment?.categoria || null,
-          status: m.item_status || m.equipment?.status || null,
+          status: m.equipment?.status || null,
           observacao: m.equipment?.observacao || null,
           asset_number: m.asset_number || null,
           serial_number: m.serial_number || null,
-          received_by: m.received_by || null,
+          received_by: receiverByAsset[m.asset_number] || null,
           moved_at: m.moved_at || null,
-          destination_room_id: m.destination_room_id,
-          moved_by: m.moved_by || null,
-          room: roomMap[m.destination_room_id] || null,
-          profile: profileMap[m.moved_by] || null,
+          destination_room_id: m.current_room_id,
+          current_room_id: m.current_room_id,
+          moved_by: null,
+          room: roomMap[m.current_room_id] || null,
+          profile: null,
         })
       })
 
@@ -222,7 +257,7 @@ export function Rastreio() {
         return
       }
       const wsData = [
-      ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Última Movimentação', 'Observação'],
+      ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
       ...filtered.map((d) => [
         d.equipment?.name || '—',
         d.categoria || '—',
@@ -231,7 +266,7 @@ export function Rastreio() {
         d.serial_number || '—',
         d.room?.name || 'Não localizado',
         d.received_by || '—',
-        d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca movimentado',
+        d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
         d.observacao || '—',
       ]),
     ]
@@ -241,8 +276,8 @@ export function Rastreio() {
       { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 },
     ]
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Rastreio')
-    XLSX.writeFile(wb, `rastreio_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    XLSX.utils.book_append_sheet(wb, ws, 'Registro')
+    XLSX.writeFile(wb, `registro_${new Date().toISOString().slice(0, 10)}.xlsx`)
     showToast('Arquivo exportado!', 'success')
     } catch (err) {
       console.error('exportExcel erro:', err)
@@ -303,7 +338,7 @@ export function Rastreio() {
       const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
       if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
       const wsData = [
-        ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Última Movimentação', 'Observação'],
+        ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
         ...selectedItems.map((d) => [
           d.equipment?.name || '—',
           d.categoria || '—',
@@ -312,7 +347,7 @@ export function Rastreio() {
           d.serial_number || '—',
           d.room?.name || 'Não localizado',
           d.received_by || '—',
-          d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca movimentado',
+          d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
           d.observacao || '—',
         ]),
       ]
@@ -320,7 +355,7 @@ export function Rastreio() {
       ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 }]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Selecionados')
-      XLSX.writeFile(wb, `rastreio_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      XLSX.writeFile(wb, `registro_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`)
       showToast(`${selectedItems.length} item${selectedItems.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -333,19 +368,33 @@ export function Rastreio() {
     <>
       <div className="view-header">
         <div>
-          <h2>Rastreio de Patrimônio</h2>
+          <h2>Registro de Patrimônio</h2>
           <p>Localização atual de cada equipamento individual no sistema.</p>
         </div>
-        <button
-          className="btn-primary"
-          style={{ background: '#059669' }}
-          onClick={exportExcel}
-          disabled={!filtered || filtered.length === 0}
-          title={filtered?.length === 0 ? 'Sem itens para exportar' : 'Exportar todos os itens filtrados'}
-        >
-          <FileSpreadsheet size={14} /> Exportar Excel
-          {filtered && filtered.length > 0 && ` (${filtered.length})`}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn-primary"
+            onClick={() => setAssetLookupOpen(true)}
+          >
+            <Plus size={14} /> Registrar equipamento
+          </button>
+          <button
+            className="btn-primary"
+            onClick={() => setBatchRegisterOpen(true)}
+          >
+            <Plus size={14} /> Registrar por lote
+          </button>
+          <button
+            className="btn-primary"
+            style={{ background: '#059669' }}
+            onClick={exportExcel}
+            disabled={!filtered || filtered.length === 0}
+            title={filtered?.length === 0 ? 'Sem itens para exportar' : 'Exportar todos os itens filtrados'}
+          >
+            <FileSpreadsheet size={14} /> Exportar Excel
+            {filtered && filtered.length > 0 && ` (${filtered.length})`}
+          </button>
+        </div>
       </div>
 
       <div className={`filter-bar fade-in${filtersOpen ? ' filters-open' : ''}`}>
@@ -437,7 +486,7 @@ export function Rastreio() {
 
         <div className="filter-row" style={{ marginTop: 8 }}>
           <div className="filter-group" style={{ flex: 1 }}>
-            <label className="filter-label">Última mov. a partir de</label>
+            <label className="filter-label">Último registro a partir de</label>
             <input
               type="datetime-local"
               className="form-control filter-control"
@@ -446,7 +495,7 @@ export function Rastreio() {
             />
           </div>
           <div className="filter-group" style={{ flex: 1 }}>
-            <label className="filter-label">Última mov. até</label>
+            <label className="filter-label">Último registro até</label>
             <input
               type="datetime-local"
               className="form-control filter-control"
@@ -481,7 +530,7 @@ export function Rastreio() {
               className="btn-primary"
               onClick={() => setBulkModalOpen(true)}
             >
-              <ArrowRightLeft size={14} /><span className="btn-text"> Mover {selectedItems.length} para outra sala</span>
+              <ArrowRightLeft size={14} /><span className="btn-text"> Atualizar registro de {selectedItems.length}</span>
             </button>
             <button
               type="button"
@@ -490,14 +539,6 @@ export function Rastreio() {
               onClick={exportSelected}
             >
               <FileSpreadsheet size={14} /><span className="btn-text"> Exportar Excel</span>
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ background: '#059669' }}
-              onClick={exportSelected}
-            >
-              <FileSpreadsheet size={14} /> Exportar Excel
             </button>
             <button
               type="button"
@@ -529,7 +570,7 @@ export function Rastreio() {
               <th>Nº Patrimônio</th>
               <th>Localização Atual</th>
               <th>Com quem está</th>
-              <th>Última Movimentação</th>
+              <th>Último Registro</th>
               <th style={{ width: 80 }}>Histórico</th>
             </tr>
           </thead>
@@ -539,8 +580,8 @@ export function Rastreio() {
                 <td colSpan={9}>
                   <EmptyState
                     preset={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'search' : 'package'}
-                    title={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Nenhum patrimônio encontrado' : 'Nenhum patrimônio rastreado'}
-                    description={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Tente ajustar os filtros.' : 'Registre movimentações para rastrear equipamentos.'}
+                    title={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Nenhum patrimônio encontrado' : 'Nenhum patrimônio registrado'}
+                    description={search || filterRoom || filterCat || filterStatus || filterMovedFrom || filterMovedTo ? 'Tente ajustar os filtros.' : 'Registre patrimônios para acompanhar equipamentos.'}
                   />
                 </td>
               </tr>
@@ -613,8 +654,8 @@ export function Rastreio() {
                       <span style={{ color: 'var(--text-secondary)' }}>Não localizado</span>
                     )}
                   </td>
-                  <td data-label="Recebedor" style={{ color: 'var(--text-secondary)' }}>{d.received_by || '—'}</td>
-                  <td data-label="Movimentado em" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  <td data-label="Com quem está" style={{ color: 'var(--text-secondary)' }}>{d.received_by || '—'}</td>
+                  <td data-label="Registrado em" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                     {d.moved_at ? fmtDateTime(d.moved_at) : '—'}
                   </td>
                   <td className="card-actions-cell">
@@ -648,12 +689,387 @@ export function Rastreio() {
           }}
         />
       )}
+
+      {assetLookupOpen && (
+        <AssetLookupModal
+          onClose={() => setAssetLookupOpen(false)}
+          onNew={(assetNumber) => {
+            setAssetLookupOpen(false)
+            setNewRegistroAsset(assetNumber)
+          }}
+        />
+      )}
+
+      {newRegistroAsset && (
+        <NewRegistroModal
+          assetNumber={newRegistroAsset}
+          roomsFetcher={roomsFetcher}
+          equipmentFetcher={equipmentFetcher}
+          invalidate={invalidate}
+          onClose={() => setNewRegistroAsset(null)}
+          onSaved={() => {
+            setNewRegistroAsset(null)
+            refetch()
+          }}
+        />
+      )}
+
+      {batchRegisterOpen && (
+        <BatchRegistroModal
+          roomsFetcher={roomsFetcher}
+          equipmentFetcher={equipmentFetcher}
+          invalidate={invalidate}
+          onClose={() => setBatchRegisterOpen(false)}
+          onSaved={() => {
+            setBatchRegisterOpen(false)
+            refetch()
+          }}
+        />
+      )}
     </>
   )
 }
 
+function AssetLookupModal({ onClose, onNew }) {
+  const { showToast } = useToast()
+  const [asset, setAsset] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const assetNumber = normalizeAssetNumber(asset)
+    if (!assetNumber) {
+      showToast('Informe o número de patrimônio.', 'warning')
+      return
+    }
+
+    setBusy(true)
+    const { data, error } = await supabase
+      .from('equipment_locations')
+      .select('asset_number')
+      .eq('asset_number', assetNumber)
+      .maybeSingle()
+    setBusy(false)
+
+    if (error) {
+      showToast('Erro ao consultar patrimônio: ' + error.message, 'danger')
+      return
+    }
+    if (data) {
+      showToast(`PAT ${formatAssetNumber(assetNumber)} já possui registro.`, 'warning')
+      onClose()
+      return
+    }
+    onNew(assetNumber)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 420 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Registrar equipamento</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              Informe apenas o patrimônio para iniciar.
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Nº Patrimônio <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <input
+              type="text"
+              className="form-control"
+              value={asset}
+              onChange={(e) => setAsset(applyAssetMask(e.target.value))}
+              placeholder="000.000.000.000"
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? <Loader2 size={14} className="spin" /> : 'Continuar'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalidate, onClose, onSaved }) {
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [rooms, setRooms] = useState([])
+  const [equipment, setEquipment] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [eqId, setEqId] = useState('')
+  const [eqName, setEqName] = useState('')
+  const [roomId, setRoomId] = useState('')
+  const [serial, setSerial] = useState('')
+  const [status, setStatus] = useState('')
+
+  useEffect(() => {
+    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
+      setRooms(rm || [])
+      setEquipment(eq || [])
+    })
+  }, [roomsFetcher, equipmentFetcher])
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!eqId) { showToast('Selecione o equipamento.', 'warning'); return }
+    if (!roomId) { showToast('Selecione a localização atual.', 'warning'); return }
+
+    setBusy(true)
+    const movedAt = new Date().toISOString()
+    const { error } = await supabase
+      .from('equipment_locations')
+      .upsert({
+        equipment_id: eqId,
+        asset_number: assetNumber,
+        serial_number: serial || null,
+        current_room_id: roomId,
+        moved_at: movedAt,
+      }, { onConflict: 'asset_number' })
+
+    if (error) {
+      showToast('Erro ao salvar registro: ' + error.message, 'danger')
+      setBusy(false)
+      return
+    }
+
+    if (status) {
+      const { error: statusError } = await supabase.from('equipment').update({ status }).eq('id', eqId)
+      if (statusError) {
+        showToast('Registro salvo, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+        setBusy(false)
+        return
+      }
+      invalidate('equipment')
+    }
+
+    audit.created('equipment_locations', assetNumber, { asset_number: assetNumber, equipment_id: eqId, current_room_id: roomId })
+    showToast('Registro criado com sucesso!', 'success')
+    onSaved()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Novo Registro</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              PAT: <strong>{formatAssetNumber(assetNumber)}</strong>
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <Autocomplete
+              items={equipment}
+              value={eqId}
+              label={eqName}
+              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
+              placeholder="Selecione o equipamento..."
+              required
+            />
+          </div>
+          <div className="form-2col">
+            <div className="form-group">
+              <label>Localização atual <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <select className="form-control" value={roomId} onChange={(e) => setRoomId(e.target.value)} required>
+                <option value="">Selecione...</option>
+                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Nº Série</label>
+              <input type="text" className="form-control" value={serial} onChange={(e) => setSerial(e.target.value)} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label>Status do item</label>
+            <select className="form-control" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Não alterar</option>
+              {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? <Loader2 size={14} className="spin" /> : 'Salvar Registro'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClose, onSaved }) {
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [rooms, setRooms] = useState([])
+  const [equipment, setEquipment] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [assetsText, setAssetsText] = useState('')
+  const [eqId, setEqId] = useState('')
+  const [eqName, setEqName] = useState('')
+  const [roomId, setRoomId] = useState('')
+  const [status, setStatus] = useState('')
+
+  useEffect(() => {
+    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
+      setRooms(rm || [])
+      setEquipment(eq || [])
+    })
+  }, [roomsFetcher, equipmentFetcher])
+
+  const assets = useMemo(
+    () => [...new Set(assetsText.split(/[\n,;]+/).map(normalizeAssetNumber).filter(Boolean))],
+    [assetsText],
+  )
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (assets.length === 0) { showToast('Informe ao menos um patrimônio.', 'warning'); return }
+    if (!eqId) { showToast('Selecione o equipamento.', 'warning'); return }
+    if (!roomId) { showToast('Selecione a localização atual.', 'warning'); return }
+
+    setBusy(true)
+    const { data: existing, error: existingError } = await supabase
+      .from('equipment_locations')
+      .select('asset_number')
+      .in('asset_number', assets)
+    if (existingError) {
+      showToast('Erro ao validar patrimônios: ' + existingError.message, 'danger')
+      setBusy(false)
+      return
+    }
+
+    const existingSet = new Set((existing || []).map((item) => item.asset_number))
+    const newAssets = assets.filter((asset) => !existingSet.has(asset))
+    if (newAssets.length === 0) {
+      showToast('Todos os patrimônios informados já estão registrados.', 'warning')
+      setBusy(false)
+      return
+    }
+
+    const movedAt = new Date().toISOString()
+    const payload = newAssets.map((assetNumber) => ({
+      equipment_id: eqId,
+      asset_number: assetNumber,
+      serial_number: null,
+      current_room_id: roomId,
+      moved_at: movedAt,
+    }))
+
+    const { error } = await supabase
+      .from('equipment_locations')
+      .insert(payload)
+    if (error) {
+      showToast('Erro ao registrar lote: ' + error.message, 'danger')
+      setBusy(false)
+      return
+    }
+
+    if (status) {
+      const { error: statusError } = await supabase.from('equipment').update({ status }).eq('id', eqId)
+      if (statusError) {
+        showToast('Lote registrado, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+        setBusy(false)
+        return
+      }
+      invalidate('equipment')
+    }
+
+    audit.log('batch_register', 'equipment_locations', null, {
+      count: newAssets.length,
+      skipped_existing: assets.length - newAssets.length,
+      asset_numbers: newAssets,
+    })
+    showToast(`${newAssets.length} registro${newAssets.length !== 1 ? 's' : ''} criado${newAssets.length !== 1 ? 's' : ''}.`, 'success')
+    onSaved()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 640 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Registrar por lote</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              Informe um patrimônio por linha. Patrimônios já registrados serão pulados.
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Patrimônios <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <textarea
+              className="form-control"
+              rows={5}
+              value={assetsText}
+              onChange={(e) => setAssetsText(e.target.value)}
+              placeholder={'000.000.000.000\n000.000.000.001'}
+            />
+            <small style={{ color: 'var(--text-secondary)' }}>
+              {assets.length} patrimônio{assets.length !== 1 ? 's' : ''} identificado{assets.length !== 1 ? 's' : ''}.
+            </small>
+          </div>
+          <div className="form-group">
+            <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <Autocomplete
+              items={equipment}
+              value={eqId}
+              label={eqName}
+              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
+              placeholder="Selecione o equipamento..."
+              required
+            />
+          </div>
+          <div className="form-2col">
+            <div className="form-group">
+              <label>Localização atual <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <select className="form-control" value={roomId} onChange={(e) => setRoomId(e.target.value)} required>
+                <option value="">Selecione...</option>
+                {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Status do item</label>
+              <select className="form-control" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">Não alterar</option>
+                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? <Loader2 size={14} className="spin" /> : `Registrar ${assets.length || ''}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function BulkMoveModal({ items, onClose, onSuccess }) {
-  const { user } = useAuth()
   const { rooms: roomsFetcher } = useStore()
   const { showToast } = useToast()
   const audit = useAudit()
@@ -698,59 +1114,42 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
     const movedAt = new Date().toISOString()
     const destRoom = rooms.find((r) => r.id === destRoomId)
 
-    const movements = items
+    const records = items
       .filter((i) => i.destination_room_id !== destRoomId)
       .map((i) => ({
         equipment_id: i.equipment_id,
         serial_number: i.serial_number,
         asset_number: i.asset_number,
-        origin_room_id: i.destination_room_id,
-        destination_room_id: destRoomId,
-        moved_by: user?.id,
-        received_by: resolveReceiver(i),
-        moved_at: movedAt,
-      }))
-
-    const { data: inserted, error } = await supabase
-      .from('asset_movements')
-      .insert(movements)
-      .select('id')
-
-    if (error) {
-      showToast('Erro ao mover: ' + error.message, 'danger')
-      setSubmitting(false)
-      return
-    }
-
-    // Atualiza equipment_locations para itens com asset_number
-    const locationUpserts = movements
-      .filter((m) => m.asset_number)
-      .map((m) => ({
-        equipment_id: m.equipment_id,
-        asset_number: m.asset_number,
-        serial_number: m.serial_number,
         current_room_id: destRoomId,
-        moved_by: m.moved_by,
-        received_by: m.received_by,
         moved_at: movedAt,
       }))
-    if (locationUpserts.length > 0) {
-      const { error: locError } = await supabase
+
+    for (const record of records) {
+      const payload = {
+        equipment_id: record.equipment_id,
+        asset_number: record.asset_number,
+        serial_number: record.serial_number,
+        current_room_id: record.current_room_id,
+        moved_at: record.moved_at,
+      }
+      const { error } = await supabase
         .from('equipment_locations')
-        .upsert(locationUpserts, { onConflict: 'asset_number' })
-      if (locError) console.warn('Bulk move — equipment_locations não atualizado:', locError.message)
+        .upsert(payload, { onConflict: 'asset_number' })
+      if (error) {
+        showToast('Erro ao atualizar registro: ' + error.message, 'danger')
+        setSubmitting(false)
+        return
+      }
     }
 
-    // Salva IDs no audit para permitir reversão pela Auditoria
-    audit.log('bulk_move', 'asset_movements', null, {
-      count: movements.length,
+    audit.log('bulk_register_update', 'equipment_locations', null, {
+      count: records.length,
       destination: destRoom?.name,
-      movement_ids: (inserted || []).map((r) => r.id),
-      asset_numbers: movements.map((m) => m.asset_number).filter(Boolean),
+      asset_numbers: records.map((m) => m.asset_number).filter(Boolean),
     })
 
     showToast(
-      `${movements.length} ${movements.length === 1 ? 'patrimônio movido' : 'patrimônios movidos'} para "${destRoom?.name}".`,
+      `${records.length} ${records.length === 1 ? 'registro atualizado' : 'registros atualizados'} para "${destRoom?.name}".`,
       'success',
     )
     onSuccess()
@@ -761,9 +1160,9 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       <div className="modal-content" style={{ maxWidth: 520 }}>
         <div className="modal-header">
           <div>
-            <h3>Mover {items.length} {items.length === 1 ? 'patrimônio' : 'patrimônios'}</h3>
+            <h3>Atualizar {items.length} {items.length === 1 ? 'registro' : 'registros'}</h3>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
-              Os itens selecionados serão movidos para a mesma sala destino.
+              Os itens selecionados terão a localização atual atualizada sem gerar movimentação.
             </div>
           </div>
           <button className="modal-close" type="button" onClick={onClose}>
@@ -773,7 +1172,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         <form onSubmit={submit}>
           <div className="form-group">
             <label>
-              Sala de destino <span style={{ color: 'var(--danger-color)' }}>*</span>
+              Localização atual <span style={{ color: 'var(--danger-color)' }}>*</span>
             </label>
             <select
               className="form-control"
@@ -904,7 +1303,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
               Cancelar
             </button>
             <button type="submit" className="btn-primary" disabled={submitting || toMove === 0}>
-              {submitting ? 'Movendo...' : `Mover ${toMove} ${toMove === 1 ? 'item' : 'itens'}`}
+              {submitting ? 'Atualizando...' : `Atualizar ${toMove} ${toMove === 1 ? 'registro' : 'registros'}`}
             </button>
           </div>
         </form>

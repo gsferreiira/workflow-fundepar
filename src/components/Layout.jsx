@@ -117,7 +117,7 @@ export function Layout() {
 
   const handleResultSelect = useCallback((type, item) => {
     clearSearch()
-    if (type === 'equipment') navigate(`/rastreio`)
+    if (type === 'equipment') navigate(`/registro`)
     else if (type === 'room') navigate(`/mapa-salas`)
     else if (type === 'ticket') navigate(`/workflow`)
   }, [navigate, clearSearch])
@@ -142,7 +142,7 @@ export function Layout() {
 
   const handleSemHistorico = (asset) => {
     setScannerOpen(false)
-    setLocateAsset(asset)
+    navigate('/registro', { state: { newRegistroAsset: asset } })
   }
 
   const handleScanRegistrar = () => {

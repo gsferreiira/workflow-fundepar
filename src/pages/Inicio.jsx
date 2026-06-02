@@ -38,9 +38,9 @@ const modules = [
     description: 'Registre transferências, responsáveis e patrimônios.',
   },
   {
-    to: '/rastreio',
+    to: '/registro',
     icon: Search,
-    title: 'Rastreio',
+    title: 'Registro',
     description: 'Localize patrimônios e consulte o histórico de uso.',
   },
   {
@@ -85,7 +85,7 @@ export function Inicio() {
           <h2>Olá, {user?.full_name || 'Usuário'}</h2>
           <p>
             Este sistema centraliza o controle de workflow, patrimônio, movimentações e
-            rastreio de equipamentos da Fundepar TI.
+            registro de equipamentos da Fundepar TI.
           </p>
         </div>
       </div>
