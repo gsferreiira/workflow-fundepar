@@ -27,7 +27,14 @@ import { SkeletonTable } from '../components/Skeleton.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { Autocomplete } from '../components/Autocomplete.jsx'
 import { Scanner, ScanResultModal } from '../components/Scanner.jsx'
-import { formatAssetNumber, applyAssetMask, fmtDate, fmtDateTime } from '../utils/format.js'
+import {
+  formatAssetNumber,
+  applyAssetMask,
+  fmtDate,
+  fmtDateTime,
+  toDateTimeLocalValue,
+  dateTimeLocalValueToIso,
+} from '../utils/format.js'
 
 const PAGE_SIZE = 25
 const EQUIPMENT_STATUS_OPTIONS = [
@@ -1440,9 +1447,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const [asset, setAsset] = useState(formatAssetNumber(mov.asset_number) || '')
   const [receivedBy, setReceivedBy] = useState(mov.received_by || '')
   const [itemStatus, setItemStatus] = useState(mov.item_status || '')
-  const [movedAt, setMovedAt] = useState(
-    mov.moved_at ? new Date(mov.moved_at).toISOString().slice(0, 16) : '',
-  )
+  const [movedAt, setMovedAt] = useState(toDateTimeLocalValue(mov.moved_at))
   const [editReason, setEditReason] = useState('')
 
   const submit = async (e) => {
@@ -1470,7 +1475,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         destination_room_id: destId,
         received_by: receivedBy || null,
         item_status: itemStatus || null,
-        moved_at: movedAt ? new Date(movedAt).toISOString() : undefined,
+        moved_at: dateTimeLocalValueToIso(movedAt) || undefined,
         is_edited: true,
         edited_by: user.id,
         edited_at: new Date().toISOString(),
