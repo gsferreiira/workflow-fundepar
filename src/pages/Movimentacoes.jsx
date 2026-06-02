@@ -161,7 +161,7 @@ export function Movimentacoes() {
       const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
       if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
       const wsData = [
-        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição por'],
+        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição', 'Último Editor'],
         ...selected.map((m) => [
           m.equipment?.name || '—',
           m.serial_number || '—',
@@ -171,11 +171,12 @@ export function Movimentacoes() {
           m.profiles?.full_name || '—',
           m.received_by || '—',
           new Date(m.moved_at).toLocaleString('pt-BR'),
+          m.edited_at ? new Date(m.edited_at).toLocaleString('pt-BR') : '—',
           m.editedBy?.full_name || '—',
         ]),
       ]
       const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 24 }]
+      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 20 }, { wch: 24 }]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Selecionadas')
       XLSX.writeFile(wb, `movimentacoes_selecionadas_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -414,7 +415,7 @@ export function Movimentacoes() {
         return
       }
       const wsData = [
-        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora'],
+        ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição', 'Último Editor'],
         ...all.map((m) => [
           m.equipment?.name || '—',
           m.serial_number || '—',
@@ -424,14 +425,14 @@ export function Movimentacoes() {
           profileMap[m.moved_by]?.full_name || '—',
           m.received_by || '—',
           new Date(m.moved_at).toLocaleString('pt-BR'),
+          m.edited_at ? new Date(m.edited_at).toLocaleString('pt-BR') : '—',
           profileMap[m.edited_by]?.full_name || '—',
         ]),
       ]
-      wsData[0].push('Última edição por')
       const ws = XLSX.utils.aoa_to_sheet(wsData)
       ws['!cols'] = [
         { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
-        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 24 },
+        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 20 }, { wch: 24 },
       ]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Movimentações')
@@ -925,13 +926,14 @@ export function Movimentacoes() {
                   <th>Com quem está</th>
                   <th>Data / Hora</th>
                   <th>Última edição</th>
+                  <th>Último Editor</th>
                   <th style={{ width: 120 }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {listWithBatch.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
+                    <td colSpan={11} style={{ textAlign: 'center', padding: 32, color: 'var(--text-secondary)' }}>
                       Nenhuma movimentação encontrada.
                     </td>
                   </tr>
@@ -990,7 +992,10 @@ export function Movimentacoes() {
                       <td data-label="Data / Hora" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {fmtDateTime(m.moved_at)}
                       </td>
-                      <td data-label="Editado por" style={{ color: 'var(--text-secondary)' }}>{m.editedBy?.full_name || '—'}</td>
+                      <td data-label="Última edição" style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                        {m.edited_at ? fmtDateTime(m.edited_at) : '—'}
+                      </td>
+                      <td data-label="Último Editor" style={{ color: 'var(--text-secondary)' }}>{m.editedBy?.full_name || '—'}</td>
                       <td className="card-actions-cell">
                         <div className="table-actions">
                           {canEditMovements && (
