@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2, ScanLine } from 'lucide-react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -7,8 +7,11 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
-import { Autocomplete } from '../components/Autocomplete.jsx'
+import { Scanner } from '../components/Scanner.jsx'
+import { Pagination } from '../components/Pagination.jsx'
 import { applyAssetMask, formatAssetNumber, fmtDateTime } from '../utils/format.js'
+
+const PAGE_SIZE = 25
 
 const STATUS_MAP = {
   novo: { bg: 'rgba(16,185,129,.12)', color: '#059669' },
@@ -76,6 +79,8 @@ export function Registro() {
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [page, setPage] = useState(1)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const refetch = useCallback(() => setReloadToken((t) => t + 1), [])
   const refetchRef = useRef(refetch)
   refetchRef.current = refetch
@@ -106,7 +111,7 @@ export function Registro() {
         supabase
           .from('equipment_locations')
           .select(
-            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, moved_at, current_room_id',
+            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, current_room_id',
           )
           .order('moved_at', { ascending: false })
           .limit(5000),
@@ -157,7 +162,7 @@ export function Registro() {
           observacao: m.equipment?.observacao || null,
           asset_number: m.asset_number || null,
           serial_number: m.serial_number || null,
-          received_by: receiverByAsset[m.asset_number] || null,
+          received_by: m.received_by || receiverByAsset[m.asset_number] || null,
           moved_at: m.moved_at || null,
           destination_room_id: m.current_room_id,
           current_room_id: m.current_room_id,
@@ -244,9 +249,32 @@ export function Registro() {
     return result
   }, [data, search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
 
-  const exportExcel = async () => {
+  const total = filtered.length
+  const pageItems = useMemo(() => {
+    const from = (page - 1) * PAGE_SIZE
+    return filtered.slice(from, from + PAGE_SIZE)
+  }, [filtered, page])
+
+  useEffect(() => {
+    setPage(1)
+    setSelectedKeys(new Set())
+  }, [search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    if (page > totalPages) setPage(totalPages)
+  }, [page, total])
+
+  const onPrev = () => setPage((p) => Math.max(1, p - 1))
+  const onNext = () => setPage((p) => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    return Math.min(totalPages, p + 1)
+  })
+
+  const exportExcel = async (scope = 'all') => {
     try {
-      if (filtered.length === 0) {
+      const rows = scope === 'page' ? pageItems : filtered
+      if (rows.length === 0) {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
       }
@@ -258,7 +286,7 @@ export function Registro() {
       }
       const wsData = [
       ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
-      ...filtered.map((d) => [
+      ...rows.map((d) => [
         d.equipment?.name || '—',
         d.categoria || '—',
         d.status || '—',
@@ -277,8 +305,9 @@ export function Registro() {
     ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Registro')
-    XLSX.writeFile(wb, `registro_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    showToast('Arquivo exportado!', 'success')
+    const suffix = scope === 'page' ? `_pagina${page}` : ''
+    XLSX.writeFile(wb, `registro${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    showToast(`${rows.length} equipamento${rows.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       console.error('exportExcel erro:', err)
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -309,20 +338,20 @@ export function Registro() {
     })
   }, [])
 
-  const allFilteredSelected =
-    filtered.length > 0 && filtered.every((d) => selectedKeys.has(d.key))
+  const allPageSelected =
+    pageItems.length > 0 && pageItems.every((d) => selectedKeys.has(d.key))
 
-  const toggleAllFiltered = useCallback(() => {
+  const toggleAllPage = useCallback(() => {
     setSelectedKeys((prev) => {
       const next = new Set(prev)
-      if (allFilteredSelected) {
-        filtered.forEach((d) => next.delete(d.key))
+      if (allPageSelected) {
+        pageItems.forEach((d) => next.delete(d.key))
       } else {
-        filtered.forEach((d) => next.add(d.key))
+        pageItems.forEach((d) => next.add(d.key))
       }
       return next
     })
-  }, [filtered, allFilteredSelected])
+  }, [pageItems, allPageSelected])
 
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), [])
 
@@ -384,16 +413,56 @@ export function Registro() {
           >
             <Plus size={14} /> Registrar por lote
           </button>
-          <button
-            className="btn-primary"
-            style={{ background: '#059669' }}
-            onClick={exportExcel}
-            disabled={!filtered || filtered.length === 0}
-            title={filtered?.length === 0 ? 'Sem itens para exportar' : 'Exportar todos os itens filtrados'}
-          >
-            <FileSpreadsheet size={14} /> Exportar Excel
-            {filtered && filtered.length > 0 && ` (${filtered.length})`}
-          </button>
+          <div className="export-menu-wrapper">
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#059669' }}
+              onClick={() => setExportMenuOpen((o) => !o)}
+              disabled={total === 0}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+              title={total === 0 ? 'Sem itens para exportar' : 'Exportar registros'}
+            >
+              <FileSpreadsheet size={14} /> Exportar
+              <ChevronDown size={14} style={{ marginLeft: 2 }} />
+            </button>
+            {exportMenuOpen && (
+              <>
+                <div className="export-menu-backdrop" onClick={() => setExportMenuOpen(false)} />
+                <div className="export-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="export-menu-item"
+                    onClick={() => {
+                      setExportMenuOpen(false)
+                      exportExcel('page')
+                    }}
+                  >
+                    <div className="export-menu-item-title">Esta página</div>
+                    <div className="export-menu-item-desc">
+                      Exporta os {pageItems.length} registros visíveis (página {page}).
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="export-menu-item"
+                    onClick={() => {
+                      setExportMenuOpen(false)
+                      exportExcel('all')
+                    }}
+                  >
+                    <div className="export-menu-item-title">Todos os resultados filtrados</div>
+                    <div className="export-menu-item-desc">
+                      Exporta os {total.toLocaleString('pt-BR')} registro{total !== 1 ? 's' : ''} que correspondem aos filtros atuais.
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -509,8 +578,8 @@ export function Registro() {
 
         <div className="filter-actions">
           <span className="filter-count">
-            {filtered.length} equipamento{filtered.length !== 1 ? 's' : ''}
-            {data && filtered.length !== data.length ? ` de ${data.length}` : ''}
+            {total} equipamento{total !== 1 ? 's' : ''}
+            {data && total !== data.length ? ` de ${data.length}` : ''}
           </span>
           <button className="btn-filter-clear" onClick={clearFilters} disabled={!hasFilters}>
             <X size={13} /> Limpar filtros
@@ -559,9 +628,9 @@ export function Registro() {
                 <input
                   type="checkbox"
                   className="bulk-checkbox"
-                  checked={allFilteredSelected}
-                  onChange={toggleAllFiltered}
-                  aria-label="Selecionar todos os equipamentos filtrados"
+                  checked={allPageSelected}
+                  onChange={toggleAllPage}
+                  aria-label="Selecionar todos os equipamentos desta página"
                 />
               </th>
               <th>Equipamento</th>
@@ -575,7 +644,7 @@ export function Registro() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {total === 0 ? (
               <tr>
                 <td colSpan={9}>
                   <EmptyState
@@ -586,7 +655,7 @@ export function Registro() {
                 </td>
               </tr>
             ) : (
-              filtered.map((d) => (
+              pageItems.map((d) => (
                 <tr
                   key={d.key}
                   className={selectedKeys.has(d.key) ? 'row-selected' : ''}
@@ -673,6 +742,7 @@ export function Registro() {
           </tbody>
         </table>
       </div>
+      <Pagination page={page} total={total} pageSize={PAGE_SIZE} onPrev={onPrev} onNext={onNext} />
 
       {historyEq && (
         <HistoryModal item={historyEq} onClose={() => setHistoryEq(null)} />
@@ -734,10 +804,9 @@ function AssetLookupModal({ onClose, onNew }) {
   const { showToast } = useToast()
   const [asset, setAsset] = useState('')
   const [busy, setBusy] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
-  const submit = async (e) => {
-    e.preventDefault()
-    const assetNumber = normalizeAssetNumber(asset)
+  const checkAsset = async (assetNumber) => {
     if (!assetNumber) {
       showToast('Informe o número de patrimônio.', 'warning')
       return
@@ -763,6 +832,11 @@ function AssetLookupModal({ onClose, onNew }) {
     onNew(assetNumber)
   }
 
+  const submit = async (e) => {
+    e.preventDefault()
+    await checkAsset(normalizeAssetNumber(asset))
+  }
+
   return (
     <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-content" style={{ maxWidth: 420 }}>
@@ -778,14 +852,20 @@ function AssetLookupModal({ onClose, onNew }) {
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Nº Patrimônio <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <input
-              type="text"
-              className="form-control"
-              value={asset}
-              onChange={(e) => setAsset(applyAssetMask(e.target.value))}
-              placeholder="000.000.000.000"
-              autoFocus
-            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                className="form-control"
+                value={asset}
+                onChange={(e) => setAsset(applyAssetMask(e.target.value))}
+                placeholder="000.000.000.000"
+                autoFocus
+                style={{ flex: 1 }}
+              />
+              <button type="button" className="btn-scanner" onClick={() => setScannerOpen(true)}>
+                <ScanLine size={14} /> Scanner
+              </button>
+            </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
             <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
@@ -797,6 +877,19 @@ function AssetLookupModal({ onClose, onNew }) {
           </div>
         </form>
       </div>
+      <Scanner
+        open={scannerOpen}
+        mode="lote"
+        onClose={() => setScannerOpen(false)}
+        onLoteItem={(assetNumber) => {
+          const normalized = normalizeAssetNumber(assetNumber)
+          setScannerOpen(false)
+          setAsset(applyAssetMask(normalized))
+          checkAsset(normalized)
+          return true
+        }}
+        onConcluirLote={() => setScannerOpen(false)}
+      />
     </div>
   )
 }
@@ -811,6 +904,7 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
   const [eqName, setEqName] = useState('')
   const [roomId, setRoomId] = useState('')
   const [serial, setSerial] = useState('')
+  const [receivedBy, setReceivedBy] = useState('')
   const [status, setStatus] = useState('')
 
   useEffect(() => {
@@ -833,6 +927,7 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
         equipment_id: eqId,
         asset_number: assetNumber,
         serial_number: serial || null,
+        received_by: receivedBy || null,
         current_room_id: roomId,
         moved_at: movedAt,
       }, { onConflict: 'asset_number' })
@@ -873,14 +968,18 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <Autocomplete
-              items={equipment}
+            <select
+              className="form-control"
               value={eqId}
-              label={eqName}
-              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
-              placeholder="Selecione o equipamento..."
+              onChange={(e) => {
+                setEqId(e.target.value)
+                setEqName(e.target.selectedOptions[0]?.textContent || '')
+              }}
               required
-            />
+            >
+              <option value="">Selecione...</option>
+              {equipment.map((eq) => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+            </select>
           </div>
           <div className="form-2col">
             <div className="form-group">
@@ -894,6 +993,10 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
               <label>Nº Série</label>
               <input type="text" className="form-control" value={serial} onChange={(e) => setSerial(e.target.value)} />
             </div>
+          </div>
+          <div className="form-group">
+            <label>Com quem está</label>
+            <input type="text" className="form-control" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} />
           </div>
           <div className="form-group">
             <label>Status do item</label>
@@ -926,7 +1029,9 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
   const [eqId, setEqId] = useState('')
   const [eqName, setEqName] = useState('')
   const [roomId, setRoomId] = useState('')
+  const [receivedBy, setReceivedBy] = useState('')
   const [status, setStatus] = useState('')
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
     Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
@@ -970,6 +1075,7 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
       equipment_id: eqId,
       asset_number: assetNumber,
       serial_number: null,
+      received_by: receivedBy || null,
       current_room_id: roomId,
       moved_at: movedAt,
     }))
@@ -1024,20 +1130,29 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
               onChange={(e) => setAssetsText(e.target.value)}
               placeholder={'000.000.000.000\n000.000.000.001'}
             />
-            <small style={{ color: 'var(--text-secondary)' }}>
-              {assets.length} patrimônio{assets.length !== 1 ? 's' : ''} identificado{assets.length !== 1 ? 's' : ''}.
-            </small>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <small style={{ color: 'var(--text-secondary)' }}>
+                {assets.length} patrimônio{assets.length !== 1 ? 's' : ''} identificado{assets.length !== 1 ? 's' : ''}.
+              </small>
+              <button type="button" className="btn-scanner compact" onClick={() => setScannerOpen(true)}>
+                <ScanLine size={13} /> Scanner
+              </button>
+            </div>
           </div>
           <div className="form-group">
             <label>Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <Autocomplete
-              items={equipment}
+            <select
+              className="form-control"
               value={eqId}
-              label={eqName}
-              onChange={(id, name) => { setEqId(id); setEqName(name || '') }}
-              placeholder="Selecione o equipamento..."
+              onChange={(e) => {
+                setEqId(e.target.value)
+                setEqName(e.target.selectedOptions[0]?.textContent || '')
+              }}
               required
-            />
+            >
+              <option value="">Selecione...</option>
+              {equipment.map((eq) => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+            </select>
           </div>
           <div className="form-2col">
             <div className="form-group">
@@ -1055,6 +1170,10 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
               </select>
             </div>
           </div>
+          <div className="form-group">
+            <label>Com quem está</label>
+            <input type="text" className="form-control" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
             <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
               Cancelar
@@ -1065,12 +1184,25 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
           </div>
         </form>
       </div>
+      <Scanner
+        open={scannerOpen}
+        mode="lote"
+        onClose={() => setScannerOpen(false)}
+        onLoteItem={(assetNumber) => {
+          const normalized = normalizeAssetNumber(assetNumber)
+          if (assets.includes(normalized)) return false
+          setAssetsText((prev) => `${prev}${prev.trim() ? '\n' : ''}${normalized}`)
+          return true
+        }}
+        onConcluirLote={() => setScannerOpen(false)}
+        loteCount={assets.length}
+      />
     </div>
   )
 }
 
 function BulkMoveModal({ items, onClose, onSuccess }) {
-  const { rooms: roomsFetcher } = useStore()
+  const { rooms: roomsFetcher, invalidate } = useStore()
   const { showToast } = useToast()
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
@@ -1078,6 +1210,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
   // receivedBy: texto para sobrescrever todos; clearReceiver: remove o recebedor de todos
   const [receivedBy, setReceivedBy] = useState('')
   const [clearReceiver, setClearReceiver] = useState(false)
+  const [itemStatus, setItemStatus] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -1106,7 +1239,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       showToast('Selecione a sala de destino.', 'warning')
       return
     }
-    if (toMove === 0) {
+    if (toMove === 0 && !itemStatus) {
       showToast('Todos os selecionados já estão nessa sala.', 'warning')
       return
     }
@@ -1121,6 +1254,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         serial_number: i.serial_number,
         asset_number: i.asset_number,
         current_room_id: destRoomId,
+        received_by: resolveReceiver(i),
         moved_at: movedAt,
       }))
 
@@ -1130,6 +1264,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         asset_number: record.asset_number,
         serial_number: record.serial_number,
         current_room_id: record.current_room_id,
+        received_by: record.received_by,
         moved_at: record.moved_at,
       }
       const { error } = await supabase
@@ -1142,16 +1277,37 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
       }
     }
 
+    if (itemStatus) {
+      const equipmentIds = [...new Set(items.map((i) => i.equipment_id).filter(Boolean))]
+      if (equipmentIds.length > 0) {
+        const { error: statusError } = await supabase
+          .from('equipment')
+          .update({ status: itemStatus })
+          .in('id', equipmentIds)
+        if (statusError) {
+          showToast('Registro atualizado, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+          setSubmitting(false)
+          return
+        }
+        invalidate('equipment')
+      }
+    }
+
     audit.log('bulk_register_update', 'equipment_locations', null, {
       count: records.length,
       destination: destRoom?.name,
+      status: itemStatus || null,
       asset_numbers: records.map((m) => m.asset_number).filter(Boolean),
     })
 
-    showToast(
-      `${records.length} ${records.length === 1 ? 'registro atualizado' : 'registros atualizados'} para "${destRoom?.name}".`,
-      'success',
-    )
+    const messages = []
+    if (records.length > 0) {
+      messages.push(`${records.length} ${records.length === 1 ? 'registro atualizado' : 'registros atualizados'} para "${destRoom?.name}"`)
+    }
+    if (itemStatus) {
+      messages.push(`status atualizado para "${STATUS_OPTIONS.find((s) => s.value === itemStatus)?.label || itemStatus}"`)
+    }
+    showToast(`${messages.join(' e ')}.`, 'success')
     onSuccess()
   }
 
@@ -1248,6 +1404,25 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
             )}
           </div>
 
+          <div className="form-group">
+            <label>Status do item</label>
+            <select
+              className="form-control"
+              value={itemStatus}
+              onChange={(e) => setItemStatus(e.target.value)}
+            >
+              <option value="">Nao alterar</option>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+            <small style={{ display: 'block', marginTop: 4, color: 'var(--text-secondary)' }}>
+              Se selecionar um status, ele sera aplicado aos equipamentos selecionados.
+            </small>
+          </div>
+
           <div style={{ maxHeight: 200, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
               Itens selecionados ({items.length})
@@ -1302,8 +1477,12 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
             >
               Cancelar
             </button>
-            <button type="submit" className="btn-primary" disabled={submitting || toMove === 0}>
-              {submitting ? 'Atualizando...' : `Atualizar ${toMove} ${toMove === 1 ? 'registro' : 'registros'}`}
+            <button type="submit" className="btn-primary" disabled={submitting || (toMove === 0 && !itemStatus)}>
+              {submitting
+                ? 'Atualizando...'
+                : itemStatus && toMove === 0
+                  ? `Atualizar status de ${items.length}`
+                  : `Atualizar ${toMove} ${toMove === 1 ? 'registro' : 'registros'}`}
             </button>
           </div>
         </form>
