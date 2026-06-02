@@ -660,8 +660,18 @@ export function Movimentacoes() {
     if (loteItemStatus) {
       const uniqueEqIds = [...new Set(loteItems.map((i) => i.equipmentId))]
       for (const eqId of uniqueEqIds) {
-        await supabase.from('equipment').update({ status: loteItemStatus }).eq('id', eqId)
+        const { error: statusError } = await supabase
+          .from('equipment')
+          .update({ status: loteItemStatus })
+          .eq('id', eqId)
+        if (statusError) {
+          showToast('Movimentações registradas, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+          setLoteBusy(false)
+          return
+        }
       }
+      invalidate('equipment')
+      loadDropdowns()
     }
     audit.log('batch_movement', 'asset_movements', null, {
       count: inserts.length,
@@ -1114,6 +1124,7 @@ export function Movimentacoes() {
 
 function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved }) {
   const { showToast } = useToast()
+  const { invalidate } = useStore()
   const [busy, setBusy] = useState(false)
   const [eqId, setEqId] = useState('')
   const [eqName, setEqName] = useState('')
@@ -1215,7 +1226,16 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
       return
     }
     if (itemStatus) {
-      await supabase.from('equipment').update({ status: itemStatus }).eq('id', eqId)
+      const { error: statusError } = await supabase
+        .from('equipment')
+        .update({ status: itemStatus })
+        .eq('id', eqId)
+      if (statusError) {
+        showToast('Movimentação registrada, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+        setBusy(false)
+        return
+      }
+      invalidate('equipment')
     }
     if (assetNumber) {
       await supabase.from('equipment_locations').upsert(
@@ -1436,6 +1456,7 @@ function LoteModal({
 
 function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const { showToast } = useToast()
+  const { invalidate } = useStore()
   const [busy, setBusy] = useState(false)
   const [eqId, setEqId] = useState(mov.equipment_id || '')
   const [eqName, setEqName] = useState(mov.equipment?.name || '')
@@ -1498,6 +1519,8 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         showToast('Movimentação atualizada, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
       }
     }
+
+    if (itemStatus) invalidate('equipment')
 
     await supabase.from('movement_edits').insert([{
       movement_id: mov.id,

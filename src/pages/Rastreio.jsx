@@ -86,7 +86,7 @@ export function Rastreio() {
         supabase
           .from('asset_movements')
           .select(
-            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by',
+            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, destination_room_id, moved_by, item_status',
           )
           .is('deleted_at', null)
           .order('moved_at', { ascending: false })
@@ -119,7 +119,7 @@ export function Rastreio() {
           equipment_id: m.equipment_id,
           equipment: m.equipment,
           categoria: m.equipment?.categoria || null,
-          status: m.equipment?.status || null,
+          status: m.item_status || m.equipment?.status || null,
           observacao: m.equipment?.observacao || null,
           asset_number: m.asset_number || null,
           serial_number: m.serial_number || null,
