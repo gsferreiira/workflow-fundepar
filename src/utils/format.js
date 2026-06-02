@@ -45,3 +45,23 @@ export const fmtTime = (d) =>
     ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     : ''
 export const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('pt-BR') : '')
+
+const pad2 = (value) => String(value).padStart(2, '0')
+
+export const toDateTimeLocalValue = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  return [
+    date.getFullYear(),
+    pad2(date.getMonth() + 1),
+    pad2(date.getDate()),
+  ].join('-') + `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`
+}
+
+export const dateTimeLocalValueToIso = (value) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}

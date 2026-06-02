@@ -27,7 +27,14 @@ import { SkeletonTable } from '../components/Skeleton.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { Autocomplete } from '../components/Autocomplete.jsx'
 import { Scanner, ScanResultModal } from '../components/Scanner.jsx'
-import { formatAssetNumber, applyAssetMask, fmtDate, fmtDateTime } from '../utils/format.js'
+import {
+  formatAssetNumber,
+  applyAssetMask,
+  fmtDate,
+  fmtDateTime,
+  toDateTimeLocalValue,
+  dateTimeLocalValueToIso,
+} from '../utils/format.js'
 
 const PAGE_SIZE = 25
 const EQUIPMENT_STATUS_OPTIONS = [
@@ -653,8 +660,18 @@ export function Movimentacoes() {
     if (loteItemStatus) {
       const uniqueEqIds = [...new Set(loteItems.map((i) => i.equipmentId))]
       for (const eqId of uniqueEqIds) {
-        await supabase.from('equipment').update({ status: loteItemStatus }).eq('id', eqId)
+        const { error: statusError } = await supabase
+          .from('equipment')
+          .update({ status: loteItemStatus })
+          .eq('id', eqId)
+        if (statusError) {
+          showToast('Movimentações registradas, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+          setLoteBusy(false)
+          return
+        }
       }
+      invalidate('equipment')
+      loadDropdowns()
     }
     audit.log('batch_movement', 'asset_movements', null, {
       count: inserts.length,
@@ -1107,6 +1124,7 @@ export function Movimentacoes() {
 
 function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved }) {
   const { showToast } = useToast()
+  const { invalidate } = useStore()
   const [busy, setBusy] = useState(false)
   const [eqId, setEqId] = useState('')
   const [eqName, setEqName] = useState('')
@@ -1208,7 +1226,16 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
       return
     }
     if (itemStatus) {
-      await supabase.from('equipment').update({ status: itemStatus }).eq('id', eqId)
+      const { error: statusError } = await supabase
+        .from('equipment')
+        .update({ status: itemStatus })
+        .eq('id', eqId)
+      if (statusError) {
+        showToast('Movimentação registrada, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+        setBusy(false)
+        return
+      }
+      invalidate('equipment')
     }
     if (assetNumber) {
       await supabase.from('equipment_locations').upsert(
@@ -1429,6 +1456,7 @@ function LoteModal({
 
 function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const { showToast } = useToast()
+  const { invalidate } = useStore()
   const [busy, setBusy] = useState(false)
   const [eqId, setEqId] = useState(mov.equipment_id || '')
   const [eqName, setEqName] = useState(mov.equipment?.name || '')
@@ -1440,9 +1468,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const [asset, setAsset] = useState(formatAssetNumber(mov.asset_number) || '')
   const [receivedBy, setReceivedBy] = useState(mov.received_by || '')
   const [itemStatus, setItemStatus] = useState(mov.item_status || '')
-  const [movedAt, setMovedAt] = useState(
-    mov.moved_at ? new Date(mov.moved_at).toISOString().slice(0, 16) : '',
-  )
+  const [movedAt, setMovedAt] = useState(toDateTimeLocalValue(mov.moved_at))
   const [editReason, setEditReason] = useState('')
 
   const submit = async (e) => {
@@ -1470,7 +1496,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         destination_room_id: destId,
         received_by: receivedBy || null,
         item_status: itemStatus || null,
-        moved_at: movedAt ? new Date(movedAt).toISOString() : undefined,
+        moved_at: dateTimeLocalValueToIso(movedAt) || undefined,
         is_edited: true,
         edited_by: user.id,
         edited_at: new Date().toISOString(),
@@ -1493,6 +1519,8 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         showToast('Movimentação atualizada, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
       }
     }
+
+    if (itemStatus) invalidate('equipment')
 
     await supabase.from('movement_edits').insert([{
       movement_id: mov.id,
