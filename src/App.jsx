@@ -28,6 +28,9 @@ import { Usuarios } from "./pages/Usuarios.jsx";
 import { Perfil } from "./pages/Perfil.jsx";
 import { Auditoria } from "./pages/Auditoria.jsx";
 import { Permissoes } from "./pages/Permissoes.jsx";
+import { MapaSetor } from "./pages/MapaSetor.jsx";
+import { MovimentacoesSetor } from "./pages/MovimentacoesSetor.jsx";
+import { ConferenciasSetor } from "./pages/ConferenciasSetor.jsx";
 
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.jsx").then((module) => ({
@@ -64,6 +67,16 @@ function PublicRoute() {
   return <Outlet />;
 }
 
+// Redireciona coordenador para a view do seu setor; outros papéis renderizam normalmente
+function TiOnlyRedirect({ element }) {
+  const { user } = useAuth();
+  if (user?.role === 'coordenador') {
+    const sigla = user.coordinator_room?.sigla?.toLowerCase();
+    return <Navigate to={sigla ? `/setor/${sigla}` : '/perfil'} replace />;
+  }
+  return element;
+}
+
 function App() {
   return (
     <ToastProvider>
@@ -80,9 +93,9 @@ function App() {
                   <Route element={<Layout />}>
                     <Route
                       path="/"
-                      element={<Navigate to="/inicio" replace />}
+                      element={<TiOnlyRedirect element={<Navigate to="/inicio" replace />} />}
                     />
-                    <Route path="/inicio" element={<Inicio />} />
+                    <Route path="/inicio" element={<TiOnlyRedirect element={<Inicio />} />} />
                     <Route
                       path="/dashboard"
                       element={
@@ -110,6 +123,9 @@ function App() {
                       <Route path="/permissoes" element={<Permissoes />} />
                     </Route>
                     <Route path="/perfil" element={<Perfil />} />
+                    <Route path="/setor/:sigla" element={<MapaSetor />} />
+                    <Route path="/setor/:sigla/movimentacoes" element={<MovimentacoesSetor />} />
+                    <Route path="/setor/:sigla/conferencias" element={<ConferenciasSetor />} />
                     <Route
                       path="*"
                       element={

@@ -33,7 +33,7 @@ function PasswordInput({ value, onChange, placeholder, minLength, autoComplete =
   )
 }
 
-const ROLE_LABELS = { admin: 'Administrador', tecnico: 'Técnico', usuario: 'Usuário' }
+const ROLE_LABELS = { admin: 'Administrador', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
 
 export function Perfil() {
   const { user, fetchProfile } = useAuth()

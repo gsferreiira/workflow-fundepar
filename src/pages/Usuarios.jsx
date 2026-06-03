@@ -27,6 +27,7 @@ const ROLES = [
   { value: 'usuario', label: 'Usuário' },
   { value: 'tecnico', label: 'Técnico' },
   { value: 'admin', label: 'Administrador' },
+  { value: 'coordenador', label: 'Coordenador' },
 ]
 const roleLabel = (r) => ROLES.find((x) => x.value === r)?.label || r || '—'
 

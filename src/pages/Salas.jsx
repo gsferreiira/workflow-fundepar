@@ -22,7 +22,7 @@ export function Salas() {
   const load = async () => {
     const { data, error } = await supabase
       .from('rooms')
-      .select('*')
+      .select('*, coordinator_profile:coordinator_id(id, full_name, email)')
       .is('deleted_at', null)
       .order('name')
     if (error) {
@@ -59,7 +59,7 @@ export function Salas() {
     const q = (search || '').toLowerCase().trim()
     if (!q) return sorted
     return sorted.filter((s) =>
-      [s.name, s.room_number, s.coordinator, s.description]
+      [s.name, s.room_number, s.sigla, s.coordinator, s.coordinator_profile?.full_name, s.description]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -126,6 +126,7 @@ export function Salas() {
             <tr>
               <th>Nº</th>
               <th>Nome do Local</th>
+              <th>Sigla</th>
               <th>Coordenador</th>
               <th>Descrição / Setor</th>
               <th>Status</th>
@@ -135,7 +136,7 @@ export function Salas() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <EmptyState
                     preset={search ? 'search' : 'folder'}
                     title={search ? 'Nenhuma sala encontrada' : 'Nenhuma sala cadastrada'}
@@ -153,7 +154,19 @@ export function Salas() {
                     <strong>{sala.name}</strong>
                   </td>
                   <td>
-                    {sala.coordinator || (
+                    {sala.sigla ? (
+                      <span style={{
+                        background: 'rgba(99,102,241,.1)', color: '#6366f1',
+                        padding: '2px 8px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                      }}>
+                        {sala.sigla}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--text-secondary)' }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    {sala.coordinator_profile?.full_name || sala.coordinator || (
                       <span style={{ color: 'var(--text-secondary)' }}>—</span>
                     )}
                   </td>
@@ -220,17 +233,33 @@ function SalaModal({ sala, onClose, onSaved }) {
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(sala?.name || '')
   const [number, setNumber] = useState(sala?.room_number || '')
-  const [coordinator, setCoordinator] = useState(sala?.coordinator || '')
+  const [sigla, setSigla] = useState(sala?.sigla || '')
+  const [coordinatorId, setCoordinatorId] = useState(sala?.coordinator_id || '')
   const [description, setDescription] = useState(sala?.description || '')
+  const [coordinators, setCoordinators] = useState([])
+
+  useEffect(() => {
+    supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .eq('role', 'coordenador')
+      .is('deleted_at', null)
+      .order('full_name')
+      .then(({ data }) => setCoordinators(data || []))
+  }, [])
+
+  const selectedCoordinator = coordinators.find((c) => c.id === coordinatorId)
 
   const submit = async (e) => {
     e.preventDefault()
     setBusy(true)
     const updates = {
       name,
-      description,
+      description: description || null,
       room_number: number || null,
-      coordinator: coordinator || null,
+      sigla: sigla.trim().toUpperCase() || null,
+      coordinator_id: coordinatorId || null,
+      coordinator: selectedCoordinator?.full_name || null,
     }
     if (editing) {
       const { error } = await supabase.from('rooms').update(updates).eq('id', sala.id)
@@ -253,7 +282,7 @@ function SalaModal({ sala, onClose, onSaved }) {
         setBusy(false)
         return
       }
-      audit.created('rooms', inserted?.id, { name })
+      audit.created('rooms', inserted?.id, { name, sigla: updates.sigla })
       showToast('Sala cadastrada!', 'success')
       onSaved()
     }
@@ -277,7 +306,7 @@ function SalaModal({ sala, onClose, onSaved }) {
               type="text"
               className="form-control"
               required
-              placeholder="Ex: Sala de Reuniões"
+              placeholder="Ex: Divisão de Tecnologia e Informação"
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
@@ -285,7 +314,7 @@ function SalaModal({ sala, onClose, onSaved }) {
           <div className="form-2col">
             <div className="form-group">
               <label>
-                Número da Sala{' '}
+                Nº da Sala{' '}
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
               </label>
               <input
@@ -298,17 +327,42 @@ function SalaModal({ sala, onClose, onSaved }) {
             </div>
             <div className="form-group">
               <label>
-                Coordenador{' '}
+                Sigla do Setor{' '}
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
               </label>
               <input
                 type="text"
                 className="form-control"
-                placeholder="Ex: João Silva"
-                value={coordinator}
-                onChange={(e) => setCoordinator(e.target.value)}
+                placeholder="Ex: DVTI"
+                value={sigla}
+                onChange={(e) => setSigla(e.target.value.toUpperCase())}
+                maxLength={10}
+                style={{ textTransform: 'uppercase' }}
               />
             </div>
+          </div>
+          <div className="form-group">
+            <label>
+              Coordenador do Setor{' '}
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
+            </label>
+            <select
+              className="form-control"
+              value={coordinatorId}
+              onChange={(e) => setCoordinatorId(e.target.value)}
+            >
+              <option value="">— Sem coordenador vinculado —</option>
+              {coordinators.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.full_name || c.email}
+                </option>
+              ))}
+            </select>
+            {coordinators.length === 0 && (
+              <small className="form-hint" style={{ color: 'var(--text-secondary)' }}>
+                Nenhum usuário com perfil "Coordenador" cadastrado ainda.
+              </small>
+            )}
           </div>
           <div className="form-group">
             <label>
