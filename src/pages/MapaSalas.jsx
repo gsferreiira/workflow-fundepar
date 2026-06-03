@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, MapPin, Package, FileSpreadsheet, RefreshCw, Download } from 'lucide-react'
+import { X, MapPin, Package, FileSpreadsheet, RefreshCw, Download, CalendarCheck, CalendarX } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
 import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
+
+function currentCompetencia() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+const CONF_FILTER_OPTIONS = [
+  { value: 'todas',          label: 'Todas' },
+  { value: 'conferidas',     label: 'Conferidas' },
+  { value: 'nao_conferidas', label: 'Não conferidas' },
+  { value: 'sem_coordenador', label: 'Sem coordenador' },
+]
 
 function normalize(str) {
   return (str || '')
@@ -17,6 +29,7 @@ export function MapaSalas() {
   const { showToast } = useToast()
   const [rooms, setRooms] = useState(null)
   const [search, setSearch] = useState('')
+  const [confFilter, setConfFilter] = useState('todas')
   const [detailRoom, setDetailRoom] = useState(null)
   const [reloadToken, setReloadToken] = useState(0)
   const refresh = useCallback(() => {
@@ -30,7 +43,8 @@ export function MapaSalas() {
   useEffect(() => {
     setRooms(null)
     const load = async () => {
-      const [{ data: roomList, error }, { data: movements }] = await Promise.all([
+      const COMP = currentCompetencia()
+      const [{ data: roomList, error }, { data: movements }, { data: conferences }] = await Promise.all([
         supabase.from('rooms').select('*').is('deleted_at', null).order('name'),
         supabase
           .from('asset_movements')
@@ -40,12 +54,18 @@ export function MapaSalas() {
           .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(5000),
+        supabase
+          .from('room_conferences')
+          .select('room_id, concluded_at')
+          .eq('competencia', COMP),
       ])
 
       if (error) {
         showToastRef.current(error.message, 'danger')
         return
       }
+
+      const conferencedRooms = new Set((conferences || []).map((c) => c.room_id))
 
       const seen = new Set()
       const locationsByRoom = {}
@@ -73,6 +93,12 @@ export function MapaSalas() {
         (roomList || []).map((r) => ({
           ...r,
           items: locationsByRoom[r.id] || [],
+          // null = sem coordenador | 'conferida' | 'pendente'
+          conferenceStatus: !r.coordinator_id
+            ? null
+            : conferencedRooms.has(r.id)
+              ? 'conferida'
+              : 'pendente',
         })),
       )
     }
@@ -81,9 +107,20 @@ export function MapaSalas() {
 
   const filtered = useMemo(() => {
     if (!rooms) return []
+    let result = rooms
+
+    if (confFilter !== 'todas') {
+      result = result.filter((room) => {
+        if (confFilter === 'conferidas')     return room.conferenceStatus === 'conferida'
+        if (confFilter === 'nao_conferidas') return room.conferenceStatus === 'pendente'
+        if (confFilter === 'sem_coordenador') return room.conferenceStatus === null
+        return true
+      })
+    }
+
     const q = normalize(search).trim()
-    if (!q) return rooms
-    return rooms.filter((room) => {
+    if (!q) return result
+    return result.filter((room) => {
       const people = [
         room.coordinator,
         ...(room.items || []).map((item) => item.received_by),
@@ -92,7 +129,7 @@ export function MapaSalas() {
         .join(' ')
       return [room.name, room.room_number, people].some((v) => normalize(v).includes(q))
     })
-  }, [rooms, search])
+  }, [rooms, search, confFilter])
 
   const exportRoom = async (room) => {
     try {
@@ -212,6 +249,24 @@ export function MapaSalas() {
             />
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+          {CONF_FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setConfFilter(opt.value)}
+              style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', transition: 'all .15s',
+                border: confFilter === opt.value ? '1.5px solid var(--primary-color)' : '1.5px solid var(--border-color)',
+                background: confFilter === opt.value ? 'var(--primary-color)' : 'transparent',
+                color: confFilter === opt.value ? '#fff' : 'var(--text-secondary)',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <div className="filter-actions">
           <span className="filter-count">
             {filtered.length} sala{filtered.length !== 1 ? 's' : ''}
@@ -236,6 +291,7 @@ export function MapaSalas() {
             <RoomCard
               key={room.id}
               room={room}
+              conferenceStatus={room.conferenceStatus}
               onDetail={() => setDetailRoom(room)}
             />
           ))}
@@ -253,10 +309,16 @@ export function MapaSalas() {
   )
 }
 
-function RoomCard({ room, onDetail }) {
+const CONF_BADGE = {
+  conferida: { label: 'Conferida',     color: '#059669', bg: 'rgba(16,185,129,.12)', Icon: CalendarCheck },
+  pendente:  { label: 'Não conferida', color: '#dc2626', bg: 'rgba(239,68,68,.12)',  Icon: CalendarX },
+}
+
+function RoomCard({ room, conferenceStatus, onDetail }) {
   const preview = room.items.slice(0, 2)
   const extra = room.items.length - 2
   const hasFooter = room.coordinator || room.description || room.setor
+  const badge = conferenceStatus ? CONF_BADGE[conferenceStatus] : null
 
   return (
     <div
@@ -274,12 +336,21 @@ function RoomCard({ room, onDetail }) {
           gap: 8,
         }}
       >
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <MapPin size={14} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
             <strong style={{ fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {room.name}
             </strong>
+            {badge && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                background: badge.bg, color: badge.color,
+                padding: '1px 7px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+              }}>
+                <badge.Icon size={10} /> {badge.label}
+              </span>
+            )}
           </div>
           {room.room_number && (
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>

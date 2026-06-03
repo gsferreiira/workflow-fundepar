@@ -31,6 +31,7 @@ import { Permissoes } from "./pages/Permissoes.jsx";
 import { MapaSetor } from "./pages/MapaSetor.jsx";
 import { MovimentacoesSetor } from "./pages/MovimentacoesSetor.jsx";
 import { ConferenciasSetor } from "./pages/ConferenciasSetor.jsx";
+import { Conferencias } from "./pages/Conferencias.jsx";
 
 const Dashboard = lazy(() =>
   import("./pages/Dashboard.jsx").then((module) => ({
@@ -115,6 +116,9 @@ function App() {
                     </Route>
                     <Route element={<RoleRoute pageKey="usuarios" />}>
                       <Route path="/usuarios" element={<Usuarios />} />
+                    </Route>
+                    <Route element={<RoleRoute pageKey="conferencias" />}>
+                      <Route path="/conferencias" element={<Conferencias />} />
                     </Route>
                     <Route element={<RoleRoute pageKey="auditoria" />}>
                       <Route path="/auditoria" element={<Auditoria />} />

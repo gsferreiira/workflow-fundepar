@@ -3,7 +3,33 @@ import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
+import { supabase } from '../lib/supabase.js'
 import { NAV_PAGES } from '../config/navPages.js'
+
+function currentCompetencia() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+function useConferencePending(user) {
+  const [pending, setPending] = useState(false)
+
+  useEffect(() => {
+    if (user?.role !== 'coordenador' || !user?.coordinator_room?.id) return
+    let cancelled = false
+    supabase
+      .from('room_conferences')
+      .select('id', { count: 'exact', head: true })
+      .eq('room_id', user.coordinator_room.id)
+      .eq('competencia', currentCompetencia())
+      .then(({ count }) => {
+        if (!cancelled) setPending((count ?? 0) === 0)
+      })
+    return () => { cancelled = true }
+  }, [user?.role, user?.coordinator_room?.id])
+
+  return pending
+}
 
 function usePWAInstall() {
   const [prompt, setPrompt] = useState(null)
@@ -25,6 +51,7 @@ export function Sidebar({ open, onLinkClick }) {
   const { user, signOut } = useAuth()
   const { permissions } = useNavPermissions()
   const { canInstall, install } = usePWAInstall()
+  const conferencePending = useConferencePending(user)
   const role = user?.role || 'usuario'
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
   const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
@@ -39,7 +66,7 @@ export function Sidebar({ open, onLinkClick }) {
     navItems = [
       { key: 'minha-sala',      to: `/setor/${sl}`,                  icon: LayoutGrid,      label: 'Minha Sala' },
       { key: 'movimentacoes',   to: `/setor/${sl}/movimentacoes`,    icon: ArrowRightLeft,  label: 'Movimentações' },
-      { key: 'conferencias',    to: `/setor/${sl}/conferencias`,     icon: ClipboardList,   label: 'Conferências' },
+      { key: 'conferencias',    to: `/setor/${sl}/conferencias`,     icon: ClipboardList,   label: 'Conferências', badge: conferencePending },
       { separator: 'Conta' },
       { key: 'perfil',          to: '/perfil',                       icon: CircleUser,      label: 'Meu Perfil' },
     ]
@@ -100,6 +127,7 @@ export function Sidebar({ open, onLinkClick }) {
                 to={item.to}
                 icon={<item.icon />}
                 label={item.label}
+                badge={item.badge}
                 onClick={onLinkClick}
               />
             ),
@@ -136,7 +164,7 @@ export function Sidebar({ open, onLinkClick }) {
   )
 }
 
-function SidebarItem({ to, icon, label, onClick }) {
+function SidebarItem({ to, icon, label, badge, onClick }) {
   return (
     <li>
       <NavLink
@@ -146,6 +174,18 @@ function SidebarItem({ to, icon, label, onClick }) {
         className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
       >
         {icon} {label}
+        {badge && (
+          <span style={{
+            marginLeft: 'auto',
+            background: '#dc2626',
+            color: '#fff',
+            borderRadius: '50%',
+            width: 8,
+            height: 8,
+            display: 'inline-block',
+            flexShrink: 0,
+          }} />
+        )}
       </NavLink>
     </li>
   )
