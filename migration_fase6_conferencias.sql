@@ -108,6 +108,14 @@ CREATE POLICY "coordenador_insert_own_conferences"
     AND (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'coordenador'
   );
 
+DROP POLICY IF EXISTS "delete_own_or_admin_conferences" ON public.room_conferences;
+CREATE POLICY "delete_own_or_admin_conferences"
+  ON public.room_conferences FOR DELETE TO authenticated
+  USING (
+    coordinator_id = auth.uid()
+    OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
+  );
+
 
 -- -------------------------------------------------------------
 -- 5. RLS — conference_items
