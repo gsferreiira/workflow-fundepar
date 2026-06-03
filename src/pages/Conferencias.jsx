@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { fmtDate, fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
 function currentCompetencia() {
   const now = new Date()
@@ -98,8 +99,6 @@ function VisaoGeral({ reloadToken }) {
   const exportExcel = async () => {
     if (!data) return
     try {
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default?.utils ? xlsxMod.default : xlsxMod
       const rows = data.map((r) => [
         r.name,
         r.sigla || '—',
@@ -111,14 +110,17 @@ function VisaoGeral({ reloadToken }) {
         r.summary?.com_problema ?? 0,
         r.lastConf ? compLabel(r.lastConf.competencia) : '—',
       ])
-      const ws = XLSX.utils.aoa_to_sheet([
-        ['Sala', 'Sigla', 'Coordenador', 'Status', 'Data Conferência', 'Ok', 'Ausente', 'Com Problema', 'Última Anterior'],
-        ...rows,
-      ])
-      ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 26 }, { wch: 14 }, { wch: 18 }, { wch: 6 }, { wch: 10 }, { wch: 14 }, { wch: 18 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Conferências')
-      XLSX.writeFile(wb, `conferencias_${COMP}.xlsx`)
+      await exportXlsx({
+        fileName: `conferencias_${COMP}.xlsx`,
+        sheets: [{
+          name: 'Conferências',
+          rows: [
+            ['Sala', 'Sigla', 'Coordenador', 'Status', 'Data Conferência', 'Ok', 'Ausente', 'Com Problema', 'Última Anterior'],
+            ...rows,
+          ],
+          columns: [28, 10, 26, 14, 18, 6, 10, 14, 18],
+        }],
+      })
       showToast('Exportado com sucesso', 'success')
     } catch (err) {
       showToast('Erro ao exportar: ' + err.message, 'danger')

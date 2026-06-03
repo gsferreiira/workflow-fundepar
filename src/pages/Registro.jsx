@@ -11,6 +11,7 @@ import { EmptyState } from '../components/EmptyState.jsx'
 import { Scanner } from '../components/Scanner.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { applyAssetMask, formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 25
 
@@ -282,36 +283,26 @@ export function Registro() {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
-      ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
-      ...rows.map((d) => [
-        d.equipment?.name || '—',
-        d.categoria || '—',
-        d.status || '—',
-        formatAssetNumber(d.asset_number) || '—',
-        d.serial_number || '—',
-        d.room?.name || 'Não localizado',
-        d.received_by || '—',
-        d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
-        d.observacao || '—',
-      ]),
-    ]
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    ws['!cols'] = [
-      { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 },
-      { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 },
-    ]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Registro')
-    const suffix = scope === 'page' ? `_pagina${page}` : ''
-    XLSX.writeFile(wb, `registro${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    showToast(`${rows.length} equipamento${rows.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
+        ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
+        ...rows.map((d) => [
+          d.equipment?.name || '—',
+          d.categoria || '—',
+          d.status || '—',
+          formatAssetNumber(d.asset_number) || '—',
+          d.serial_number || '—',
+          d.room?.name || 'Não localizado',
+          d.received_by || '—',
+          d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
+          d.observacao || '—',
+        ]),
+      ]
+      const suffix = scope === 'page' ? `_pagina${page}` : ''
+      await exportXlsx({
+        fileName: `registro${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Registro', rows: wsData, columns: [30, 16, 12, 18, 18, 22, 24, 20, 30] }],
+      })
+      showToast(`${rows.length} equipamento${rows.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       console.error('exportExcel erro:', err)
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -367,9 +358,6 @@ export function Registro() {
   const exportSelected = async () => {
     try {
       if (selectedItems.length === 0) return
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
       const wsData = [
         ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
         ...selectedItems.map((d) => [
@@ -384,11 +372,10 @@ export function Registro() {
           d.observacao || '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Selecionados')
-      XLSX.writeFile(wb, `registro_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `registro_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Selecionados', rows: wsData, columns: [30, 16, 12, 18, 18, 22, 24, 20, 30] }],
+      })
       showToast(`${selectedItems.length} item${selectedItems.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')

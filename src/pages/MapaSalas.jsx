@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
 import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
 function currentCompetencia() {
   const now = new Date()
@@ -137,12 +138,6 @@ export function MapaSalas() {
         showToast('Esta sala não tem equipamentos para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
         ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
         ...room.items.map((item) => [
@@ -153,12 +148,11 @@ export function MapaSalas() {
           item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, room.name.slice(0, 31))
       const safeName = room.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
-      XLSX.writeFile(wb, `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: room.name, rows: wsData, columns: [30, 18, 18, 24, 22] }],
+      })
       showToast(`Exportado: ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`, 'success')
     } catch (err) {
       console.error('exportRoom erro:', err)
@@ -175,12 +169,6 @@ export function MapaSalas() {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
         ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
         ...allItems.map((item) => [
@@ -193,11 +181,10 @@ export function MapaSalas() {
           item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Mapa de Salas')
-      XLSX.writeFile(wb, `mapa_salas_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `mapa_salas_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Mapa de Salas', rows: wsData, columns: [28, 10, 30, 18, 18, 24, 22] }],
+      })
       const roomsWithEquip = (rooms || []).filter((r) => r.items.length > 0).length
       showToast(`Exportado: ${allItems.length} equipamento${allItems.length !== 1 ? 's' : ''} em ${roomsWithEquip} sala${roomsWithEquip !== 1 ? 's' : ''}`, 'success')
     } catch (err) {
