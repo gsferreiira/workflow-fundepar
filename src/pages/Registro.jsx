@@ -1329,10 +1329,21 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
 
     invalidate('equipment')
     audit.updated('equipment', item.equipment_id, {
-      ...equipmentUpdates,
-      asset_number: normalizedAsset || null,
-      serial_number: serialNumber.trim() || null,
-      current_room_id: roomId,
+      previous: {
+        name: item.equipment?.name || null,
+        categoria: item.categoria || null,
+        status: item.status || null,
+        observacao: item.observacao || null,
+        asset_number: item.asset_number || null,
+        serial_number: item.serial_number || null,
+        current_room_id: item.current_room_id || item.destination_room_id || null,
+      },
+      next: {
+        ...equipmentUpdates,
+        asset_number: normalizedAsset || null,
+        serial_number: serialNumber.trim() || null,
+        current_room_id: roomId,
+      },
     })
     showToast('Equipamento atualizado com sucesso!', 'success')
     onSaved()

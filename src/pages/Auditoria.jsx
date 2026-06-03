@@ -22,6 +22,7 @@ const ACTIONS = [
   { value: 'bulk_move', label: 'Bulk Move (Rastreio)' },
   { value: 'bulk_revert', label: 'Reversão de Lote' },
   { value: 'bulk_delete', label: 'Exclusão de Lote' },
+  { value: 'bulk_register_update', label: 'Atualizacao de Registro' },
   { value: 'password_reset', label: 'Redefinição de Senha' },
 ]
 
@@ -32,9 +33,57 @@ const TABLE_LABELS = {
   tickets: 'Chamados',
   profiles: 'Usuários',
   audit_logs: 'Auditoria',
+  room_conferences: 'Conferências',
 }
 
 const PAGE_SIZE = 50
+
+function normalizeAuditText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function extractAuditValue(details, paths) {
+  if (!details) return ''
+  for (const path of paths) {
+    const value = path.split('.').reduce((acc, key) => acc?.[key], details)
+    if (value) return value
+  }
+  return ''
+}
+
+function isPositivoToLenovoEdit(log) {
+  if (log.action !== 'update' || log.table_name !== 'equipment') return false
+
+  const previousName = normalizeAuditText(extractAuditValue(log.details, [
+    'previous.name',
+    'before.name',
+    'old.name',
+    'from.name',
+    'old_name',
+    'from_name',
+  ]))
+  const nextName = normalizeAuditText(extractAuditValue(log.details, [
+    'next.name',
+    'after.name',
+    'new.name',
+    'to.name',
+    'name',
+    'new_name',
+    'to_name',
+  ]))
+
+  const wasPositivoComputer =
+    previousName.includes('positivo') &&
+    (previousName.includes('computador') || previousName.includes('computadores'))
+  const isLenovoMonitor =
+    nextName.includes('lenovo') &&
+    (nextName.includes('monitor') || nextName.includes('monitores'))
+
+  return wasPositivoComputer && isLenovoMonitor
+}
 
 function buildQuery(filters, { page, count = false }) {
   let q = supabase.from('audit_logs').select('*', count ? { count: 'exact' } : {})
@@ -71,12 +120,34 @@ export function Auditoria() {
   const [undoBusy, setUndoBusy] = useState(false)
   const [deleteLog, setDeleteLog] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [positivoLenovoMatches, setPositivoLenovoMatches] = useState(null)
 
   const isAdmin = user?.role === 'admin'
 
   useEffect(() => {
     profilesFetcher().then(setProfiles)
   }, [profilesFetcher])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    const loadPositivoLenovoAudit = async () => {
+      const { data: rows, error } = await supabase
+        .from('audit_logs')
+        .select('id, created_at, actor_name, action, table_name, record_id, details')
+        .eq('action', 'update')
+        .eq('table_name', 'equipment')
+        .order('created_at', { ascending: false })
+        .limit(5000)
+
+      if (error) {
+        console.warn('Auditoria Positivo -> Lenovo falhou:', error.message)
+        setPositivoLenovoMatches([])
+        return
+      }
+      setPositivoLenovoMatches((rows || []).filter(isPositivoToLenovoEdit))
+    }
+    loadPositivoLenovoAudit()
+  }, [isAdmin])
 
   const fetchPage = async (p, currentFilters = filters) => {
     setData(null)
@@ -391,6 +462,24 @@ export function Auditoria() {
         </div>
       </div>
 
+      <div className="audit-insight-card fade-in">
+        <div>
+          <strong>Computadores Positivo → Monitores Lenovo</strong>
+          <p>
+            {positivoLenovoMatches === null
+              ? 'Verificando edicoes registradas...'
+              : positivoLenovoMatches.length > 0
+                ? `${positivoLenovoMatches.length} edicao${positivoLenovoMatches.length !== 1 ? 'es' : ''} encontrada${positivoLenovoMatches.length !== 1 ? 's' : ''}.`
+                : 'Nenhuma edicao com essa troca foi encontrada nos logs estruturados.'}
+          </p>
+        </div>
+        {positivoLenovoMatches?.[0] && (
+          <span>
+            Ultima: {fmtDateTime(positivoLenovoMatches[0].created_at)} por {positivoLenovoMatches[0].actor_name || 'usuario nao identificado'}
+          </span>
+        )}
+      </div>
+
       <div className="filter-bar fade-in">
         <div className="filter-row">
           <div className="filter-group" style={{ flex: 2 }}>
@@ -500,6 +589,7 @@ export function Auditoria() {
                     const canRevertBulk = isBulk // mostra sempre; lida com logs antigos na execução
                     const canDeleteBulk = isBulk || isRevert
                     const canUndoRecord = (log.action === 'delete' || log.action === 'create') && RESTORABLE.has(log.table_name) && log.record_id
+                    const isPositivoLenovo = isPositivoToLenovoEdit(log)
                     return (
                       <tr key={log.id}>
                         <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap', fontSize: 13 }}>
@@ -515,7 +605,9 @@ export function Auditoria() {
                           {TABLE_LABELS[log.table_name] || log.table_name || '—'}
                         </td>
                         <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                          {isBulk && log.details ? (
+                          {isPositivoLenovo ? (
+                            <span className="audit-warning-pill">Positivo → Lenovo</span>
+                          ) : isBulk && log.details ? (
                             <span>
                               {log.details.count || '?'} item{log.details.count !== 1 ? 's' : ''}
                               {log.details.destination ? ` → ${log.details.destination}` : ''}
@@ -618,6 +710,7 @@ function ActionBadge({ action }) {
     bulk_move:        { bg: 'rgba(14,165,233,.12)',  color: '#0284c7', label: 'Bulk Move' },
     bulk_revert:      { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Reversão' },
     bulk_delete:      { bg: 'rgba(239,68,68,.12)',   color: '#dc2626', label: 'Excl. Lote' },
+    bulk_register_update: { bg: 'rgba(100,116,139,.12)', color: '#64748b', label: 'Atual. Reg.' },
     password_reset:   { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Senha' },
   }
   const c = map[action] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)', label: action }
