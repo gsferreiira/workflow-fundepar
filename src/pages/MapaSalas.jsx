@@ -45,14 +45,13 @@ export function MapaSalas() {
     setRooms(null)
     const load = async () => {
       const COMP = currentCompetencia()
-      const [{ data: roomList, error }, { data: movements }, { data: conferences }] = await Promise.all([
+      const [{ data: roomList, error }, { data: currentLocations }, { data: conferences }] = await Promise.all([
         supabase.from('rooms').select('*').is('deleted_at', null).order('name'),
         supabase
-          .from('asset_movements')
+          .from('equipment_locations')
           .select(
-            'equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id',
+            'equipment_id, equipment:equipment_id(name), asset_number, serial_number, received_by, moved_at, current_room_id',
           )
-          .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(5000),
         supabase
@@ -68,17 +67,9 @@ export function MapaSalas() {
 
       const conferencedRooms = new Set((conferences || []).map((c) => c.room_id))
 
-      const seen = new Set()
       const locationsByRoom = {}
-      ;(movements || []).forEach((m) => {
-        const key = m.asset_number
-          ? `pat_${m.asset_number}`
-          : m.serial_number
-            ? `eq_${m.equipment_id}_ser_${m.serial_number}`
-            : `eq_${m.equipment_id}`
-        if (seen.has(key)) return
-        seen.add(key)
-        const rid = m.destination_room_id
+      ;(currentLocations || []).forEach((m) => {
+        const rid = m.current_room_id
         if (!rid) return
         if (!locationsByRoom[rid]) locationsByRoom[rid] = []
         locationsByRoom[rid].push({
@@ -139,7 +130,7 @@ export function MapaSalas() {
         return
       }
       const wsData = [
-        ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Último Registro'],
         ...room.items.map((item) => [
           item.name || '—',
           formatAssetNumber(item.asset_number) || '—',
@@ -170,7 +161,7 @@ export function MapaSalas() {
         return
       }
       const wsData = [
-        ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Último Registro'],
         ...allItems.map((item) => [
           item.room_name || '—',
           item.room_number || '—',
@@ -535,7 +526,7 @@ function RoomDetailModal({ room, onClose, onExport }) {
                   <th>Nº Série</th>
                   <th>Nº Patrimônio</th>
                   <th>Recebedor</th>
-                  <th>Última Movimentação</th>
+                  <th>Último Registro</th>
                 </tr>
               </thead>
               <tbody>
