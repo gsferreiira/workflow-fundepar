@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LogOut, Download } from 'lucide-react'
+import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
@@ -27,24 +27,41 @@ export function Sidebar({ open, onLinkClick }) {
   const { canInstall, install } = usePWAInstall()
   const role = user?.role || 'usuario'
   const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
-  const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário' }
+  const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
 
-  // Filtra as páginas que o role atual pode ver
-  const visiblePages = NAV_PAGES.filter((item) => {
-    if (item.separator) return true // separadores são avaliados abaixo
-    if (item.alwaysVisible) return true
-    return permissions[item.key]?.includes(role) ?? false
-  })
+  const isCoordinator = role === 'coordenador'
+  const coordSigla = user?.coordinator_room?.sigla || ''
+  const brandSigla = isCoordinator ? (coordSigla || '...') : 'DVTI'
 
-  // Remove separadores que não têm nenhuma página visível após eles
-  const navItems = visiblePages.filter((item, i) => {
-    if (!item.separator) return true
-    for (let j = i + 1; j < visiblePages.length; j++) {
-      if (!visiblePages[j].separator) return true
-      break
-    }
-    return false
-  })
+  let navItems
+  if (isCoordinator && coordSigla) {
+    const sl = coordSigla.toLowerCase()
+    navItems = [
+      { key: 'minha-sala',      to: `/setor/${sl}`,                  icon: LayoutGrid,      label: 'Minha Sala' },
+      { key: 'movimentacoes',   to: `/setor/${sl}/movimentacoes`,    icon: ArrowRightLeft,  label: 'Movimentações' },
+      { key: 'conferencias',    to: `/setor/${sl}/conferencias`,     icon: ClipboardList,   label: 'Conferências' },
+      { separator: 'Conta' },
+      { key: 'perfil',          to: '/perfil',                       icon: CircleUser,      label: 'Meu Perfil' },
+    ]
+  } else if (isCoordinator) {
+    navItems = [
+      { key: 'perfil', to: '/perfil', icon: CircleUser, label: 'Meu Perfil' },
+    ]
+  } else {
+    const visiblePages = NAV_PAGES.filter((item) => {
+      if (item.separator) return true
+      if (item.alwaysVisible) return true
+      return permissions[item.key]?.includes(role) ?? false
+    })
+    navItems = visiblePages.filter((item, i) => {
+      if (!item.separator) return true
+      for (let j = i + 1; j < visiblePages.length; j++) {
+        if (!visiblePages[j].separator) return true
+        break
+      }
+      return false
+    })
+  }
 
   return (
     <aside id="sidebar" className={`sidebar ${open ? 'open' : ''}`}>
@@ -66,7 +83,7 @@ export function Sidebar({ open, onLinkClick }) {
           F
         </div>
         <h1>
-          Fundepar <span>TI</span>
+          Fundepar <span>{brandSigla}</span>
         </h1>
       </div>
 

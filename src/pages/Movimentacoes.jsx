@@ -44,6 +44,45 @@ const EQUIPMENT_STATUS_OPTIONS = [
   { value: 'com defeito', label: 'Com Defeito' },
 ]
 
+function ReceiverSelect({ profiles, profileId, text, onProfileChange, onTextChange }) {
+  const [showManual, setShowManual] = useState(!profileId && !!text)
+  return (
+    <>
+      <select
+        className="form-control"
+        value={showManual ? '__manual__' : (profileId || '')}
+        onChange={(e) => {
+          const val = e.target.value
+          if (val === '__manual__') {
+            setShowManual(true)
+            onProfileChange('', text)
+          } else {
+            setShowManual(false)
+            const p = profiles.find((x) => x.id === val)
+            onProfileChange(val, p?.full_name || '')
+          }
+        }}
+      >
+        <option value="">— Nenhum —</option>
+        {profiles.map((p) => (
+          <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+        ))}
+        <option value="__manual__">Outro (digitar nome)...</option>
+      </select>
+      {showManual && (
+        <input
+          type="text"
+          className="form-control"
+          style={{ marginTop: 6 }}
+          value={text}
+          onChange={(e) => onTextChange(e.target.value)}
+          placeholder="Nome de quem recebeu"
+        />
+      )}
+    </>
+  )
+}
+
 const normalizeAssetNumber = (value) => {
   const digits = String(value || '').replace(/\D/g, '')
   if (digits.length === 12) {
@@ -247,6 +286,7 @@ export function Movimentacoes() {
   const [loteDestId, setLoteDestId] = useState('')
   const [loteDestName, setLoteDestName] = useState('')
   const [loteReceivedBy, setLoteReceivedBy] = useState('')
+  const [loteReceivedByProfileId, setLoteReceivedByProfileId] = useState('')
   const [loteItemStatus, setLoteItemStatus] = useState('')
   const [loteComentario, setLoteComentario] = useState('')
   const [loteBusy, setLoteBusy] = useState(false)
@@ -691,6 +731,7 @@ export function Movimentacoes() {
         destination_room_id: loteDestId,
         moved_by: user.id,
         received_by: loteReceivedBy || null,
+        received_by_profile_id: loteReceivedByProfileId || null,
         moved_at: movedAt,
         item_status: loteItemStatus || null,
         comentario: loteComentario || null,
@@ -755,6 +796,7 @@ export function Movimentacoes() {
     setLoteDestId('')
     setLoteDestName('')
     setLoteReceivedBy('')
+    setLoteReceivedByProfileId('')
     setLoteItemStatus('')
     setLoteComentario('')
     setLoteBusy(false)
@@ -1097,6 +1139,7 @@ export function Movimentacoes() {
         <CreateModal
           equipment={equipment}
           rooms={rooms}
+          profilesList={profilesList}
           user={user}
           prefill={createPrefill}
           audit={audit}
@@ -1114,6 +1157,7 @@ export function Movimentacoes() {
         <LoteModal
           equipment={equipment}
           rooms={rooms}
+          profilesList={profilesList}
           loteItems={loteItems}
           setLoteItems={setLoteItems}
           loteUid={loteUid}
@@ -1124,6 +1168,8 @@ export function Movimentacoes() {
           setDestName={setLoteDestName}
           receivedBy={loteReceivedBy}
           setReceivedBy={setLoteReceivedBy}
+          receivedByProfileId={loteReceivedByProfileId}
+          setReceivedByProfileId={setLoteReceivedByProfileId}
           itemStatus={loteItemStatus}
           setItemStatus={setLoteItemStatus}
           comentario={loteComentario}
@@ -1140,6 +1186,7 @@ export function Movimentacoes() {
           mov={editMov}
           equipment={equipment}
           rooms={rooms}
+          profilesList={profilesList}
           user={user}
           audit={audit}
           onClose={() => setEditMov(null)}
@@ -1177,7 +1224,7 @@ export function Movimentacoes() {
   )
 }
 
-function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved }) {
+function CreateModal({ equipment, rooms, profilesList, user, prefill, audit, onClose, onSaved }) {
   const { showToast } = useToast()
   const { invalidate } = useStore()
   const navigate = useNavigate()
@@ -1187,6 +1234,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
   const [serial, setSerial] = useState('')
   const [asset, setAsset] = useState(prefill?.asset || '')
   const [receivedBy, setReceivedBy] = useState('')
+  const [receivedByProfileId, setReceivedByProfileId] = useState('')
   const [itemStatus, setItemStatus] = useState('')
   const [comentario, setComentario] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -1269,6 +1317,7 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
         destination_room_id: destId,
         moved_by: user.id,
         received_by: receivedBy || null,
+        received_by_profile_id: receivedByProfileId || null,
         moved_at: movedAt,
         item_status: itemStatus || null,
         comentario: comentario || null,
@@ -1348,8 +1397,13 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
           <div className="form-2col">
             <div className="form-group">
               <label>Recebedor</label>
-              <input type="text" className="form-control" value={receivedBy}
-                onChange={(e) => setReceivedBy(e.target.value)} placeholder="Nome de quem recebeu" />
+              <ReceiverSelect
+                profiles={profilesList}
+                profileId={receivedByProfileId}
+                text={receivedBy}
+                onProfileChange={(id, name) => { setReceivedByProfileId(id); setReceivedBy(name) }}
+                onTextChange={(t) => setReceivedBy(t)}
+              />
             </div>
             <div className="form-group">
               <label>Status do item</label>
@@ -1391,9 +1445,10 @@ function CreateModal({ equipment, rooms, user, prefill, audit, onClose, onSaved 
 }
 
 function LoteModal({
-  equipment, rooms, loteItems, setLoteItems, loteUid, setLoteUid,
+  equipment, rooms, profilesList, loteItems, setLoteItems, loteUid, setLoteUid,
   destId, setDestId, destName, setDestName,
-  receivedBy, setReceivedBy, itemStatus, setItemStatus,
+  receivedBy, setReceivedBy, receivedByProfileId, setReceivedByProfileId,
+  itemStatus, setItemStatus,
   comentario, setComentario, busy, onScan, onSubmit, onClose,
 }) {
   const addItem = () => {
@@ -1441,8 +1496,13 @@ function LoteModal({
           <div className="form-2col">
             <div className="form-group">
               <label>Recebedor</label>
-              <input type="text" className="form-control" value={receivedBy}
-                onChange={(e) => setReceivedBy(e.target.value)} placeholder="Nome de quem recebeu" />
+              <ReceiverSelect
+                profiles={profilesList}
+                profileId={receivedByProfileId}
+                text={receivedBy}
+                onProfileChange={(id, name) => { setReceivedByProfileId(id); setReceivedBy(name) }}
+                onTextChange={(t) => setReceivedBy(t)}
+              />
             </div>
             <div className="form-group">
               <label>Status dos itens</label>
@@ -1512,7 +1572,7 @@ function LoteModal({
   )
 }
 
-function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
+function EditModal({ mov, equipment, rooms, profilesList, user, audit, onClose, onSaved }) {
   const { showToast } = useToast()
   const { invalidate } = useStore()
   const [busy, setBusy] = useState(false)
@@ -1525,6 +1585,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
   const [serial, setSerial] = useState(mov.serial_number || '')
   const [asset, setAsset] = useState(formatAssetNumber(mov.asset_number) || '')
   const [receivedBy, setReceivedBy] = useState(mov.received_by || '')
+  const [receivedByProfileId, setReceivedByProfileId] = useState(mov.received_by_profile_id || '')
   const [itemStatus, setItemStatus] = useState(mov.item_status || '')
   const [movedAt, setMovedAt] = useState(toDateTimeLocalValue(mov.moved_at))
   const [editReason, setEditReason] = useState('')
@@ -1553,6 +1614,7 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
         origin_room_id: originId,
         destination_room_id: destId,
         received_by: receivedBy || null,
+        received_by_profile_id: receivedByProfileId || null,
         item_status: itemStatus || null,
         moved_at: dateTimeLocalValueToIso(movedAt) || undefined,
         is_edited: true,
@@ -1662,8 +1724,13 @@ function EditModal({ mov, equipment, rooms, user, audit, onClose, onSaved }) {
           <div className="form-2col">
             <div className="form-group">
               <label>Recebedor</label>
-              <input type="text" className="form-control" value={receivedBy}
-                onChange={(e) => setReceivedBy(e.target.value)} />
+              <ReceiverSelect
+                profiles={profilesList}
+                profileId={receivedByProfileId}
+                text={receivedBy}
+                onProfileChange={(id, name) => { setReceivedByProfileId(id); setReceivedBy(name) }}
+                onTextChange={(t) => setReceivedBy(t)}
+              />
             </div>
             <div className="form-group">
               <label>Data / Hora</label>
