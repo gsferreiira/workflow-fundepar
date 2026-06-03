@@ -760,6 +760,7 @@ export function Registro() {
         <EditRegistroEquipmentModal
           item={editRegistroItem}
           roomsFetcher={roomsFetcher}
+          equipmentFetcher={equipmentFetcher}
           invalidate={invalidate}
           onClose={() => setEditRegistroItem(null)}
           onSaved={() => {
@@ -1235,13 +1236,13 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
   )
 }
 
-function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, onSaved }) {
+function EditRegistroEquipmentModal({ item, roomsFetcher, equipmentFetcher, invalidate, onClose, onSaved }) {
   const { showToast } = useToast()
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
+  const [equipment, setEquipment] = useState([])
   const [busy, setBusy] = useState(false)
-  const [name, setName] = useState(item.equipment?.name || '')
-  const [categoria, setCategoria] = useState(item.categoria || '')
+  const [equipmentId, setEquipmentId] = useState(item.equipment_id || '')
   const [status, setStatus] = useState(item.status || '')
   const [observacao, setObservacao] = useState(item.observacao || '')
   const [assetNumber, setAssetNumber] = useState(item.asset_number || '')
@@ -1249,13 +1250,24 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
   const [roomId, setRoomId] = useState(item.current_room_id || item.destination_room_id || '')
   const [receivedBy, setReceivedBy] = useState(item.received_by || '')
 
+  const selectedEquipment = equipment.find((eq) => eq.id === equipmentId) || null
+
   useEffect(() => {
-    roomsFetcher().then(setRooms)
-  }, [roomsFetcher])
+    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
+      setRooms(rm || [])
+      setEquipment(eq || [])
+    })
+  }, [roomsFetcher, equipmentFetcher])
+
+  useEffect(() => {
+    if (!selectedEquipment) return
+    setStatus(selectedEquipment.status || '')
+    setObservacao(selectedEquipment.observacao || '')
+  }, [selectedEquipment])
 
   const updateLocation = async (normalizedAsset) => {
     const payload = {
-      equipment_id: item.equipment_id,
+      equipment_id: equipmentId,
       asset_number: normalizedAsset || null,
       serial_number: serialNumber.trim() || null,
       current_room_id: roomId,
@@ -1275,9 +1287,8 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
 
   const submit = async (e) => {
     e.preventDefault()
-    const cleanName = name.trim()
-    if (!cleanName) {
-      showToast('Informe o nome do equipamento.', 'warning')
+    if (!equipmentId) {
+      showToast('Selecione o equipamento.', 'warning')
       return
     }
     if (!roomId) {
@@ -1304,15 +1315,13 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
 
     setBusy(true)
     const equipmentUpdates = {
-      name: cleanName,
-      categoria: categoria.trim() || null,
       status: status || null,
       observacao: observacao.trim() || null,
     }
     const { error: equipmentError } = await supabase
       .from('equipment')
       .update(equipmentUpdates)
-      .eq('id', item.equipment_id)
+      .eq('id', equipmentId)
 
     if (equipmentError) {
       showToast('Erro ao atualizar equipamento: ' + equipmentError.message, 'danger')
@@ -1328,18 +1337,23 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
     }
 
     invalidate('equipment')
-    audit.updated('equipment', item.equipment_id, {
+    audit.updated('equipment', equipmentId, {
       previous: {
+        equipment_id: item.equipment_id || null,
         name: item.equipment?.name || null,
         categoria: item.categoria || null,
-        status: item.status || null,
-        observacao: item.observacao || null,
+        status: item.equipment_id === equipmentId ? item.status || null : selectedEquipment?.status || null,
+        observacao: item.equipment_id === equipmentId ? item.observacao || null : selectedEquipment?.observacao || null,
         asset_number: item.asset_number || null,
         serial_number: item.serial_number || null,
         current_room_id: item.current_room_id || item.destination_room_id || null,
       },
       next: {
-        ...equipmentUpdates,
+        equipment_id: equipmentId,
+        name: selectedEquipment?.name || null,
+        categoria: selectedEquipment?.categoria || null,
+        status: equipmentUpdates.status,
+        observacao: equipmentUpdates.observacao,
         asset_number: normalizedAsset || null,
         serial_number: serialNumber.trim() || null,
         current_room_id: roomId,
@@ -1361,18 +1375,18 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Nome do equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <input type="text" className="form-control" required value={name} onChange={(e) => setName(e.target.value)} />
+            <select className="form-control" required value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
+              <option value="">Selecione...</option>
+              {equipment.map((eq) => (
+                <option key={eq.id} value={eq.id}>{eq.name}</option>
+              ))}
+            </select>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label>Categoria</label>
-              <input type="text" className="form-control" value={categoria} onChange={(e) => setCategoria(e.target.value)} list="registro-equip-cat-list" />
-              <datalist id="registro-equip-cat-list">
-                {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'C\u00e2mera'].map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+              <input type="text" className="form-control" value={selectedEquipment?.categoria || ''} readOnly placeholder="Selecione um equipamento" />
             </div>
             <div className="form-group">
               <label>Status</label>
