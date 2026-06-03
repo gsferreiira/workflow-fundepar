@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2, ScanLine } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2, ScanLine, Pencil } from 'lucide-react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
@@ -61,6 +62,7 @@ export function Registro() {
   const { registerRefresh } = useOutletContext() || {}
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { showToast } = useToast()
   const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const [data, setData] = useState(null)
@@ -72,11 +74,13 @@ export function Registro() {
   const [filterMovedTo, setFilterMovedTo] = useState('')
   const [sort, setSort] = useState('az')
   const [historyEq, setHistoryEq] = useState(null)
+  const [editRegistroItem, setEditRegistroItem] = useState(null)
   const [assetLookupOpen, setAssetLookupOpen] = useState(false)
   const [batchRegisterOpen, setBatchRegisterOpen] = useState(false)
   const [newRegistroAsset, setNewRegistroAsset] = useState(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
+  const [bulkMovementModalOpen, setBulkMovementModalOpen] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [page, setPage] = useState(1)
@@ -194,8 +198,8 @@ export function Registro() {
   const filtered = useMemo(() => {
     if (!data) return []
     const q = (search || '').toLowerCase().trim()
-    const fromTs = filterMovedFrom ? new Date(filterMovedFrom).toISOString() : null
-    const toTs = filterMovedTo ? new Date(filterMovedTo).toISOString() : null
+    const fromTs = filterMovedFrom ? new Date(`${filterMovedFrom}T00:00:00`).toISOString() : null
+    const toTs = filterMovedTo ? new Date(`${filterMovedTo}T23:59:59`).toISOString() : null
 
     let result = data.filter((d) => {
       if (filterRoom && d.destination_room_id !== filterRoom) return false
@@ -557,7 +561,7 @@ export function Registro() {
           <div className="filter-group" style={{ flex: 1 }}>
             <label className="filter-label">Último registro a partir de</label>
             <input
-              type="datetime-local"
+              type="date"
               className="form-control filter-control"
               value={filterMovedFrom}
               onChange={(e) => setFilterMovedFrom(e.target.value)}
@@ -566,7 +570,7 @@ export function Registro() {
           <div className="filter-group" style={{ flex: 1 }}>
             <label className="filter-label">Último registro até</label>
             <input
-              type="datetime-local"
+              type="date"
               className="form-control filter-control"
               value={filterMovedTo}
               onChange={(e) => setFilterMovedTo(e.target.value)}
@@ -597,6 +601,14 @@ export function Registro() {
             <button
               type="button"
               className="btn-primary"
+              onClick={() => setBulkMovementModalOpen(true)}
+            >
+              <ArrowRightLeft size={14} /><span className="btn-text">Movimentar para outra sala</span>
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ background: '#64748b' }}
               onClick={() => setBulkModalOpen(true)}
             >
               <ArrowRightLeft size={14} /><span className="btn-text"> Atualizar registro de {selectedItems.length}</span>
@@ -640,7 +652,7 @@ export function Registro() {
               <th>Localização Atual</th>
               <th>Com quem está</th>
               <th>Último Registro</th>
-              <th style={{ width: 80 }}>Histórico</th>
+              <th style={{ width: 112 }}>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -728,13 +740,22 @@ export function Registro() {
                     {d.moved_at ? fmtDateTime(d.moved_at) : '—'}
                   </td>
                   <td className="card-actions-cell">
-                    <button
-                      className="btn-table-action edit"
-                      onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}
-                      title="Ver histórico"
-                    >
-                      <History size={14} />
-                    </button>
+                    <div className="table-actions">
+                      <button
+                        className="btn-table-action edit"
+                        onClick={(e) => { e.stopPropagation(); setEditRegistroItem(d) }}
+                        title="Editar equipamento"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        className="btn-table-action edit"
+                        onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}
+                        title={'Ver hist\u00f3rico'}
+                      >
+                        <History size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -748,12 +769,38 @@ export function Registro() {
         <HistoryModal item={historyEq} onClose={() => setHistoryEq(null)} />
       )}
 
+      {editRegistroItem && (
+        <EditRegistroEquipmentModal
+          item={editRegistroItem}
+          roomsFetcher={roomsFetcher}
+          invalidate={invalidate}
+          onClose={() => setEditRegistroItem(null)}
+          onSaved={() => {
+            setEditRegistroItem(null)
+            refetch()
+          }}
+        />
+      )}
+
       {bulkModalOpen && (
         <BulkMoveModal
           items={selectedItems}
           onClose={() => setBulkModalOpen(false)}
           onSuccess={() => {
             setBulkModalOpen(false)
+            clearSelection()
+            refetch()
+          }}
+        />
+      )}
+
+      {bulkMovementModalOpen && (
+        <BulkMovementModal
+          items={selectedItems}
+          user={user}
+          onClose={() => setBulkMovementModalOpen(false)}
+          onSuccess={() => {
+            setBulkMovementModalOpen(false)
             clearSelection()
             refetch()
           }}
@@ -1201,6 +1248,383 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
   )
 }
 
+function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, onSaved }) {
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [rooms, setRooms] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [name, setName] = useState(item.equipment?.name || '')
+  const [categoria, setCategoria] = useState(item.categoria || '')
+  const [status, setStatus] = useState(item.status || '')
+  const [observacao, setObservacao] = useState(item.observacao || '')
+  const [assetNumber, setAssetNumber] = useState(item.asset_number || '')
+  const [serialNumber, setSerialNumber] = useState(item.serial_number || '')
+  const [roomId, setRoomId] = useState(item.current_room_id || item.destination_room_id || '')
+  const [receivedBy, setReceivedBy] = useState(item.received_by || '')
+
+  useEffect(() => {
+    roomsFetcher().then(setRooms)
+  }, [roomsFetcher])
+
+  const updateLocation = async (normalizedAsset) => {
+    const payload = {
+      equipment_id: item.equipment_id,
+      asset_number: normalizedAsset || null,
+      serial_number: serialNumber.trim() || null,
+      current_room_id: roomId,
+      received_by: receivedBy.trim() || null,
+      moved_at: new Date().toISOString(),
+    }
+
+    if (item.asset_number) {
+      return supabase.from('equipment_locations').update(payload).eq('asset_number', item.asset_number)
+    }
+
+    let query = supabase.from('equipment_locations').update(payload).eq('equipment_id', item.equipment_id)
+    if (item.serial_number) query = query.eq('serial_number', item.serial_number)
+    else query = query.is('serial_number', null)
+    return query
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const cleanName = name.trim()
+    if (!cleanName) {
+      showToast('Informe o nome do equipamento.', 'warning')
+      return
+    }
+    if (!roomId) {
+      showToast('Selecione a localiza\u00e7\u00e3o atual.', 'warning')
+      return
+    }
+
+    const normalizedAsset = normalizeAssetNumber(assetNumber)
+    if (normalizedAsset && normalizedAsset !== item.asset_number) {
+      const { data: existing, error: existingError } = await supabase
+        .from('equipment_locations')
+        .select('asset_number')
+        .eq('asset_number', normalizedAsset)
+        .maybeSingle()
+      if (existingError) {
+        showToast('Erro ao validar patrim\u00f4nio: ' + existingError.message, 'danger')
+        return
+      }
+      if (existing) {
+        showToast(`PAT ${formatAssetNumber(normalizedAsset)} j\u00e1 possui registro.`, 'warning')
+        return
+      }
+    }
+
+    setBusy(true)
+    const equipmentUpdates = {
+      name: cleanName,
+      categoria: categoria.trim() || null,
+      status: status || null,
+      observacao: observacao.trim() || null,
+    }
+    const { error: equipmentError } = await supabase
+      .from('equipment')
+      .update(equipmentUpdates)
+      .eq('id', item.equipment_id)
+
+    if (equipmentError) {
+      showToast('Erro ao atualizar equipamento: ' + equipmentError.message, 'danger')
+      setBusy(false)
+      return
+    }
+
+    const { error: locationError } = await updateLocation(normalizedAsset)
+    if (locationError) {
+      showToast('Equipamento atualizado, mas houve erro ao atualizar o registro: ' + locationError.message, 'warning')
+      setBusy(false)
+      return
+    }
+
+    invalidate('equipment')
+    audit.updated('equipment', item.equipment_id, {
+      ...equipmentUpdates,
+      asset_number: normalizedAsset || null,
+      serial_number: serialNumber.trim() || null,
+      current_room_id: roomId,
+    })
+    showToast('Equipamento atualizado com sucesso!', 'success')
+    onSaved()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 620 }}>
+        <div className="modal-header">
+          <h3>Editar equipamento</h3>
+          <button className="modal-close" type="button" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Nome do equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <input type="text" className="form-control" required value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label>Categoria</label>
+              <input type="text" className="form-control" value={categoria} onChange={(e) => setCategoria(e.target.value)} list="registro-equip-cat-list" />
+              <datalist id="registro-equip-cat-list">
+                {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'C\u00e2mera'].map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+            <div className="form-group">
+              <label>Status</label>
+              <select className="form-control" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">Sem status</option>
+                {STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label>{'N\u00ba Patrim\u00f4nio'}</label>
+              <input type="text" className="form-control" value={assetNumber} onChange={(e) => setAssetNumber(applyAssetMask(e.target.value))} placeholder="000.000.000.000" />
+            </div>
+            <div className="form-group">
+              <label>{'N\u00ba S\u00e9rie'}</label>
+              <input type="text" className="form-control" value={serialNumber} onChange={(e) => setSerialNumber(e.target.value)} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-group">
+              <label>{'Localiza\u00e7\u00e3o atual'} <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <select className="form-control" required value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+                <option value="">Selecione...</option>
+                {rooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>{'Com quem est\u00e1'}</label>
+              <input type="text" className="form-control" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>{'Observa\u00e7\u00e3o'}</label>
+            <textarea className="form-control" rows={3} value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
+              Cancelar
+            </button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? <Loader2 size={14} className="spin" /> : 'Salvar altera\u00e7\u00f5es'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function BulkMovementModal({ items, user, onClose, onSuccess }) {
+  const { rooms: roomsFetcher, invalidate } = useStore()
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [rooms, setRooms] = useState([])
+  const [destRoomId, setDestRoomId] = useState('')
+  const [receivedBy, setReceivedBy] = useState('')
+  const [itemStatus, setItemStatus] = useState('')
+  const [comentario, setComentario] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    roomsFetcher().then(setRooms)
+  }, [roomsFetcher])
+
+  const skippable = useMemo(
+    () => items.filter((i) => destRoomId && i.destination_room_id === destRoomId),
+    [items, destRoomId],
+  )
+  const movableItems = useMemo(
+    () => items.filter((i) => destRoomId && i.destination_room_id !== destRoomId),
+    [items, destRoomId],
+  )
+  const destRoom = useMemo(() => rooms.find((r) => r.id === destRoomId), [rooms, destRoomId])
+
+  const updateLocation = async (item, movedAt, receiver) => {
+    const payload = {
+      equipment_id: item.equipment_id,
+      asset_number: item.asset_number,
+      serial_number: item.serial_number,
+      current_room_id: destRoomId,
+      received_by: receiver,
+      moved_at: movedAt,
+    }
+
+    if (item.asset_number) {
+      return supabase.from('equipment_locations').upsert(payload, { onConflict: 'asset_number' })
+    }
+
+    let query = supabase
+      .from('equipment_locations')
+      .update({ current_room_id: destRoomId, received_by: receiver, moved_at: movedAt })
+      .eq('equipment_id', item.equipment_id)
+    if (item.serial_number) query = query.eq('serial_number', item.serial_number)
+    else query = query.is('serial_number', null)
+    return query
+  }
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!destRoomId) {
+      showToast('Selecione a sala de destino.', 'warning')
+      return
+    }
+    if (movableItems.length === 0) {
+      showToast('Todos os selecionados j\u00e1 est\u00e3o nessa sala.', 'warning')
+      return
+    }
+
+    setSubmitting(true)
+    const movedAt = new Date().toISOString()
+    const receiver = receivedBy.trim() || null
+    const inserts = movableItems.map((item) => ({
+      equipment_id: item.equipment_id,
+      serial_number: item.serial_number || null,
+      asset_number: item.asset_number || null,
+      origin_room_id: item.destination_room_id || item.current_room_id || null,
+      destination_room_id: destRoomId,
+      moved_by: user?.id || null,
+      received_by: receiver,
+      received_by_profile_id: null,
+      moved_at: movedAt,
+      item_status: itemStatus || null,
+      comentario: comentario.trim() || null,
+    }))
+
+    const { data: inserted, error } = await supabase.from('asset_movements').insert(inserts).select('id')
+    if (error) {
+      showToast('Erro ao registrar movimenta\u00e7\u00f5es: ' + error.message, 'danger')
+      setSubmitting(false)
+      return
+    }
+
+    for (const item of movableItems) {
+      const { error: locationError } = await updateLocation(item, movedAt, receiver ?? item.received_by ?? null)
+      if (locationError) {
+        showToast('Movimenta\u00e7\u00f5es criadas, mas houve erro ao atualizar o Registro: ' + locationError.message, 'warning')
+        setSubmitting(false)
+        return
+      }
+    }
+
+    if (itemStatus) {
+      const equipmentIds = [...new Set(movableItems.map((i) => i.equipment_id).filter(Boolean))]
+      if (equipmentIds.length > 0) {
+        const { error: statusError } = await supabase.from('equipment').update({ status: itemStatus }).in('id', equipmentIds)
+        if (statusError) {
+          showToast('Movimenta\u00e7\u00f5es registradas, mas houve erro ao atualizar o status: ' + statusError.message, 'warning')
+          setSubmitting(false)
+          return
+        }
+        invalidate('equipment')
+      }
+    }
+
+    audit.log('bulk_movement_from_register', 'asset_movements', null, {
+      count: inserts.length,
+      destination: destRoom?.name,
+      movement_ids: (inserted || []).map((r) => r.id),
+      asset_numbers: inserts.map((m) => m.asset_number).filter(Boolean),
+    })
+    showToast(
+      `${inserts.length} movimenta\u00e7${inserts.length !== 1 ? '\u00f5es criadas' : '\u00e3o criada'} para "${destRoom?.name}".`,
+      'success',
+    )
+    onSuccess()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Movimentar {items.length} {items.length === 1 ? 'item' : 'itens'}</h3>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {'Cria movimenta\u00e7\u00f5es e atualiza a sala atual dos equipamentos selecionados.'}
+            </div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="form-group">
+            <label>Sala de destino <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+            <select className="form-control" required value={destRoomId} onChange={(e) => setDestRoomId(e.target.value)}>
+              <option value="">Selecione...</option>
+              {rooms.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            {skippable.length > 0 && (
+              <small style={{ color: 'var(--warning-color)', fontSize: 12, marginTop: 4, display: 'block' }}>
+                {skippable.length} {skippable.length === 1 ? 'item j\u00e1 est\u00e1' : 'itens j\u00e1 est\u00e3o'} nessa sala e {skippable.length === 1 ? 'ser\u00e1 pulado' : 'ser\u00e3o pulados'}.
+              </small>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>Recebedor</label>
+            <input type="text" className="form-control" value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} placeholder="Nome de quem recebeu... (vazio = manter atual no Registro)" />
+          </div>
+
+          <div className="form-group">
+            <label>Status do item</label>
+            <select className="form-control" value={itemStatus} onChange={(e) => setItemStatus(e.target.value)}>
+              <option value="">{'N\u00e3o alterar'}</option>
+              {STATUS_OPTIONS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>{'Coment\u00e1rio'}</label>
+            <textarea className="form-control" rows={2} value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder={'Observa\u00e7\u00e3o opcional da movimenta\u00e7\u00e3o...'} />
+          </div>
+
+          <div style={{ maxHeight: 190, overflowY: 'auto', background: 'var(--bg-hover)', borderRadius: 8, padding: 10, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+              {'Movimenta\u00e7\u00f5es que ser\u00e3o criadas'} ({movableItems.length})
+            </div>
+            {items.map((i) => {
+              const willSkip = destRoomId && i.destination_room_id === destRoomId
+              return (
+                <div key={i.key} style={{ fontSize: 13, padding: '5px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, borderBottom: '1px solid var(--border-color)' }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {i.equipment?.name || '\u2014'}
+                      {i.asset_number && <span style={{ color: 'var(--text-secondary)', marginLeft: 6, fontSize: 12 }}>{formatAssetNumber(i.asset_number)}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: willSkip ? 'var(--warning-color)' : 'var(--text-secondary)', marginTop: 1 }}>
+                      {willSkip ? 'ser\u00e1 pulado' : `${i.room?.name || '\u2014'} \u2192 ${destRoom?.name || 'destino'}`}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>Cancelar</button>
+            <button type="submit" className="btn-primary" disabled={submitting || movableItems.length === 0}>
+              {submitting ? 'Movimentando...' : `Criar ${movableItems.length} movimenta\u00e7${movableItems.length !== 1 ? '\u00f5es' : '\u00e3o'}`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 function BulkMoveModal({ items, onClose, onSuccess }) {
   const { rooms: roomsFetcher, invalidate } = useStore()
   const { showToast } = useToast()
@@ -1411,7 +1835,7 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
               value={itemStatus}
               onChange={(e) => setItemStatus(e.target.value)}
             >
-              <option value="">Nao alterar</option>
+              <option value="">Não alterar</option>
               {STATUS_OPTIONS.map((status) => (
                 <option key={status.value} value={status.value}>
                   {status.label}
