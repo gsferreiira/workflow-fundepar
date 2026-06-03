@@ -212,12 +212,11 @@ function ChecklistView({
               Observações gerais (opcional)
             </label>
             <textarea
-              className="form-input"
+              className="conference-notes-textarea"
               rows={3}
               placeholder="Alguma observação geral sobre a conferência deste mês..."
               value={generalNotes}
               onChange={(e) => onGeneralNotes(e.target.value)}
-              style={{ fontSize: 13, resize: 'vertical' }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
