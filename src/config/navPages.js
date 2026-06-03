@@ -1,6 +1,6 @@
 import {
   Home, LayoutDashboard, KanbanSquare, Package, ArrowRightLeft,
-  Search, LayoutGrid, MapPin, Users, ShieldCheck, Lock, CircleUser,
+  Search, LayoutGrid, MapPin, Users, ShieldCheck, Lock, CircleUser, ClipboardList,
 } from 'lucide-react'
 
 // Metadados de cada página — as permissões ficam no banco (app_settings).
@@ -22,6 +22,7 @@ export const NAV_PAGES = [
 
   { key: 'salas',         to: '/salas',         icon: MapPin,          label: 'Cadastro de Salas' },
   { key: 'usuarios',      to: '/usuarios',      icon: Users,           label: 'Cadastro de Usuários' },
+  { key: 'conferencias',  to: '/conferencias',  icon: ClipboardList,   label: 'Conferências' },
   { key: 'auditoria',     to: '/auditoria',     icon: ShieldCheck,     label: 'Auditoria' },
   { key: 'permissoes',    to: '/permissoes',    icon: Lock,            label: 'Permissões',  locked: true },
 
@@ -40,6 +41,7 @@ export const DEFAULT_PERMISSIONS = {
   'mapa-salas':  ['admin', 'tecnico', 'usuario'],
   salas:         ['admin'],
   usuarios:      ['admin'],
+  conferencias:  ['admin', 'tecnico'],
   auditoria:     ['admin'],
   permissoes:    ['admin'],
 }
