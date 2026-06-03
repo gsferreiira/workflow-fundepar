@@ -11,6 +11,7 @@ import { EmptyState } from '../components/EmptyState.jsx'
 import { Scanner } from '../components/Scanner.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { applyAssetMask, formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 25
 
@@ -282,36 +283,26 @@ export function Registro() {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
-      ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
-      ...rows.map((d) => [
-        d.equipment?.name || '—',
-        d.categoria || '—',
-        d.status || '—',
-        formatAssetNumber(d.asset_number) || '—',
-        d.serial_number || '—',
-        d.room?.name || 'Não localizado',
-        d.received_by || '—',
-        d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
-        d.observacao || '—',
-      ]),
-    ]
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    ws['!cols'] = [
-      { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 },
-      { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 },
-    ]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Registro')
-    const suffix = scope === 'page' ? `_pagina${page}` : ''
-    XLSX.writeFile(wb, `registro${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-    showToast(`${rows.length} equipamento${rows.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
+        ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
+        ...rows.map((d) => [
+          d.equipment?.name || '—',
+          d.categoria || '—',
+          d.status || '—',
+          formatAssetNumber(d.asset_number) || '—',
+          d.serial_number || '—',
+          d.room?.name || 'Não localizado',
+          d.received_by || '—',
+          d.moved_at ? new Date(d.moved_at).toLocaleString('pt-BR') : 'Nunca registrado',
+          d.observacao || '—',
+        ]),
+      ]
+      const suffix = scope === 'page' ? `_pagina${page}` : ''
+      await exportXlsx({
+        fileName: `registro${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Registro', rows: wsData, columns: [30, 16, 12, 18, 18, 22, 24, 20, 30] }],
+      })
+      showToast(`${rows.length} equipamento${rows.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       console.error('exportExcel erro:', err)
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -367,9 +358,6 @@ export function Registro() {
   const exportSelected = async () => {
     try {
       if (selectedItems.length === 0) return
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
       const wsData = [
         ['Equipamento', 'Categoria', 'Status', 'Nº Patrimônio', 'Nº Série', 'Localização Atual', 'Com quem está', 'Último Registro', 'Observação'],
         ...selectedItems.map((d) => [
@@ -384,11 +372,10 @@ export function Registro() {
           d.observacao || '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 24 }, { wch: 20 }, { wch: 30 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Selecionados')
-      XLSX.writeFile(wb, `registro_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `registro_selecionados_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Selecionados', rows: wsData, columns: [30, 16, 12, 18, 18, 22, 24, 20, 30] }],
+      })
       showToast(`${selectedItems.length} item${selectedItems.length !== 1 ? 's exportados' : ' exportado'}!`, 'success')
     } catch (err) {
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -773,6 +760,7 @@ export function Registro() {
         <EditRegistroEquipmentModal
           item={editRegistroItem}
           roomsFetcher={roomsFetcher}
+          equipmentFetcher={equipmentFetcher}
           invalidate={invalidate}
           onClose={() => setEditRegistroItem(null)}
           onSaved={() => {
@@ -1248,13 +1236,13 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
   )
 }
 
-function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, onSaved }) {
+function EditRegistroEquipmentModal({ item, roomsFetcher, equipmentFetcher, invalidate, onClose, onSaved }) {
   const { showToast } = useToast()
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
+  const [equipment, setEquipment] = useState([])
   const [busy, setBusy] = useState(false)
-  const [name, setName] = useState(item.equipment?.name || '')
-  const [categoria, setCategoria] = useState(item.categoria || '')
+  const [equipmentId, setEquipmentId] = useState(item.equipment_id || '')
   const [status, setStatus] = useState(item.status || '')
   const [observacao, setObservacao] = useState(item.observacao || '')
   const [assetNumber, setAssetNumber] = useState(item.asset_number || '')
@@ -1262,13 +1250,24 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
   const [roomId, setRoomId] = useState(item.current_room_id || item.destination_room_id || '')
   const [receivedBy, setReceivedBy] = useState(item.received_by || '')
 
+  const selectedEquipment = equipment.find((eq) => eq.id === equipmentId) || null
+
   useEffect(() => {
-    roomsFetcher().then(setRooms)
-  }, [roomsFetcher])
+    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
+      setRooms(rm || [])
+      setEquipment(eq || [])
+    })
+  }, [roomsFetcher, equipmentFetcher])
+
+  useEffect(() => {
+    if (!selectedEquipment) return
+    setStatus(selectedEquipment.status || '')
+    setObservacao(selectedEquipment.observacao || '')
+  }, [selectedEquipment])
 
   const updateLocation = async (normalizedAsset) => {
     const payload = {
-      equipment_id: item.equipment_id,
+      equipment_id: equipmentId,
       asset_number: normalizedAsset || null,
       serial_number: serialNumber.trim() || null,
       current_room_id: roomId,
@@ -1288,9 +1287,8 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
 
   const submit = async (e) => {
     e.preventDefault()
-    const cleanName = name.trim()
-    if (!cleanName) {
-      showToast('Informe o nome do equipamento.', 'warning')
+    if (!equipmentId) {
+      showToast('Selecione o equipamento.', 'warning')
       return
     }
     if (!roomId) {
@@ -1317,15 +1315,13 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
 
     setBusy(true)
     const equipmentUpdates = {
-      name: cleanName,
-      categoria: categoria.trim() || null,
       status: status || null,
       observacao: observacao.trim() || null,
     }
     const { error: equipmentError } = await supabase
       .from('equipment')
       .update(equipmentUpdates)
-      .eq('id', item.equipment_id)
+      .eq('id', equipmentId)
 
     if (equipmentError) {
       showToast('Erro ao atualizar equipamento: ' + equipmentError.message, 'danger')
@@ -1341,11 +1337,27 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
     }
 
     invalidate('equipment')
-    audit.updated('equipment', item.equipment_id, {
-      ...equipmentUpdates,
-      asset_number: normalizedAsset || null,
-      serial_number: serialNumber.trim() || null,
-      current_room_id: roomId,
+    audit.updated('equipment', equipmentId, {
+      previous: {
+        equipment_id: item.equipment_id || null,
+        name: item.equipment?.name || null,
+        categoria: item.categoria || null,
+        status: item.equipment_id === equipmentId ? item.status || null : selectedEquipment?.status || null,
+        observacao: item.equipment_id === equipmentId ? item.observacao || null : selectedEquipment?.observacao || null,
+        asset_number: item.asset_number || null,
+        serial_number: item.serial_number || null,
+        current_room_id: item.current_room_id || item.destination_room_id || null,
+      },
+      next: {
+        equipment_id: equipmentId,
+        name: selectedEquipment?.name || null,
+        categoria: selectedEquipment?.categoria || null,
+        status: equipmentUpdates.status,
+        observacao: equipmentUpdates.observacao,
+        asset_number: normalizedAsset || null,
+        serial_number: serialNumber.trim() || null,
+        current_room_id: roomId,
+      },
     })
     showToast('Equipamento atualizado com sucesso!', 'success')
     onSaved()
@@ -1363,18 +1375,18 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, invalidate, onClose, o
         <form onSubmit={submit}>
           <div className="form-group">
             <label>Nome do equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
-            <input type="text" className="form-control" required value={name} onChange={(e) => setName(e.target.value)} />
+            <select className="form-control" required value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)}>
+              <option value="">Selecione...</option>
+              {equipment.map((eq) => (
+                <option key={eq.id} value={eq.id}>{eq.name}</option>
+              ))}
+            </select>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label>Categoria</label>
-              <input type="text" className="form-control" value={categoria} onChange={(e) => setCategoria(e.target.value)} list="registro-equip-cat-list" />
-              <datalist id="registro-equip-cat-list">
-                {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'C\u00e2mera'].map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
+              <input type="text" className="form-control" value={selectedEquipment?.categoria || ''} readOnly placeholder="Selecione um equipamento" />
             </div>
             <div className="form-group">
               <label>Status</label>
@@ -1626,11 +1638,13 @@ function BulkMovementModal({ items, user, onClose, onSuccess }) {
 }
 
 function BulkMoveModal({ items, onClose, onSuccess }) {
-  const { rooms: roomsFetcher, invalidate } = useStore()
+  const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const { showToast } = useToast()
   const audit = useAudit()
   const [rooms, setRooms] = useState([])
+  const [equipment, setEquipment] = useState([])
   const [destRoomId, setDestRoomId] = useState('')
+  const [equipmentId, setEquipmentId] = useState('')
   // receivedBy: texto para sobrescrever todos; clearReceiver: remove o recebedor de todos
   const [receivedBy, setReceivedBy] = useState('')
   const [clearReceiver, setClearReceiver] = useState(false)
@@ -1638,14 +1652,33 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    roomsFetcher().then(setRooms)
-  }, [roomsFetcher])
+    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
+      setRooms(rm || [])
+      setEquipment(eq || [])
+    })
+  }, [roomsFetcher, equipmentFetcher])
 
   const skippable = useMemo(
     () => items.filter((i) => destRoomId && i.destination_room_id === destRoomId),
     [items, destRoomId],
   )
-  const toMove = items.length - skippable.length
+  const selectedEquipment = useMemo(
+    () => equipment.find((eq) => eq.id === equipmentId) || null,
+    [equipment, equipmentId],
+  )
+  const hasReceiverChange = clearReceiver || !!receivedBy.trim()
+  const hasEquipmentChange = !!equipmentId
+  const needsRegisterUpdate = useCallback(
+    (item) =>
+      (destRoomId && item.destination_room_id !== destRoomId) ||
+      hasEquipmentChange ||
+      hasReceiverChange,
+    [destRoomId, hasEquipmentChange, hasReceiverChange],
+  )
+  const toUpdate = useMemo(
+    () => items.filter(needsRegisterUpdate).length,
+    [items, needsRegisterUpdate],
+  )
 
   // Recebedor resultante por item:
   //   clearReceiver → null
@@ -1659,12 +1692,12 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!destRoomId) {
-      showToast('Selecione a sala de destino.', 'warning')
+    if (!destRoomId && !equipmentId && !itemStatus && !hasReceiverChange) {
+      showToast('Informe ao menos uma alteracao para atualizar o registro.', 'warning')
       return
     }
-    if (toMove === 0 && !itemStatus) {
-      showToast('Todos os selecionados já estão nessa sala.', 'warning')
+    if (destRoomId && toUpdate === 0 && !itemStatus) {
+      showToast('Todos os selecionados ja estao nessa sala.', 'warning')
       return
     }
     setSubmitting(true)
@@ -1672,12 +1705,14 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
     const destRoom = rooms.find((r) => r.id === destRoomId)
 
     const records = items
-      .filter((i) => i.destination_room_id !== destRoomId)
+      .filter(needsRegisterUpdate)
       .map((i) => ({
-        equipment_id: i.equipment_id,
+        original_equipment_id: i.equipment_id,
+        original_serial_number: i.serial_number,
+        equipment_id: equipmentId || i.equipment_id,
         serial_number: i.serial_number,
         asset_number: i.asset_number,
-        current_room_id: destRoomId,
+        current_room_id: destRoomId || i.destination_room_id,
         received_by: resolveReceiver(i),
         moved_at: movedAt,
       }))
@@ -1691,9 +1726,22 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         received_by: record.received_by,
         moved_at: record.moved_at,
       }
-      const { error } = await supabase
-        .from('equipment_locations')
-        .upsert(payload, { onConflict: 'asset_number' })
+      let locationResult
+      if (record.asset_number) {
+        locationResult = await supabase
+          .from('equipment_locations')
+          .upsert(payload, { onConflict: 'asset_number' })
+      } else {
+        let query = supabase
+          .from('equipment_locations')
+          .update(payload)
+          .eq('equipment_id', record.original_equipment_id)
+        query = record.original_serial_number
+          ? query.eq('serial_number', record.original_serial_number)
+          : query.is('serial_number', null)
+        locationResult = await query
+      }
+      const { error } = locationResult
       if (error) {
         showToast('Erro ao atualizar registro: ' + error.message, 'danger')
         setSubmitting(false)
@@ -1702,7 +1750,9 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
     }
 
     if (itemStatus) {
-      const equipmentIds = [...new Set(items.map((i) => i.equipment_id).filter(Boolean))]
+      const equipmentIds = equipmentId
+        ? [equipmentId]
+        : [...new Set(items.map((i) => i.equipment_id).filter(Boolean))]
       if (equipmentIds.length > 0) {
         const { error: statusError } = await supabase
           .from('equipment')
@@ -1719,14 +1769,19 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
 
     audit.log('bulk_register_update', 'equipment_locations', null, {
       count: records.length,
-      destination: destRoom?.name,
+      destination: destRoom?.name || null,
+      equipment: selectedEquipment?.name || null,
       status: itemStatus || null,
       asset_numbers: records.map((m) => m.asset_number).filter(Boolean),
     })
 
     const messages = []
     if (records.length > 0) {
-      messages.push(`${records.length} ${records.length === 1 ? 'registro atualizado' : 'registros atualizados'} para "${destRoom?.name}"`)
+      const target = destRoom?.name ? ` para "${destRoom.name}"` : ''
+      messages.push(`${records.length} ${records.length === 1 ? 'registro atualizado' : 'registros atualizados'}${target}`)
+    }
+    if (selectedEquipment) {
+      messages.push(`equipamento alterado para "${selectedEquipment.name}"`)
     }
     if (itemStatus) {
       messages.push(`status atualizado para "${STATUS_OPTIONS.find((s) => s.value === itemStatus)?.label || itemStatus}"`)
@@ -1751,16 +1806,13 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         </div>
         <form onSubmit={submit}>
           <div className="form-group">
-            <label>
-              Localização atual <span style={{ color: 'var(--danger-color)' }}>*</span>
-            </label>
+            <label>Localização atual</label>
             <select
               className="form-control"
-              required
               value={destRoomId}
               onChange={(e) => setDestRoomId(e.target.value)}
             >
-              <option value="">Selecione...</option>
+              <option value="">Não alterar</option>
               {rooms.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
@@ -1772,6 +1824,25 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
                 {skippable.length} {skippable.length === 1 ? 'item já está' : 'itens já estão'} nessa sala e {skippable.length === 1 ? 'será pulado' : 'serão pulados'}.
               </small>
             )}
+          </div>
+
+          <div className="form-group">
+            <label>Equipamento</label>
+            <select
+              className="form-control"
+              value={equipmentId}
+              onChange={(e) => setEquipmentId(e.target.value)}
+            >
+              <option value="">Não alterar</option>
+              {equipment.map((eq) => (
+                <option key={eq.id} value={eq.id}>
+                  {eq.name}
+                </option>
+              ))}
+            </select>
+            <small style={{ display: 'block', marginTop: 4, color: 'var(--text-secondary)' }}>
+              Atualiza o tipo/modelo vinculado aos patrimônios selecionados sem criar movimentação.
+            </small>
           </div>
 
           <div className="form-group">
@@ -1901,12 +1972,12 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
             >
               Cancelar
             </button>
-            <button type="submit" className="btn-primary" disabled={submitting || (toMove === 0 && !itemStatus)}>
+            <button type="submit" className="btn-primary" disabled={submitting || (toUpdate === 0 && !itemStatus)}>
               {submitting
                 ? 'Atualizando...'
-                : itemStatus && toMove === 0
+                : itemStatus && toUpdate === 0
                   ? `Atualizar status de ${items.length}`
-                  : `Atualizar ${toMove} ${toMove === 1 ? 'registro' : 'registros'}`}
+                  : `Atualizar ${toUpdate} ${toUpdate === 1 ? 'registro' : 'registros'}`}
             </button>
           </div>
         </form>

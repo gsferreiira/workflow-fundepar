@@ -251,7 +251,13 @@ function EquipModal({ eq, onClose, onSaved }) {
         setBusy(false)
         return
       }
-      audit.updated('equipment', eq.id, updates)
+      audit.updated('equipment', eq.id, {
+        previous: {
+          name: eq.name || null,
+          categoria: eq.categoria || null,
+        },
+        next: updates,
+      })
       showToast('Equipamento atualizado!', 'success')
       onSaved()
     } else {

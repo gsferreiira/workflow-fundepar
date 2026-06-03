@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { SkeletonCards } from '../components/Skeleton.jsx'
 import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
 function currentCompetencia() {
   const now = new Date()
@@ -44,14 +45,13 @@ export function MapaSalas() {
     setRooms(null)
     const load = async () => {
       const COMP = currentCompetencia()
-      const [{ data: roomList, error }, { data: movements }, { data: conferences }] = await Promise.all([
+      const [{ data: roomList, error }, { data: currentLocations }, { data: conferences }] = await Promise.all([
         supabase.from('rooms').select('*').is('deleted_at', null).order('name'),
         supabase
-          .from('asset_movements')
+          .from('equipment_locations')
           .select(
-            'equipment_id, equipment(name), asset_number, serial_number, received_by, moved_at, destination_room_id',
+            'equipment_id, equipment:equipment_id(name), asset_number, serial_number, received_by, moved_at, current_room_id',
           )
-          .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(5000),
         supabase
@@ -67,17 +67,9 @@ export function MapaSalas() {
 
       const conferencedRooms = new Set((conferences || []).map((c) => c.room_id))
 
-      const seen = new Set()
       const locationsByRoom = {}
-      ;(movements || []).forEach((m) => {
-        const key = m.asset_number
-          ? `pat_${m.asset_number}`
-          : m.serial_number
-            ? `eq_${m.equipment_id}_ser_${m.serial_number}`
-            : `eq_${m.equipment_id}`
-        if (seen.has(key)) return
-        seen.add(key)
-        const rid = m.destination_room_id
+      ;(currentLocations || []).forEach((m) => {
+        const rid = m.current_room_id
         if (!rid) return
         if (!locationsByRoom[rid]) locationsByRoom[rid] = []
         locationsByRoom[rid].push({
@@ -137,14 +129,8 @@ export function MapaSalas() {
         showToast('Esta sala não tem equipamentos para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
-        ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ['Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Último Registro'],
         ...room.items.map((item) => [
           item.name || '—',
           formatAssetNumber(item.asset_number) || '—',
@@ -153,12 +139,11 @@ export function MapaSalas() {
           item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, room.name.slice(0, 31))
       const safeName = room.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40)
-      XLSX.writeFile(wb, `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `sala_${safeName}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: room.name, rows: wsData, columns: [30, 18, 18, 24, 22] }],
+      })
       showToast(`Exportado: ${room.items.length} equipamento${room.items.length !== 1 ? 's' : ''}`, 'success')
     } catch (err) {
       console.error('exportRoom erro:', err)
@@ -175,14 +160,8 @@ export function MapaSalas() {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
       }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const wsData = [
-        ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Última Movimentação'],
+        ['Sala', 'Nº Sala', 'Equipamento', 'Nº Patrimônio', 'Nº Série', 'Recebedor', 'Último Registro'],
         ...allItems.map((item) => [
           item.room_name || '—',
           item.room_number || '—',
@@ -193,11 +172,10 @@ export function MapaSalas() {
           item.moved_at ? new Date(item.moved_at).toLocaleString('pt-BR') : '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 28 }, { wch: 10 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 24 }, { wch: 22 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Mapa de Salas')
-      XLSX.writeFile(wb, `mapa_salas_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `mapa_salas_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Mapa de Salas', rows: wsData, columns: [28, 10, 30, 18, 18, 24, 22] }],
+      })
       const roomsWithEquip = (rooms || []).filter((r) => r.items.length > 0).length
       showToast(`Exportado: ${allItems.length} equipamento${allItems.length !== 1 ? 's' : ''} em ${roomsWithEquip} sala${roomsWithEquip !== 1 ? 's' : ''}`, 'success')
     } catch (err) {
@@ -548,7 +526,7 @@ function RoomDetailModal({ room, onClose, onExport }) {
                   <th>Nº Série</th>
                   <th>Nº Patrimônio</th>
                   <th>Recebedor</th>
-                  <th>Última Movimentação</th>
+                  <th>Último Registro</th>
                 </tr>
               </thead>
               <tbody>

@@ -34,6 +34,7 @@ import {
   toDateTimeLocalValue,
   dateTimeLocalValueToIso,
 } from '../utils/format.js'
+import { exportXlsx, readFirstSheetAsObjects } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 25
 const EQUIPMENT_STATUS_OPTIONS = [
@@ -205,9 +206,6 @@ export function Movimentacoes() {
     try {
       const selected = (listWithBatch || []).filter((m) => selectedIds.has(m.id))
       if (selected.length === 0) return
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) { showToast('Biblioteca de exportação não carregada.', 'danger'); return }
       const wsData = [
         ['Equipamento', 'Nº Série', 'Nº Patrimônio', 'Origem', 'Destino', 'Responsável', 'Com quem está', 'Data / Hora', 'Última edição', 'Último Editor'],
         ...selected.map((m) => [
@@ -223,11 +221,10 @@ export function Movimentacoes() {
           m.editedBy?.full_name || '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 20 }, { wch: 24 }]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Selecionadas')
-      XLSX.writeFile(wb, `movimentacoes_selecionadas_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `movimentacoes_selecionadas_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Selecionadas', rows: wsData, columns: [30, 18, 18, 22, 22, 24, 24, 20, 20, 24] }],
+      })
       showToast(`${selected.length} linha${selected.length !== 1 ? 's' : ''} exportada${selected.length !== 1 ? 's' : ''}!`, 'success')
     } catch (err) {
       showToast('Erro ao exportar: ' + (err?.message || 'falha inesperada'), 'danger')
@@ -445,12 +442,6 @@ export function Movimentacoes() {
   const exportExcel = async (scope = 'all') => {
     try {
       const f = { ...filters, search: search || '' }
-      const xlsxMod = await import('xlsx')
-      const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-      if (!XLSX?.utils?.book_new) {
-        showToast('Biblioteca de exportação não carregada.', 'danger')
-        return
-      }
       const [rm, pr] = await Promise.all([roomsFetcher(), profilesFetcher()])
       const roomMap = Object.fromEntries(rm.map((r) => [r.id, r]))
       const profileMap = Object.fromEntries(pr.map((p2) => [p2.id, p2]))
@@ -516,15 +507,11 @@ export function Movimentacoes() {
           profileMap[m.edited_by]?.full_name || '—',
         ]),
       ]
-      const ws = XLSX.utils.aoa_to_sheet(wsData)
-      ws['!cols'] = [
-        { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 22 },
-        { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 20 }, { wch: 20 }, { wch: 24 },
-      ]
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Movimentações')
       const suffix = scope === 'page' ? `_pagina${page}` : ''
-      XLSX.writeFile(wb, `movimentacoes${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+      await exportXlsx({
+        fileName: `movimentacoes${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{ name: 'Movimentações', rows: wsData, columns: [30, 18, 18, 22, 22, 24, 24, 20, 20, 24] }],
+      })
       showToast(`${all.length} linha${all.length !== 1 ? 's' : ''} exportada${all.length !== 1 ? 's' : ''}!`, 'success')
     } catch (err) {
       console.error('exportExcel erro:', err)
@@ -543,20 +530,7 @@ export function Movimentacoes() {
       showToast('Arquivo muito grande (máximo 5 MB). Divida em planilhas menores.', 'warning')
       return
     }
-    // O `xlsx` expõe tanto `.default` quanto namespace flat. Em alguns
-    // builds do Vite o `.default` vem sem o `utils`, então caímos no
-    // namespace inteiro caso o default esteja vazio.
-    const xlsxMod = await import('xlsx')
-    const XLSX = xlsxMod.default && xlsxMod.default.utils ? xlsxMod.default : xlsxMod
-    const normalize = (s) => (s || '').toString().trim().toLowerCase()
-    const [eq, rm] = await Promise.all([equipmentFetcher(), roomsFetcher()])
-    const eqByName = Object.fromEntries(eq.map((e2) => [normalize(e2.name), e2]))
-    const roomByName = Object.fromEntries(rm.map((r) => [normalize(r.name), r]))
-
-    const buf = await file.arrayBuffer()
-    const wb = XLSX.read(buf, { type: 'array', cellDates: true })
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const raw = XLSX.utils.sheet_to_json(ws, { defval: '' })
+    const raw = await readFirstSheetAsObjects(file)
 
     const parseDate = (val) => {
       if (!val) return null

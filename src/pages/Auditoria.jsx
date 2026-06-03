@@ -22,6 +22,7 @@ const ACTIONS = [
   { value: 'bulk_move', label: 'Bulk Move (Rastreio)' },
   { value: 'bulk_revert', label: 'Reversão de Lote' },
   { value: 'bulk_delete', label: 'Exclusão de Lote' },
+  { value: 'bulk_register_update', label: 'Atualizacao de Registro' },
   { value: 'password_reset', label: 'Redefinição de Senha' },
 ]
 
@@ -32,6 +33,7 @@ const TABLE_LABELS = {
   tickets: 'Chamados',
   profiles: 'Usuários',
   audit_logs: 'Auditoria',
+  room_conferences: 'Conferências',
 }
 
 const PAGE_SIZE = 50
@@ -618,6 +620,7 @@ function ActionBadge({ action }) {
     bulk_move:        { bg: 'rgba(14,165,233,.12)',  color: '#0284c7', label: 'Bulk Move' },
     bulk_revert:      { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Reversão' },
     bulk_delete:      { bg: 'rgba(239,68,68,.12)',   color: '#dc2626', label: 'Excl. Lote' },
+    bulk_register_update: { bg: 'rgba(100,116,139,.12)', color: '#64748b', label: 'Atual. Reg.' },
     password_reset:   { bg: 'rgba(245,158,11,.12)',  color: '#d97706', label: 'Senha' },
   }
   const c = map[action] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)', label: action }

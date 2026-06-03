@@ -3,10 +3,12 @@ import { useParams } from 'react-router-dom'
 import {
   ClipboardList, CheckCircle2, AlertTriangle, XCircle,
   Package, AlertCircle, ChevronLeft, CalendarCheck,
+  Trash2,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { supabase } from '../lib/supabase.js'
+import { useAudit } from '../hooks/useAudit.js'
 import { formatAssetNumber, fmtDate } from '../utils/format.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 
@@ -46,7 +48,7 @@ function SummaryChip({ label, value, color, bg }) {
   )
 }
 
-function ConferenceCard({ conf }) {
+function ConferenceCard({ conf, onDelete, deleting }) {
   const summary = summarize(conf.conference_items || [])
   const total = (conf.conference_items || []).length
   return (
@@ -65,10 +67,21 @@ function ConferenceCard({ conf }) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <SummaryChip label="Ok"          value={summary.ok}           color="#059669" bg="rgba(16,185,129,.08)" />
-          <SummaryChip label="Ausente"     value={summary.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
-          <SummaryChip label="Com Problema" value={summary.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
+        <div className="conference-card-actions">
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <SummaryChip label="Ok"          value={summary.ok}           color="#059669" bg="rgba(16,185,129,.08)" />
+            <SummaryChip label="Ausente"     value={summary.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
+            <SummaryChip label="Com Problema" value={summary.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
+          </div>
+          <button
+            type="button"
+            className="btn-table-action delete"
+            onClick={() => onDelete?.(conf)}
+            disabled={deleting}
+            title="Excluir conferência"
+          >
+            <Trash2 size={14} /> Excluir
+          </button>
         </div>
       </div>
     </div>
@@ -199,12 +212,11 @@ function ChecklistView({
               Observações gerais (opcional)
             </label>
             <textarea
-              className="form-input"
+              className="conference-notes-textarea"
               rows={3}
               placeholder="Alguma observação geral sobre a conferência deste mês..."
               value={generalNotes}
               onChange={(e) => onGeneralNotes(e.target.value)}
-              style={{ fontSize: 13, resize: 'vertical' }}
             />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
               <button type="button" className="btn btn-secondary" onClick={onCancel} disabled={saving}>
@@ -231,7 +243,8 @@ function ChecklistView({
 export function ConferenciasSetor() {
   const { sigla }           = useParams()
   const { user }            = useAuth()
-  const { showToast }       = useToast()
+  const { showToast, confirm } = useToast()
+  const audit                = useAudit()
   const room                = user?.coordinator_room
 
   const [conferences, setConferences]   = useState(null)
@@ -241,6 +254,7 @@ export function ConferenciasSetor() {
   const [checklist, setChecklist]       = useState({})
   const [generalNotes, setGeneralNotes] = useState('')
   const [saving, setSaving]             = useState(false)
+  const [deletingId, setDeletingId]     = useState(null)
 
   const COMP = currentCompetencia()
 
@@ -366,6 +380,40 @@ export function ConferenciasSetor() {
     }
   }
 
+  const deleteConference = async (conf) => {
+    if (!room?.id || !conf?.id) return
+    const ok = await confirm({
+      title: 'Excluir conferencia',
+      message: `Tem certeza que deseja excluir a conferencia de ${compLabel(conf.competencia)}? Os itens e ocorrencias vinculados tambem serao removidos.`,
+      confirmText: 'Excluir',
+      danger: true,
+    })
+    if (!ok) return
+
+    setDeletingId(conf.id)
+    const { error } = await supabase
+      .from('room_conferences')
+      .delete()
+      .eq('id', conf.id)
+      .eq('room_id', room.id)
+
+    if (error) {
+      showToast('Erro ao excluir conferencia: ' + error.message, 'danger')
+      setDeletingId(null)
+      return
+    }
+
+    audit.deleted('room_conferences', conf.id, {
+      room_id: room.id,
+      room_sigla: sigla,
+      competencia: conf.competencia,
+      items_count: conf.conference_items?.length || 0,
+    })
+    showToast('Conferencia excluida com sucesso.', 'success')
+    setDeletingId(null)
+    loadConferences()
+  }
+
   const thisMonthConf = conferences?.find((c) => c.competencia === COMP)
   const history       = conferences?.filter((c) => c.competencia !== COMP) || []
 
@@ -434,10 +482,21 @@ export function ConferenciasSetor() {
             {(() => {
               const s = summarize(thisMonthConf.conference_items)
               return (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <SummaryChip label="Ok"           value={s.ok}           color="#059669" bg="rgba(16,185,129,.08)" />
-                  <SummaryChip label="Ausente"      value={s.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
-                  <SummaryChip label="Com Problema" value={s.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
+                <div className="conference-card-actions">
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <SummaryChip label="Ok"           value={s.ok}           color="#059669" bg="rgba(16,185,129,.08)" />
+                    <SummaryChip label="Ausente"      value={s.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
+                    <SummaryChip label="Com Problema" value={s.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-table-action delete"
+                    onClick={() => deleteConference(thisMonthConf)}
+                    disabled={deletingId === thisMonthConf.id}
+                    title="Excluir conferência"
+                  >
+                    <Trash2 size={14} /> Excluir
+                  </button>
                 </div>
               )
             })()}
@@ -480,7 +539,14 @@ export function ConferenciasSetor() {
             Histórico
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {history.map((conf) => <ConferenceCard key={conf.id} conf={conf} />)}
+            {history.map((conf) => (
+              <ConferenceCard
+                key={conf.id}
+                conf={conf}
+                onDelete={deleteConference}
+                deleting={deletingId === conf.id}
+              />
+            ))}
           </div>
         </>
       )}
