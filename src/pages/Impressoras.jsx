@@ -220,7 +220,16 @@ export function Impressoras() {
               filtered.map((printer) => (
                 <tr key={printer.id}>
                   <td><strong>{printer.hostname}</strong></td>
-                  <td style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{printer.ip_address}</td>
+                  <td>
+                    <a
+                      href={`http://${printer.ip_address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'var(--accent-color)', fontFamily: 'monospace', fontWeight: 700 }}
+                    >
+                      {printer.ip_address}
+                    </a>
+                  </td>
                   <td>{roomLabel(printer.room)}</td>
                   <td>
                     <span className={`badge-status ${printer.status || 'ativa'}`}>
