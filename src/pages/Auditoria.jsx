@@ -10,7 +10,7 @@ import { Pagination } from '../components/Pagination.jsx'
 import { fmtDateTime } from '../utils/format.js'
 
 // Tabelas que suportam soft-delete e podem ter registros restaurados
-const RESTORABLE = new Set(['rooms', 'equipment', 'asset_movements', 'tickets', 'profiles'])
+const RESTORABLE = new Set(['rooms', 'equipment', 'asset_movements', 'tickets', 'profiles', 'printers'])
 
 const ACTIONS = [
   { value: 'create', label: 'Criação' },
@@ -34,6 +34,7 @@ const TABLE_LABELS = {
   profiles: 'Usuários',
   audit_logs: 'Auditoria',
   room_conferences: 'Conferências',
+  printers: 'Impressoras',
 }
 
 const PAGE_SIZE = 50
