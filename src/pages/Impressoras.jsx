@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, X, Pencil, Trash2, Loader2, Printer } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, X, Pencil, Trash2, Loader2, Printer, FileSpreadsheet, Check } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -8,8 +8,11 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
+import { Pagination } from '../components/Pagination.jsx'
 import { fmtDateTime } from '../utils/format.js'
+import { exportXlsx } from '../utils/spreadsheet.js'
 
+const PAGE_SIZE = 20
 const STATUS_OPTIONS = [
   { value: 'ativa', label: 'Ativa' },
   { value: 'inativa', label: 'Inativa' },
@@ -51,6 +54,8 @@ export function Impressoras() {
   const [searchLocal, setSearchLocal] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [roomFilter, setRoomFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
   const loadRef = useRef(null)
 
   const load = async () => {
@@ -99,6 +104,85 @@ export function Impressoras() {
       return hay.includes(q)
     })
   }, [printers, roomFilter, search, searchLocal, statusFilter])
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const pageItems = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [roomFilter, search, searchLocal, statusFilter])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const onPrev = () => setPage((p) => Math.max(1, p - 1))
+  const onNext = () => setPage((p) => Math.min(totalPages, p + 1))
+
+  const toggleSelected = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const allPageSelected = pageItems.length > 0 && pageItems.every((printer) => selectedIds.has(printer.id))
+
+  const toggleAllPage = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (allPageSelected) {
+        pageItems.forEach((printer) => next.delete(printer.id))
+      } else {
+        pageItems.forEach((printer) => next.add(printer.id))
+      }
+      return next
+    })
+  }, [allPageSelected, pageItems])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  const selectedPrinters = useMemo(
+    () => filtered.filter((printer) => selectedIds.has(printer.id)),
+    [filtered, selectedIds],
+  )
+
+  const exportExcel = async () => {
+    const rows = selectedPrinters.length > 0 ? selectedPrinters : filtered
+    if (rows.length === 0) return
+
+    try {
+      await exportXlsx({
+        fileName: `impressoras_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [{
+          name: selectedPrinters.length > 0 ? 'Impressoras Selecionadas' : 'Impressoras',
+          rows: [
+            ['Hostname', 'Endereço IP', 'Sala Vinculada', 'Status', 'Toner', 'Unidade de Imagem', 'Kit de Manutenção', 'Data de Atualização'],
+            ...rows.map((printer) => [
+              printer.hostname || '—',
+              printer.ip_address || '—',
+              roomLabel(printer.room),
+              statusLabel(printer.status),
+              printer.toner_percent == null ? '—' : `${printer.toner_percent}%`,
+              printer.image_unit_percent == null ? '—' : `${printer.image_unit_percent}%`,
+              printer.maintenance_kit_percent == null ? '—' : `${printer.maintenance_kit_percent}%`,
+              printer.updated_at ? fmtDateTime(printer.updated_at) : fmtDateTime(printer.created_at),
+            ]),
+          ],
+          columns: [24, 18, 32, 16, 12, 20, 20, 24],
+        }],
+      })
+      showToast(`${rows.length} impressora${rows.length !== 1 ? 's exportadas' : ' exportada'}!`, 'success')
+    } catch (error) {
+      showToast('Erro ao exportar impressoras: ' + (error?.message || 'falha inesperada'), 'danger')
+    }
+  }
 
   const onDelete = async (id) => {
     const printer = printers.find((item) => item.id === id)
@@ -175,7 +259,7 @@ export function Impressoras() {
         </div>
         <div className="filter-actions">
           <span className="filter-count">
-            {filtered.length} impressora{filtered.length !== 1 ? 's' : ''}
+            {total} impressora{total !== 1 ? 's' : ''}
           </span>
           <button
             className="btn-filter-clear"
@@ -187,13 +271,48 @@ export function Impressoras() {
           >
             <X size={13} /> Limpar
           </button>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ padding: '6px 16px', fontSize: 13, background: '#059669' }}
+            onClick={exportExcel}
+            disabled={total === 0}
+          >
+            <FileSpreadsheet size={14} /> Exportar Excel
+          </button>
         </div>
       </div>
+
+      {selectedPrinters.length > 0 && (
+        <div className="bulk-action-bar fade-in">
+          <div className="bulk-action-info">
+            <Check size={16} />
+            <strong>{selectedPrinters.length}</strong> impressora{selectedPrinters.length !== 1 ? 's' : ''} selecionada{selectedPrinters.length !== 1 ? 's' : ''}
+          </div>
+          <div className="bulk-action-buttons">
+            <button type="button" className="btn-primary" style={{ background: '#059669' }} onClick={exportExcel}>
+              <FileSpreadsheet size={14} /><span className="btn-text"> Exportar selecionadas</span>
+            </button>
+            <button type="button" className="btn-filter-clear" onClick={clearSelection}>
+              <X size={13} /><span className="btn-text"> Limpar seleção</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="table-card fade-in">
         <table className="data-table" style={{ minWidth: 1040 }}>
           <thead>
             <tr>
+              <th style={{ width: 32 }}>
+                <input
+                  type="checkbox"
+                  className="bulk-checkbox"
+                  checked={allPageSelected}
+                  onChange={toggleAllPage}
+                  aria-label="Selecionar todas as impressoras desta página"
+                />
+              </th>
               <th>Hostname</th>
               <th>Endereço IP</th>
               <th>Sala Vinculada</th>
@@ -206,9 +325,9 @@ export function Impressoras() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {total === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <EmptyState
                     icon={Printer}
                     title={search || searchLocal || statusFilter || roomFilter ? 'Nenhuma impressora encontrada' : 'Nenhuma impressora cadastrada'}
@@ -217,8 +336,25 @@ export function Impressoras() {
                 </td>
               </tr>
             ) : (
-              filtered.map((printer) => (
-                <tr key={printer.id}>
+              pageItems.map((printer) => (
+                <tr
+                  key={printer.id}
+                  className={selectedIds.has(printer.id) ? 'row-selected' : ''}
+                  style={{ cursor: 'pointer' }}
+                  onClick={(e) => {
+                    if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('a')) return
+                    toggleSelected(printer.id)
+                  }}
+                >
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="bulk-checkbox"
+                      checked={selectedIds.has(printer.id)}
+                      onChange={() => toggleSelected(printer.id)}
+                      aria-label={`Selecionar ${printer.hostname}`}
+                    />
+                  </td>
                   <td><strong>{printer.hostname}</strong></td>
                   <td>
                     <a
@@ -226,6 +362,7 @@ export function Impressoras() {
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ color: 'var(--accent-color)', fontFamily: 'monospace', fontWeight: 700 }}
+                      onClick={(e) => e.stopPropagation()}
                     >
                       {printer.ip_address}
                     </a>
@@ -258,6 +395,7 @@ export function Impressoras() {
           </tbody>
         </table>
       </div>
+      <Pagination page={page} total={total} pageSize={PAGE_SIZE} onPrev={onPrev} onNext={onNext} />
 
       {createOpen && (
         <PrinterModal
