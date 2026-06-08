@@ -22,7 +22,7 @@ const ACTIONS = [
   { value: 'bulk_move', label: 'Bulk Move (Rastreio)' },
   { value: 'bulk_revert', label: 'Reversão de Lote' },
   { value: 'bulk_delete', label: 'Exclusão de Lote' },
-  { value: 'bulk_register_update', label: 'Atualizacao de Registro' },
+  { value: 'bulk_register_update', label: 'Atualização de Registro' },
   { value: 'password_reset', label: 'Redefinição de Senha' },
 ]
 

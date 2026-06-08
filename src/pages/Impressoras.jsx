@@ -13,7 +13,7 @@ import { fmtDateTime } from '../utils/format.js'
 const STATUS_OPTIONS = [
   { value: 'ativa', label: 'Ativa' },
   { value: 'inativa', label: 'Inativa' },
-  { value: 'manutencao', label: 'Manutencao' },
+  { value: 'manutencao', label: 'Manutenção' },
 ]
 
 function statusLabel(value) {
@@ -122,7 +122,7 @@ export function Impressoras() {
 
     audit.deleted('printers', id, { hostname: printer?.hostname })
     await load()
-    showUndoToast(`Impressora "${printer?.hostname || 'sem hostname'}" excluida.`, async () => {
+    showUndoToast(`Impressora "${printer?.hostname || 'sem hostname'}" excluída.`, async () => {
       await supabase.from('printers').update({ deleted_at: null }).eq('id', id)
       await load()
     })
@@ -135,7 +135,7 @@ export function Impressoras() {
       <div className="view-header">
         <div>
           <h2>Impressoras</h2>
-          <p>Cadastre e acompanhe os equipamentos de impressao da Fundepar.</p>
+          <p>Cadastre e acompanhe os equipamentos de impressão da Fundepar.</p>
         </div>
         <button className="btn-primary" onClick={() => setCreateOpen(true)}>
           <Plus size={14} /> Cadastrar Impressora
@@ -195,14 +195,14 @@ export function Impressoras() {
           <thead>
             <tr>
               <th>Hostname</th>
-              <th>Endereco IP</th>
+              <th>Endereço IP</th>
               <th>Sala Vinculada</th>
               <th>Status</th>
               <th>Toner</th>
               <th>Unidade de Imagem</th>
-              <th>Kit de Manutencao</th>
-              <th>Data de Atualizacao</th>
-              <th style={{ width: 130 }}>Acoes</th>
+              <th>Kit de Manutenção</th>
+              <th>Data de Atualização</th>
+              <th style={{ width: 130 }}>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -366,7 +366,7 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
               />
             </div>
             <div className="form-group">
-              <label>Endereco IP <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <label>Endereço IP <span style={{ color: 'var(--danger-color)' }}>*</span></label>
               <input
                 type="text"
                 className="form-control"
@@ -410,7 +410,7 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
           </div>
 
           <div className="form-group">
-            <label>Kit de Manutencao (%)</label>
+            <label>Kit de Manutenção (%)</label>
             <input type="number" min="0" max="100" className="form-control" value={maintenanceKit} onChange={(e) => setMaintenanceKit(e.target.value)} />
           </div>
 
@@ -419,7 +419,7 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
               Cancelar
             </button>
             <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? <Loader2 size={14} className="spin" /> : editing ? 'Salvar Alteracoes' : 'Cadastrar'}
+              {busy ? <Loader2 size={14} className="spin" /> : editing ? 'Salvar Alterações' : 'Cadastrar'}
             </button>
           </div>
         </form>
