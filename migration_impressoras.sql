@@ -7,6 +7,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS public.printers (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  equipment_id             UUID REFERENCES public.equipment(id) ON DELETE RESTRICT,
+  asset_number             TEXT,
   hostname                 TEXT NOT NULL,
   ip_address               INET NOT NULL,
   room_id                  UUID NOT NULL REFERENCES public.rooms(id) ON DELETE RESTRICT,
@@ -22,6 +24,12 @@ CREATE TABLE IF NOT EXISTS public.printers (
   deleted_at               TIMESTAMPTZ
 );
 
+ALTER TABLE public.printers
+  ADD COLUMN IF NOT EXISTS equipment_id UUID REFERENCES public.equipment(id) ON DELETE RESTRICT;
+
+ALTER TABLE public.printers
+  ADD COLUMN IF NOT EXISTS asset_number TEXT;
+
 CREATE UNIQUE INDEX IF NOT EXISTS printers_hostname_unique
   ON public.printers (lower(hostname))
   WHERE deleted_at IS NULL;
@@ -29,6 +37,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS printers_hostname_unique
 CREATE UNIQUE INDEX IF NOT EXISTS printers_ip_address_unique
   ON public.printers (ip_address)
   WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS printers_asset_number_unique
+  ON public.printers (asset_number)
+  WHERE deleted_at IS NULL
+    AND asset_number IS NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'printers_asset_number_fkey'
+      AND conrelid = 'public.printers'::regclass
+  ) THEN
+    ALTER TABLE public.printers
+      ADD CONSTRAINT printers_asset_number_fkey
+      FOREIGN KEY (asset_number)
+      REFERENCES public.equipment_locations(asset_number)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS printers_equipment_id_idx
+  ON public.printers (equipment_id);
 
 CREATE INDEX IF NOT EXISTS printers_room_id_idx
   ON public.printers (room_id);

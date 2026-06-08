@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X, Pencil, Trash2, Loader2, Printer, FileSpreadsheet, Check } from 'lucide-react'
-import { useOutletContext } from 'react-router-dom'
+import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
@@ -9,7 +9,7 @@ import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
 import { Pagination } from '../components/Pagination.jsx'
-import { fmtDateTime } from '../utils/format.js'
+import { fmtDateTime, formatAssetNumber } from '../utils/format.js'
 import { exportXlsx } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 20
@@ -42,14 +42,29 @@ function roomLabel(room) {
   return [room.room_number, room.name].filter(Boolean).join(' - ') || room.name || '—'
 }
 
+function normalizeText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+function isPrinterEquipment(equipment) {
+  return normalizeText(equipment?.categoria).includes('impressora')
+}
+
+function equipmentModel(printer) {
+  return printer?.equipment?.name || '—'
+}
+
 export function Impressoras() {
   const { search, registerRefresh } = useOutletContext()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { rooms: roomsFetcher } = useStore()
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [printers, setPrinters] = useState(null)
   const [rooms, setRooms] = useState([])
-  const [createOpen, setCreateOpen] = useState(false)
+  const [assetOptions, setAssetOptions] = useState([])
+  const [createPrefill, setCreatePrefill] = useState(null)
   const [editPrinter, setEditPrinter] = useState(null)
   const [searchLocal, setSearchLocal] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -59,20 +74,29 @@ export function Impressoras() {
   const loadRef = useRef(null)
 
   const load = async () => {
-    const [{ data, error }, roomList] = await Promise.all([
+    const [{ data, error }, roomList, { data: locations, error: locationsError }] = await Promise.all([
       supabase
         .from('printers')
-        .select('*, room:room_id(id, name, room_number, sigla)')
+        .select('*, room:room_id(id, name, room_number, sigla), equipment:equipment_id(id, name, categoria)')
         .is('deleted_at', null)
         .order('hostname'),
       roomsFetcher(),
+      supabase
+        .from('equipment_locations')
+        .select('asset_number, equipment_id, current_room_id, equipment:equipment_id(id, name, categoria)')
+        .not('asset_number', 'is', null)
+        .order('asset_number'),
     ])
     if (error) {
       showToast('Erro ao carregar impressoras: ' + error.message, 'danger')
       return
     }
+    if (locationsError) {
+      showToast('Erro ao carregar patrimônios de impressoras: ' + locationsError.message, 'danger')
+    }
     setPrinters(data || [])
     setRooms(roomList || [])
+    setAssetOptions((locations || []).filter((item) => isPrinterEquipment(item.equipment)))
   }
   loadRef.current = load
 
@@ -82,6 +106,18 @@ export function Impressoras() {
     return () => registerRefresh?.(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const prefill = location.state?.printerAsset
+    if (!prefill || !printers) return
+    const existing = printers.find((printer) => printer.asset_number === prefill.assetNumber)
+    if (existing) {
+      setEditPrinter(existing)
+    } else {
+      setCreatePrefill(prefill)
+    }
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.pathname, location.state, navigate, printers])
 
   const filtered = useMemo(() => {
     if (!printers) return []
@@ -94,6 +130,9 @@ export function Impressoras() {
         printer.hostname,
         printer.ip_address,
         printer.status,
+        printer.asset_number,
+        printer.equipment?.name,
+        printer.equipment?.categoria,
         printer.room?.name,
         printer.room?.room_number,
         printer.room?.sigla,
@@ -163,9 +202,11 @@ export function Impressoras() {
         sheets: [{
           name: selectedPrinters.length > 0 ? 'Impressoras Selecionadas' : 'Impressoras',
           rows: [
-            ['Hostname', 'Endereço IP', 'Sala Vinculada', 'Status', 'Toner', 'Unidade de Imagem', 'Kit de Manutenção', 'Data de Atualização'],
+            ['Hostname', 'Modelo do Equipamento', 'Patrimônio', 'Endereço IP', 'Sala Vinculada', 'Status', 'Toner', 'Unidade de Imagem', 'Kit de Manutenção', 'Data de Atualização'],
             ...rows.map((printer) => [
               printer.hostname || '—',
+              equipmentModel(printer),
+              formatAssetNumber(printer.asset_number) || '—',
               printer.ip_address || '—',
               roomLabel(printer.room),
               statusLabel(printer.status),
@@ -175,7 +216,7 @@ export function Impressoras() {
               printer.updated_at ? fmtDateTime(printer.updated_at) : fmtDateTime(printer.created_at),
             ]),
           ],
-          columns: [24, 18, 32, 16, 12, 20, 20, 24],
+          columns: [24, 28, 18, 18, 32, 16, 12, 20, 20, 24],
         }],
       })
       showToast(`${rows.length} impressora${rows.length !== 1 ? 's exportadas' : ' exportada'}!`, 'success')
@@ -221,7 +262,7 @@ export function Impressoras() {
           <h2>Impressoras</h2>
           <p>Cadastre e acompanhe os equipamentos de impressão da Fundepar.</p>
         </div>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+        <button className="btn-primary" onClick={() => setCreatePrefill({})}>
           <Plus size={14} /> Cadastrar Impressora
         </button>
       </div>
@@ -301,7 +342,7 @@ export function Impressoras() {
       )}
 
       <div className="table-card fade-in">
-        <table className="data-table" style={{ minWidth: 1040 }}>
+        <table className="data-table" style={{ minWidth: 1280 }}>
           <thead>
             <tr>
               <th style={{ width: 32 }}>
@@ -314,6 +355,8 @@ export function Impressoras() {
                 />
               </th>
               <th>Hostname</th>
+              <th>Modelo do Equipamento</th>
+              <th>Patrimônio</th>
               <th>Endereço IP</th>
               <th>Sala Vinculada</th>
               <th>Status</th>
@@ -327,7 +370,7 @@ export function Impressoras() {
           <tbody>
             {total === 0 ? (
               <tr>
-                <td colSpan={10}>
+                <td colSpan={12}>
                   <EmptyState
                     icon={Printer}
                     title={search || searchLocal || statusFilter || roomFilter ? 'Nenhuma impressora encontrada' : 'Nenhuma impressora cadastrada'}
@@ -356,6 +399,10 @@ export function Impressoras() {
                     />
                   </td>
                   <td><strong>{printer.hostname}</strong></td>
+                  <td>{equipmentModel(printer)}</td>
+                  <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                    {formatAssetNumber(printer.asset_number) || '—'}
+                  </td>
                   <td>
                     <a
                       href={`http://${printer.ip_address}`}
@@ -397,12 +444,14 @@ export function Impressoras() {
       </div>
       <Pagination page={page} total={total} pageSize={PAGE_SIZE} onPrev={onPrev} onNext={onNext} />
 
-      {createOpen && (
+      {createPrefill !== null && (
         <PrinterModal
           rooms={rooms}
-          onClose={() => setCreateOpen(false)}
+          assetOptions={assetOptions}
+          prefill={createPrefill}
+          onClose={() => setCreatePrefill(null)}
           onSaved={async () => {
-            setCreateOpen(false)
+            setCreatePrefill(null)
             await load()
           }}
         />
@@ -411,6 +460,7 @@ export function Impressoras() {
         <PrinterModal
           printer={editPrinter}
           rooms={rooms}
+          assetOptions={assetOptions}
           onClose={() => setEditPrinter(null)}
           onSaved={async () => {
             setEditPrinter(null)
@@ -422,28 +472,77 @@ export function Impressoras() {
   )
 }
 
-function PrinterModal({ printer, rooms, onClose, onSaved }) {
+function PrinterModal({ printer, rooms, assetOptions = [], prefill = {}, onClose, onSaved }) {
   const { user } = useAuth()
   const { showToast } = useToast()
   const audit = useAudit()
   const editing = !!printer
   const [busy, setBusy] = useState(false)
+  const [assetNumber, setAssetNumber] = useState(printer?.asset_number || prefill?.assetNumber || '')
+  const [equipmentId, setEquipmentId] = useState(printer?.equipment_id || prefill?.equipmentId || '')
   const [hostname, setHostname] = useState(printer?.hostname || '')
   const [ipAddress, setIpAddress] = useState(printer?.ip_address || '')
-  const [roomId, setRoomId] = useState(printer?.room_id || '')
+  const [roomId, setRoomId] = useState(printer?.room_id || prefill?.roomId || '')
   const [status, setStatus] = useState(printer?.status || 'ativa')
   const [toner, setToner] = useState(printer?.toner_percent ?? '')
   const [imageUnit, setImageUnit] = useState(printer?.image_unit_percent ?? '')
   const [maintenanceKit, setMaintenanceKit] = useState(printer?.maintenance_kit_percent ?? '')
 
+  const availableAssets = useMemo(() => {
+    if (!assetNumber || assetOptions.some((item) => item.asset_number === assetNumber)) {
+      return assetOptions
+    }
+    return [
+      {
+        asset_number: assetNumber,
+        equipment_id: equipmentId,
+        current_room_id: roomId,
+        equipment: {
+          id: equipmentId,
+          name: printer?.equipment?.name || prefill?.equipmentName || 'Equipamento vinculado',
+          categoria: printer?.equipment?.categoria || 'Impressora',
+        },
+      },
+      ...assetOptions,
+    ]
+  }, [assetNumber, assetOptions, equipmentId, prefill?.equipmentName, printer?.equipment, roomId])
+
+  const selectedAsset = useMemo(
+    () => availableAssets.find((item) => item.asset_number === assetNumber) || null,
+    [assetNumber, availableAssets],
+  )
+  const selectedEquipmentName = selectedAsset?.equipment?.name || printer?.equipment?.name || prefill?.equipmentName || ''
+
+  useEffect(() => {
+    if (!selectedAsset) return
+    setEquipmentId(selectedAsset.equipment_id || '')
+    if (selectedAsset.current_room_id) setRoomId(selectedAsset.current_room_id)
+  }, [selectedAsset])
+
   const submit = async (e) => {
     e.preventDefault()
+    const finalEquipmentId = selectedAsset?.equipment_id || equipmentId
+    const finalRoomId = roomId || selectedAsset?.current_room_id
+    if (!assetNumber) {
+      showToast('Selecione o patrimônio vinculado à impressora.', 'warning')
+      return
+    }
+    if (!finalEquipmentId) {
+      showToast('O patrimônio selecionado não possui equipamento vinculado.', 'warning')
+      return
+    }
+    if (!finalRoomId) {
+      showToast('Selecione a sala vinculada.', 'warning')
+      return
+    }
     setBusy(true)
 
     const updates = {
+      equipment_id: finalEquipmentId,
+      asset_number: assetNumber,
       hostname: hostname.trim(),
       ip_address: ipAddress.trim(),
-      room_id: roomId,
+      room_id: finalRoomId,
       status,
       toner_percent: normalizePercent(toner),
       image_unit_percent: normalizePercent(imageUnit),
@@ -461,6 +560,8 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
       audit.updated('printers', printer.id, {
         previous: {
           hostname: printer.hostname,
+          equipment_id: printer.equipment_id,
+          asset_number: printer.asset_number,
           ip_address: printer.ip_address,
           room_id: printer.room_id,
           status: printer.status,
@@ -485,7 +586,12 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
       setBusy(false)
       return
     }
-    audit.created('printers', inserted?.id, { hostname: updates.hostname, ip_address: updates.ip_address })
+    audit.created('printers', inserted?.id, {
+      hostname: updates.hostname,
+      ip_address: updates.ip_address,
+      equipment_id: updates.equipment_id,
+      asset_number: updates.asset_number,
+    })
     showToast('Impressora cadastrada!', 'success')
     onSaved()
   }
@@ -500,6 +606,35 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
           </button>
         </div>
         <form onSubmit={submit}>
+          <div className="form-2col">
+            <div className="form-group">
+              <label>Patrimônio vinculado <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <select
+                className="form-control"
+                required
+                value={assetNumber}
+                onChange={(e) => setAssetNumber(e.target.value)}
+              >
+                <option value="">Selecione...</option>
+                {availableAssets.map((item) => (
+                  <option key={item.asset_number} value={item.asset_number}>
+                    {formatAssetNumber(item.asset_number)} - {item.equipment?.name || 'Equipamento sem nome'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Modelo do equipamento</label>
+              <input
+                type="text"
+                className="form-control"
+                value={selectedEquipmentName}
+                readOnly
+                placeholder="Selecione um patrimônio"
+              />
+            </div>
+          </div>
+
           <div className="form-2col">
             <div className="form-group">
               <label>Hostname <span style={{ color: 'var(--danger-color)' }}>*</span></label>
