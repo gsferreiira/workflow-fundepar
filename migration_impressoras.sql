@@ -56,35 +56,39 @@ CREATE TRIGGER printers_set_updated_at
 ALTER TABLE public.printers ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "select_printers_admin" ON public.printers;
-CREATE POLICY "select_printers_admin"
+DROP POLICY IF EXISTS "select_printers_admin_tecnico" ON public.printers;
+CREATE POLICY "select_printers_admin_tecnico"
   ON public.printers FOR SELECT TO authenticated
   USING (
     deleted_at IS NULL
-    AND (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    AND (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
   );
 
 DROP POLICY IF EXISTS "insert_printers_admin" ON public.printers;
-CREATE POLICY "insert_printers_admin"
+DROP POLICY IF EXISTS "insert_printers_admin_tecnico" ON public.printers;
+CREATE POLICY "insert_printers_admin_tecnico"
   ON public.printers FOR INSERT TO authenticated
   WITH CHECK (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
   );
 
 DROP POLICY IF EXISTS "update_printers_admin" ON public.printers;
-CREATE POLICY "update_printers_admin"
+DROP POLICY IF EXISTS "update_printers_admin_tecnico" ON public.printers;
+CREATE POLICY "update_printers_admin_tecnico"
   ON public.printers FOR UPDATE TO authenticated
   USING (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
   )
   WITH CHECK (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
   );
 
 DROP POLICY IF EXISTS "delete_printers_admin" ON public.printers;
-CREATE POLICY "delete_printers_admin"
+DROP POLICY IF EXISTS "delete_printers_admin_tecnico" ON public.printers;
+CREATE POLICY "delete_printers_admin_tecnico"
   ON public.printers FOR DELETE TO authenticated
   USING (
-    (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'admin'
+    (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin', 'tecnico')
   );
 
 -- Verificacao:

@@ -41,7 +41,7 @@ export const DEFAULT_PERMISSIONS = {
   rastreio:      ['admin', 'tecnico', 'usuario'],
   'mapa-salas':  ['admin', 'tecnico', 'usuario'],
   salas:         ['admin'],
-  impressoras:   ['admin'],
+  impressoras:   ['admin', 'tecnico'],
   usuarios:      ['admin'],
   conferencias:  ['admin', 'tecnico'],
   auditoria:     ['admin'],
