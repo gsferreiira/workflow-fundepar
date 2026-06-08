@@ -371,7 +371,7 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
                 required
                 value={hostname}
                 onChange={(e) => setHostname(e.target.value)}
-                placeholder="Ex: IMP-DVTI-01"
+                placeholder="Ex: IFUNDEPARXXXX"
               />
             </div>
             <div className="form-group">
@@ -382,7 +382,7 @@ function PrinterModal({ printer, rooms, onClose, onSaved }) {
                 required
                 value={ipAddress}
                 onChange={(e) => setIpAddress(e.target.value)}
-                placeholder="Ex: 192.168.0.10"
+                placeholder="Ex: 10.45.0.XXX"
               />
             </div>
           </div>
