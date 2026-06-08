@@ -34,6 +34,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         // Cacheia HTML/CSS/JS pra funcionar offline depois da primeira visita
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Bibliotecas pesadas (Tesseract, ZXing) vêm do CDN local — não pre-cacheia
