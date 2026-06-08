@@ -39,6 +39,12 @@ const normalizeAssetNumber = (value) => {
   return String(value || '').trim()
 }
 
+const normalizeText = (value) =>
+  String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+
+const isPrinterEquipment = (equipment) =>
+  normalizeText(equipment?.categoria).includes('impressora')
+
 function StatusBadge({ status }) {
   const s = (status || '').toLowerCase()
   const c = STATUS_MAP[s] || { bg: 'rgba(0,0,0,.06)', color: 'var(--text-secondary)' }
@@ -812,9 +818,21 @@ export function Registro() {
           equipmentFetcher={equipmentFetcher}
           invalidate={invalidate}
           onClose={() => setNewRegistroAsset(null)}
-          onSaved={() => {
+          onSaved={(payload) => {
             setNewRegistroAsset(null)
             refetch()
+            if (payload?.isPrinter) {
+              navigate('/impressoras', {
+                state: {
+                  printerAsset: {
+                    assetNumber: payload.assetNumber,
+                    equipmentId: payload.equipmentId,
+                    equipmentName: payload.equipmentName,
+                    roomId: payload.roomId,
+                  },
+                },
+              })
+            }
           }}
         />
       )}
@@ -956,6 +974,7 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
 
     setBusy(true)
     const movedAt = new Date().toISOString()
+    const selectedEquipment = equipment.find((eq) => eq.id === eqId) || null
     const { error } = await supabase
       .from('equipment_locations')
       .upsert({
@@ -985,7 +1004,13 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
 
     audit.created('equipment_locations', assetNumber, { asset_number: assetNumber, equipment_id: eqId, current_room_id: roomId })
     showToast('Registro criado com sucesso!', 'success')
-    onSaved()
+    onSaved({
+      assetNumber,
+      equipmentId: eqId,
+      equipmentName: selectedEquipment?.name || eqName || null,
+      roomId,
+      isPrinter: isPrinterEquipment(selectedEquipment),
+    })
   }
 
   return (

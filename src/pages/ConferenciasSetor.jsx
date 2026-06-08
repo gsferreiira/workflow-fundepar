@@ -409,7 +409,7 @@ export function ConferenciasSetor() {
       competencia: conf.competencia,
       items_count: conf.conference_items?.length || 0,
     })
-    showToast('Conferencia excluida com sucesso.', 'success')
+    showToast('Conferência excluída com sucesso.', 'success')
     setDeletingId(null)
     loadConferences()
   }

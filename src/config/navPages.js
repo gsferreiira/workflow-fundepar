@@ -1,5 +1,5 @@
 import {
-  Home, LayoutDashboard, KanbanSquare, Package, ArrowRightLeft,
+  Home, LayoutDashboard, KanbanSquare, Package, ArrowRightLeft, Printer,
   Search, LayoutGrid, MapPin, Users, ShieldCheck, Lock, CircleUser, ClipboardList,
 } from 'lucide-react'
 
@@ -21,6 +21,7 @@ export const NAV_PAGES = [
   { separator: 'Administração' },
 
   { key: 'salas',         to: '/salas',         icon: MapPin,          label: 'Cadastro de Salas' },
+  { key: 'impressoras',   to: '/impressoras',   icon: Printer,         label: 'Impressoras' },
   { key: 'usuarios',      to: '/usuarios',      icon: Users,           label: 'Cadastro de Usuários' },
   { key: 'conferencias',  to: '/conferencias',  icon: ClipboardList,   label: 'Conferências' },
   { key: 'auditoria',     to: '/auditoria',     icon: ShieldCheck,     label: 'Auditoria' },
@@ -40,6 +41,7 @@ export const DEFAULT_PERMISSIONS = {
   rastreio:      ['admin', 'tecnico', 'usuario'],
   'mapa-salas':  ['admin', 'tecnico', 'usuario'],
   salas:         ['admin'],
+  impressoras:   ['admin', 'tecnico'],
   usuarios:      ['admin'],
   conferencias:  ['admin', 'tecnico'],
   auditoria:     ['admin'],

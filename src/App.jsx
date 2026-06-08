@@ -24,6 +24,7 @@ import { Movimentacoes } from "./pages/Movimentacoes.jsx";
 import { Registro } from "./pages/Registro.jsx";
 import { MapaSalas } from "./pages/MapaSalas.jsx";
 import { Salas } from "./pages/Salas.jsx";
+import { Impressoras } from "./pages/Impressoras.jsx";
 import { Usuarios } from "./pages/Usuarios.jsx";
 import { Perfil } from "./pages/Perfil.jsx";
 import { Auditoria } from "./pages/Auditoria.jsx";
@@ -113,6 +114,9 @@ function App() {
                     <Route path="/mapa-salas" element={<MapaSalas />} />
                     <Route element={<RoleRoute pageKey="salas" />}>
                       <Route path="/salas" element={<Salas />} />
+                    </Route>
+                    <Route element={<RoleRoute pageKey="impressoras" />}>
+                      <Route path="/impressoras" element={<Impressoras />} />
                     </Route>
                     <Route element={<RoleRoute pageKey="usuarios" />}>
                       <Route path="/usuarios" element={<Usuarios />} />
