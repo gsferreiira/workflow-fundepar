@@ -1,3 +1,16 @@
+// Normaliza número de patrimônio para o formato 000.000.000.000
+export const normalizeAssetNumber = (value) => {
+  const digits = String(value || '').replace(/\D/g, '')
+  if (digits.length === 12) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
+  }
+  return String(value || '').trim()
+}
+
+// Remove acentos e converte para minúsculas (busca normalizada)
+export const normalizeText = (value) =>
+  String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
 // Formata número de patrimônio como 000.000.000.000
 export const formatAssetNumber = (raw) => {
   if (!raw) return ''

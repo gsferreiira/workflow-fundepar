@@ -9,7 +9,7 @@ import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
 import { Pagination } from '../components/Pagination.jsx'
-import { fmtDateTime, formatAssetNumber } from '../utils/format.js'
+import { fmtDateTime, formatAssetNumber, normalizeText } from '../utils/format.js'
 import { exportXlsx } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 20
@@ -40,10 +40,6 @@ function PercentCell({ value }) {
 function roomLabel(room) {
   if (!room) return '—'
   return [room.room_number, room.name].filter(Boolean).join(' - ') || room.name || '—'
-}
-
-function normalizeText(value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
 function isPrinterEquipment(equipment) {
@@ -535,6 +531,12 @@ function PrinterModal({ printer, rooms, assetOptions = [], prefill = {}, onClose
       showToast('Selecione a sala vinculada.', 'warning')
       return
     }
+    const ipTrimmed = ipAddress.trim()
+    const ipv4Re = /^(\d{1,3}\.){3}\d{1,3}$/
+    if (!ipv4Re.test(ipTrimmed) || ipTrimmed.split('.').some((n) => Number(n) > 255)) {
+      showToast('Endereço IP inválido. Use o formato 0.0.0.0 a 255.255.255.255.', 'warning')
+      return
+    }
     setBusy(true)
 
     const updates = {
@@ -572,6 +574,7 @@ function PrinterModal({ printer, rooms, assetOptions = [], prefill = {}, onClose
         next: updates,
       })
       showToast('Impressora atualizada!', 'success')
+      setBusy(false)
       onSaved()
       return
     }
@@ -593,6 +596,7 @@ function PrinterModal({ printer, rooms, assetOptions = [], prefill = {}, onClose
       asset_number: updates.asset_number,
     })
     showToast('Impressora cadastrada!', 'success')
+    setBusy(false)
     onSaved()
   }
 

@@ -10,7 +10,7 @@ import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
 import { Scanner } from '../components/Scanner.jsx'
 import { Pagination } from '../components/Pagination.jsx'
-import { applyAssetMask, formatAssetNumber, fmtDateTime } from '../utils/format.js'
+import { applyAssetMask, formatAssetNumber, fmtDateTime, normalizeAssetNumber, normalizeText } from '../utils/format.js'
 import { exportXlsx } from '../utils/spreadsheet.js'
 
 const PAGE_SIZE = 25
@@ -30,17 +30,6 @@ const STATUS_OPTIONS = [
   { value: 'inservível', label: 'Inservível' },
   { value: 'com defeito', label: 'Com Defeito' },
 ]
-
-const normalizeAssetNumber = (value) => {
-  const digits = String(value || '').replace(/\D/g, '')
-  if (digits.length === 12) {
-    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
-  }
-  return String(value || '').trim()
-}
-
-const normalizeText = (value) =>
-  String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 const isPrinterEquipment = (equipment) =>
   normalizeText(equipment?.categoria).includes('impressora')
@@ -1165,6 +1154,7 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
       asset_numbers: newAssets,
     })
     showToast(`${newAssets.length} registro${newAssets.length !== 1 ? 's' : ''} criado${newAssets.length !== 1 ? 's' : ''}.`, 'success')
+    setBusy(false)
     onSaved()
   }
 
@@ -1385,6 +1375,7 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, equipmentFetcher, inva
       },
     })
     showToast('Equipamento atualizado com sucesso!', 'success')
+    setBusy(false)
     onSaved()
   }
 
@@ -1549,8 +1540,37 @@ function BulkMovementModal({ items, user, onClose, onSuccess }) {
       return
     }
 
-    for (const item of movableItems) {
-      const { error: locationError } = await updateLocation(item, movedAt, receiver ?? item.received_by ?? null)
+    // Itens com asset_number: batch upsert em uma única chamada
+    const withAsset = movableItems.filter((i) => i.asset_number)
+    const withoutAsset = movableItems.filter((i) => !i.asset_number)
+
+    if (withAsset.length > 0) {
+      const upsertPayload = withAsset.map((item) => ({
+        equipment_id: item.equipment_id,
+        asset_number: item.asset_number,
+        serial_number: item.serial_number || null,
+        current_room_id: destRoomId,
+        received_by: receiver ?? item.received_by ?? null,
+        moved_at: movedAt,
+      }))
+      const { error: upsertError } = await supabase
+        .from('equipment_locations')
+        .upsert(upsertPayload, { onConflict: 'asset_number' })
+      if (upsertError) {
+        showToast('Movimenta\u00e7\u00f5es criadas, mas houve erro ao atualizar o Registro: ' + upsertError.message, 'warning')
+        setSubmitting(false)
+        return
+      }
+    }
+
+    // Itens sem asset_number: atualização individual (chave composta, não pode agrupar)
+    for (const item of withoutAsset) {
+      let query = supabase
+        .from('equipment_locations')
+        .update({ current_room_id: destRoomId, received_by: receiver ?? item.received_by ?? null, moved_at: movedAt })
+        .eq('equipment_id', item.equipment_id)
+      query = item.serial_number ? query.eq('serial_number', item.serial_number) : query.is('serial_number', null)
+      const { error: locationError } = await query
       if (locationError) {
         showToast('Movimenta\u00e7\u00f5es criadas, mas houve erro ao atualizar o Registro: ' + locationError.message, 'warning')
         setSubmitting(false)
@@ -1742,31 +1762,46 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
         moved_at: movedAt,
       }))
 
-    for (const record of records) {
+    // Itens com asset_number: batch upsert em uma única chamada
+    const withAsset = records.filter((r) => r.asset_number)
+    const withoutAsset = records.filter((r) => !r.asset_number)
+
+    if (withAsset.length > 0) {
+      const upsertPayload = withAsset.map((r) => ({
+        equipment_id: r.equipment_id,
+        asset_number: r.asset_number,
+        serial_number: r.serial_number,
+        current_room_id: r.current_room_id,
+        received_by: r.received_by,
+        moved_at: r.moved_at,
+      }))
+      const { error } = await supabase
+        .from('equipment_locations')
+        .upsert(upsertPayload, { onConflict: 'asset_number' })
+      if (error) {
+        showToast('Erro ao atualizar registro: ' + error.message, 'danger')
+        setSubmitting(false)
+        return
+      }
+    }
+
+    // Itens sem asset_number: atualização individual (chave composta, não pode agrupar)
+    for (const record of withoutAsset) {
       const payload = {
         equipment_id: record.equipment_id,
-        asset_number: record.asset_number,
         serial_number: record.serial_number,
         current_room_id: record.current_room_id,
         received_by: record.received_by,
         moved_at: record.moved_at,
       }
-      let locationResult
-      if (record.asset_number) {
-        locationResult = await supabase
-          .from('equipment_locations')
-          .upsert(payload, { onConflict: 'asset_number' })
-      } else {
-        let query = supabase
-          .from('equipment_locations')
-          .update(payload)
-          .eq('equipment_id', record.original_equipment_id)
-        query = record.original_serial_number
-          ? query.eq('serial_number', record.original_serial_number)
-          : query.is('serial_number', null)
-        locationResult = await query
-      }
-      const { error } = locationResult
+      let query = supabase
+        .from('equipment_locations')
+        .update(payload)
+        .eq('equipment_id', record.original_equipment_id)
+      query = record.original_serial_number
+        ? query.eq('serial_number', record.original_serial_number)
+        : query.is('serial_number', null)
+      const { error } = await query
       if (error) {
         showToast('Erro ao atualizar registro: ' + error.message, 'danger')
         setSubmitting(false)

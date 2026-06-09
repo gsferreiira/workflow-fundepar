@@ -28,6 +28,7 @@ import { Pagination } from '../components/Pagination.jsx'
 import { Scanner, ScanResultModal } from '../components/Scanner.jsx'
 import {
   formatAssetNumber,
+  normalizeAssetNumber,
   applyAssetMask,
   fmtDate,
   fmtDateTime,
@@ -82,14 +83,6 @@ function ReceiverSelect({ profiles, profileId, text, onProfileChange, onTextChan
       )}
     </>
   )
-}
-
-const normalizeAssetNumber = (value) => {
-  const digits = String(value || '').replace(/\D/g, '')
-  if (digits.length === 12) {
-    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}.${digits.slice(9, 12)}`
-  }
-  return String(value || '').trim()
 }
 
 function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
