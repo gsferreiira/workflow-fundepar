@@ -24,12 +24,6 @@ CREATE TABLE IF NOT EXISTS public.printers (
   deleted_at               TIMESTAMPTZ
 );
 
-ALTER TABLE public.printers
-  ADD COLUMN IF NOT EXISTS equipment_id UUID REFERENCES public.equipment(id) ON DELETE RESTRICT;
-
-ALTER TABLE public.printers
-  ADD COLUMN IF NOT EXISTS asset_number TEXT;
-
 CREATE UNIQUE INDEX IF NOT EXISTS printers_hostname_unique
   ON public.printers (lower(hostname))
   WHERE deleted_at IS NULL;
