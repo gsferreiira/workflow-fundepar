@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import { supabase, createTempClient } from '../lib/supabase.js'
 import { useToast } from './ToastContext.jsx'
 
@@ -18,6 +18,8 @@ export function AuthProvider({ children }) {
   // Antes existia um registerToast() que nunca era chamado, por isso os toasts
   // de "senha inválida" e demais erros de auth caíam silenciosamente no console.
   const { showToast } = useToast()
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
 
   const fallbackUser = useCallback((authUser) => ({
     ...authUser,
@@ -51,7 +53,7 @@ export function AuthProvider({ children }) {
     if (error) {
       console.error('Erro ao buscar perfil:', error.message)
       const fallback = fallbackUser(authUser)
-      setUser(fallback)
+      if (mountedRef.current) setUser(fallback)
       return fallback
     }
 
@@ -67,10 +69,10 @@ export function AuthProvider({ children }) {
       if (room) merged.coordinator_room = room
     }
 
-    setUser(merged)
+    if (mountedRef.current) setUser(merged)
 
     // Sincroniza email no perfil
-    if (!profile.email) {
+    if (!profile.email && mountedRef.current) {
       const { error: syncError } = await supabase
         .from('profiles')
         .update({ email: authUser.email })
@@ -157,7 +159,6 @@ export function AuthProvider({ children }) {
         showToast(translateAuthError(error.message), 'danger')
         return null
       }
-      if (data.user) fetchProfileInBackground(data.user)
       return data.user
     } catch (error) {
       showToast(translateAuthError(error.message), 'danger')

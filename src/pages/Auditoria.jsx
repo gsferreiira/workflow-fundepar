@@ -78,7 +78,7 @@ export function Auditoria() {
   const isAdmin = user?.role === 'admin'
 
   useEffect(() => {
-    profilesFetcher().then(setProfiles)
+    profilesFetcher().then(setProfiles).catch(() => {})
   }, [profilesFetcher])
 
   const fetchPage = async (p, currentFilters = filters) => {
@@ -190,8 +190,22 @@ export function Auditoria() {
     }
 
     // 2. Cria movimentações inversas (troca origem ↔ destino)
+    // Filtra movimentações sem sala de origem — não é possível criar reversa sem destino válido
+    const revertable = originalMovs.filter((m) => m.origin_room_id)
+    const skippedNullOrigin = originalMovs.length - revertable.length
+    if (skippedNullOrigin > 0) {
+      showToast(
+        `${skippedNullOrigin} item(ns) sem sala de origem definida foram pulados.`,
+        'warning',
+      )
+    }
+    if (revertable.length === 0) {
+      showToast('Nenhuma movimentação possui sala de origem — reversão não é possível.', 'warning')
+      setUndoBusy(false)
+      return
+    }
     const movedAt = new Date().toISOString()
-    const reverseMovs = originalMovs.map((m) => ({
+    const reverseMovs = revertable.map((m) => ({
       equipment_id: m.equipment_id,
       serial_number: m.serial_number,
       asset_number: m.asset_number,
@@ -209,8 +223,8 @@ export function Auditoria() {
       return
     }
 
-    // 3. Soft-delete das movimentações originais
-    const originalIds = originalMovs.map((m) => m.id)
+    // 3. Soft-delete das movimentações originais (apenas as que foram revertidas)
+    const originalIds = revertable.map((m) => m.id)
     const { error: delError } = await supabase
       .from('asset_movements')
       .update({ deleted_at: new Date().toISOString() })
@@ -240,12 +254,12 @@ export function Auditoria() {
     // 5. Loga a reversão
     audit.log('bulk_revert', 'asset_movements', null, {
       reverted_log_id: log.id,
-      count: originalMovs.length,
+      count: revertable.length,
       reverted_by: user.id,
     })
 
     showToast(
-      `${originalMovs.length} movimentaç${originalMovs.length === 1 ? 'ão revertida' : 'ões revertidas'} com sucesso. Equipamentos voltaram às salas de origem.`,
+      `${revertable.length} movimentaç${revertable.length === 1 ? 'ão revertida' : 'ões revertidas'} com sucesso. Equipamentos voltaram às salas de origem.`,
       'success',
     )
     setUndoBusy(false)

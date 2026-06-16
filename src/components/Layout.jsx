@@ -45,7 +45,7 @@ export function Layout() {
   const { state: pullState } = usePullToRefresh(() => refreshFnRef.current?.())
 
   useEffect(() => {
-    roomsFetcher().then(setRooms)
+    roomsFetcher().then(setRooms).catch(() => {})
   }, [roomsFetcher])
 
   // Debounce do search e reset entre rotas.
@@ -102,7 +102,7 @@ export function Layout() {
         tickets: (tickets || []).map(t => ({ ...t, room_name: t.room?.name })),
       })
     }
-    run()
+    run().catch(() => { if (!cancelled) setSearchResults(null) })
     return () => { cancelled = true }
   }, [searchDebounced])
 

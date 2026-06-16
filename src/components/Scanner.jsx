@@ -160,8 +160,10 @@ export function Scanner({
       // não estava pronta. Se já existir, reutiliza.
       if (!ocrWorkerRef.current) {
         const worker = await Tesseract.createWorker('eng')
-        await worker.setParameters({ tessedit_char_whitelist: '0123456789.' })
+        // Ref atribuído antes de setParameters para garantir que stop() consiga
+        // terminar o worker caso seja chamado durante a inicialização
         ocrWorkerRef.current = worker
+        await worker.setParameters({ tessedit_char_whitelist: '0123456789.' })
       }
     } catch (err) {
       // Falha ao criar worker — silencia (BarcodeDetector é o fallback)

@@ -138,6 +138,7 @@ export function Dashboard() {
     setData(null)
 
     const load = async () => {
+      try {
       const startDate = startOfPeriod(period)
       const startIso = startDate.toISOString()
       const [
@@ -379,6 +380,12 @@ export function Dashboard() {
           ],
         },
       })
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Dashboard: erro ao carregar dados', err)
+          setData([])
+        }
+      }
     }
 
     load()

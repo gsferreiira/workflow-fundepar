@@ -25,6 +25,7 @@ function useConferencePending(user) {
       .then(({ count }) => {
         if (!cancelled) setPending((count ?? 0) === 0)
       })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [user?.role, user?.coordinator_room?.id])
 
@@ -53,7 +54,7 @@ export function Sidebar({ open, onLinkClick }) {
   const { canInstall, install } = usePWAInstall()
   const conferencePending = useConferencePending(user)
   const role = user?.role || 'usuario'
-  const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
+  const avatarInitial = (user?.full_name || 'U').charAt(0).toUpperCase()
   const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
 
   const isCoordinator = role === 'coordenador'
@@ -148,7 +149,9 @@ export function Sidebar({ open, onLinkClick }) {
           title="Ver meu perfil"
           onClick={onLinkClick}
         >
-          <img src={avatarUrl} alt="Avatar" className="avatar" />
+          <div className="avatar" style={{ background: '#0c4a6e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, userSelect: 'none', flexShrink: 0 }}>
+            {avatarInitial}
+          </div>
           <div className="profile-info">
             <div className="name" title={user?.full_name || ''}>
               {user?.full_name || '—'}
