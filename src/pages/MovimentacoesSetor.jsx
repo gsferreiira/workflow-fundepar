@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import { MapPin, ArrowRight, AlertCircle, Search, Download } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -104,16 +104,9 @@ export function MovimentacoesSetor() {
   const [typeFilter, setTypeFilter] = useState('all')
   const [monthFilter, setMonthFilter] = useState('')
   const [search, setSearch]         = useState('')
-  const [searchQ, setSearchQ]       = useState('')   // debounced value sent to DB
   const [exporting, setExporting]   = useState(false)
-  const debounceRef                 = useRef(null)
 
-  const onSearchChange = (e) => {
-    const val = e.target.value
-    setSearch(val)
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => { setSearchQ(val); setPage(1) }, 400)
-  }
+  const onSearchChange = (e) => { setSearch(e.target.value) }
 
   const load = useCallback(async (p = 1) => {
     if (!room?.id) return
@@ -132,10 +125,6 @@ export function MovimentacoesSetor() {
       if (monthFilter) {
         const [y, m] = monthFilter.split('-').map(Number)
         q = q.gte('moved_at', new Date(y, m - 1, 1).toISOString()).lt('moved_at', new Date(y, m, 1).toISOString())
-      }
-
-      if (searchQ.trim()) {
-        q = q.ilike('received_by', `%${searchQ.trim()}%`)
       }
 
       return q
@@ -158,7 +147,7 @@ export function MovimentacoesSetor() {
 
     setTotal(countRes.count || 0)
     setList(enriched)
-  }, [room?.id, typeFilter, monthFilter, searchQ])
+  }, [room?.id, typeFilter, monthFilter])
 
   useEffect(() => { load(1) }, [load])
 
@@ -167,17 +156,16 @@ export function MovimentacoesSetor() {
   const onPrev = () => { const p = page - 1; setPage(p); load(p); window.scrollTo(0, 0) }
   const onNext = () => { const p = page + 1; setPage(p); load(p); window.scrollTo(0, 0) }
 
-  // Client-side filter for asset_number / equipment name not covered by server search
   const filteredList = useMemo(() => {
-    if (!list || !searchQ.trim()) return list
-    const q = searchQ.toLowerCase().trim()
+    if (!list || !search.trim()) return list
+    const q = search.toLowerCase().trim()
     return list.filter((m) =>
       (m.asset_number?.toString() || '').includes(q) ||
       (m.serial_number || '').toLowerCase().includes(q) ||
       (m.equipment?.name || '').toLowerCase().includes(q) ||
       (m.received_by || '').toLowerCase().includes(q),
     )
-  }, [list, searchQ])
+  }, [list, search])
 
   const handleExport = async () => {
     if (!list || list.length === 0) return
@@ -271,7 +259,7 @@ export function MovimentacoesSetor() {
         <SkeletonTable />
       ) : (filteredList?.length || 0) === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-secondary)' }}>
-          <p>{searchQ ? `Nenhum resultado para "${searchQ}".` : 'Nenhuma movimentação encontrada com os filtros selecionados.'}</p>
+          <p>{search ? `Nenhum resultado para "${search}".` : 'Nenhuma movimentação encontrada com os filtros selecionados.'}</p>
         </div>
       ) : (
         <>
