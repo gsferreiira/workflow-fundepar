@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { MapPin, ArrowRight, AlertCircle } from 'lucide-react'
+import { MapPin, ArrowRight, AlertCircle, Search } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatAssetNumber, fmtDateTime } from '../utils/format.js'
@@ -9,15 +9,32 @@ import { Pagination } from '../components/Pagination.jsx'
 
 const PAGE_SIZE = 25
 
+function getMonthOptions() {
+  const options = []
+  const now = new Date()
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    options.push({ value, label })
+  }
+  return options
+}
+
+const MONTH_OPTIONS = getMonthOptions()
+
 export function MovimentacoesSetor() {
   const { sigla } = useParams()
-  const { user } = useAuth()
-  const room = user?.coordinator_room
+  const { user }  = useAuth()
+  const room      = user?.coordinator_room
 
-  const [list, setList]       = useState(null)
-  const [total, setTotal]     = useState(0)
-  const [page, setPage]       = useState(1)
+  const [list, setList]           = useState(null)
+  const [total, setTotal]         = useState(0)
+  const [page, setPage]           = useState(1)
   const [loadError, setLoadError] = useState(null)
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [monthFilter, setMonthFilter] = useState('')
+  const [search, setSearch]       = useState('')
 
   const load = useCallback(async (p = 1) => {
     if (!room?.id) return
@@ -26,18 +43,30 @@ export function MovimentacoesSetor() {
 
     const from = (p - 1) * PAGE_SIZE
 
-    // Busca movimentações sem joins de FKs novas para evitar problema de cache
-    const [countRes, dataRes] = await Promise.all([
-      supabase
+    const buildBase = () => {
+      let q = supabase
         .from('asset_movements')
-        .select('id', { count: 'exact', head: true })
-        .or(`origin_room_id.eq.${room.id},destination_room_id.eq.${room.id}`)
-        .is('deleted_at', null),
-      supabase
-        .from('asset_movements')
-        .select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id')
-        .or(`origin_room_id.eq.${room.id},destination_room_id.eq.${room.id}`)
         .is('deleted_at', null)
+      if (typeFilter === 'entrada') {
+        q = q.eq('destination_room_id', room.id)
+      } else if (typeFilter === 'saida') {
+        q = q.eq('origin_room_id', room.id)
+      } else {
+        q = q.or(`origin_room_id.eq.${room.id},destination_room_id.eq.${room.id}`)
+      }
+      if (monthFilter) {
+        const [y, m] = monthFilter.split('-').map(Number)
+        const start = new Date(y, m - 1, 1).toISOString()
+        const end   = new Date(y, m, 1).toISOString()
+        q = q.gte('moved_at', start).lt('moved_at', end)
+      }
+      return q
+    }
+
+    const [countRes, dataRes] = await Promise.all([
+      buildBase().select('id', { count: 'exact', head: true }),
+      buildBase()
+        .select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id')
         .order('moved_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1),
     ])
@@ -52,9 +81,9 @@ export function MovimentacoesSetor() {
     const profileIds = [...new Set(rows.map((r) => r.moved_by).filter(Boolean))]
 
     const enrichResults = await Promise.all([
-      eqIds.length      ? supabase.from('equipment').select('id, name, categoria').in('id', eqIds)   : { data: [] },
-      roomIds.length    ? supabase.from('rooms').select('id, name, sigla').in('id', roomIds)          : { data: [] },
-      profileIds.length ? supabase.from('profiles').select('id, full_name').in('id', profileIds)      : { data: [] },
+      eqIds.length      ? supabase.from('equipment').select('id, name, categoria').in('id', eqIds)  : { data: [] },
+      roomIds.length    ? supabase.from('rooms').select('id, name, sigla').in('id', roomIds)         : { data: [] },
+      profileIds.length ? supabase.from('profiles').select('id, full_name').in('id', profileIds)     : { data: [] },
     ]).catch((err) => { setLoadError(err.message); setList([]); return null })
     if (!enrichResults) return
     const [eqRes, roomRes, profileRes] = enrichResults
@@ -66,17 +95,30 @@ export function MovimentacoesSetor() {
     setTotal(countRes.count || 0)
     setList(rows.map((r) => ({
       ...r,
-      equipment:        eqMap[r.equipment_id]      || null,
-      origin:           roomMap[r.origin_room_id]  || null,
-      destination:      roomMap[r.destination_room_id] || null,
-      moved_by_profile: profileMap[r.moved_by]     || null,
+      equipment:        eqMap[r.equipment_id]           || null,
+      origin:           roomMap[r.origin_room_id]        || null,
+      destination:      roomMap[r.destination_room_id]   || null,
+      moved_by_profile: profileMap[r.moved_by]           || null,
     })))
-  }, [room?.id])
+  }, [room?.id, typeFilter, monthFilter])
 
   useEffect(() => { load(1) }, [load])
 
+  const onTypeFilter = (tipo) => { setTypeFilter(tipo); setPage(1) }
+  const onMonthFilter = (mes) => { setMonthFilter(mes); setPage(1) }
   const onPrev = () => { const p = page - 1; setPage(p); load(p); window.scrollTo(0, 0) }
   const onNext = () => { const p = page + 1; setPage(p); load(p); window.scrollTo(0, 0) }
+
+  const filteredList = useMemo(() => {
+    if (!list || !search.trim()) return list
+    const q = search.toLowerCase().trim()
+    return list.filter((m) =>
+      (m.asset_number?.toString() || '').includes(q) ||
+      (m.serial_number || '').toLowerCase().includes(q) ||
+      (m.equipment?.name || '').toLowerCase().includes(q) ||
+      (m.received_by || '').toLowerCase().includes(q),
+    )
+  }, [list, search])
 
   if (!room) return <SkeletonTable />
 
@@ -108,11 +150,67 @@ export function MovimentacoesSetor() {
         )}
       </div>
 
+      {/* Filtros */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+        {/* Chips Tipo */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[
+            { key: 'all',    label: 'Todas' },
+            { key: 'entrada', label: 'Entradas' },
+            { key: 'saida',   label: 'Saídas' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onTypeFilter(key)}
+              style={{
+                padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: `1.5px solid ${typeFilter === key ? '#6366f1' : 'var(--border-color)'}`,
+                background: typeFilter === key ? 'rgba(99,102,241,.1)' : 'transparent',
+                color: typeFilter === key ? '#6366f1' : 'var(--text-secondary)',
+                transition: 'all .15s',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filtro por mês */}
+        <select
+          className="form-control"
+          value={monthFilter}
+          onChange={(e) => onMonthFilter(e.target.value)}
+          style={{ fontSize: 13, padding: '6px 10px', maxWidth: 200 }}
+        >
+          <option value="">Todos os meses</option>
+          {MONTH_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+
+        {/* Busca */}
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <Search size={13} style={{
+            position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-secondary)', pointerEvents: 'none',
+          }} />
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Buscar por patrimônio, nome ou responsável…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ fontSize: 13, paddingLeft: 30 }}
+          />
+        </div>
+      </div>
+
       {!list ? (
         <SkeletonTable />
-      ) : list.length === 0 ? (
+      ) : (filteredList?.length || 0) === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-secondary)' }}>
-          <p>Nenhuma movimentação registrada para este setor.</p>
+          <p>{search ? `Nenhum resultado para "${search}".` : 'Nenhuma movimentação encontrada com os filtros selecionados.'}</p>
         </div>
       ) : (
         <>
@@ -130,10 +228,8 @@ export function MovimentacoesSetor() {
                 </tr>
               </thead>
               <tbody>
-                {list.map((m) => {
+                {filteredList.map((m) => {
                   const isEntrada = m.destination?.id === room.id
-                  const receivedName = m.received_by || null
-
                   return (
                     <tr key={m.id}>
                       <td>
@@ -166,7 +262,10 @@ export function MovimentacoesSetor() {
                             {m.origin?.sigla || m.origin?.name || '—'}
                           </span>
                           <ArrowRight size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: isEntrada ? '#059669' : '#dc2626', fontWeight: 600 }}>
+                          <span style={{
+                            display: 'flex', alignItems: 'center', gap: 3,
+                            color: isEntrada ? '#059669' : '#dc2626', fontWeight: 600,
+                          }}>
                             <MapPin size={11} />
                             {m.destination?.sigla || m.destination?.name || '—'}
                           </span>
@@ -176,7 +275,7 @@ export function MovimentacoesSetor() {
                         {m.moved_by_profile?.full_name || '—'}
                       </td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                        {receivedName || <span style={{ fontStyle: 'italic' }}>—</span>}
+                        {m.received_by || <span style={{ fontStyle: 'italic' }}>—</span>}
                       </td>
                       <td style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {fmtDateTime(m.moved_at)}

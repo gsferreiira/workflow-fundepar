@@ -1,6 +1,9 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
-import { Package, User, Monitor, Cpu, Printer, Keyboard, HardDrive, AlertCircle } from 'lucide-react'
+import {
+  Package, User, Monitor, Cpu, Printer, Keyboard, HardDrive,
+  AlertCircle, Search, Download, AlertTriangle,
+} from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { supabase } from '../lib/supabase.js'
 import { formatAssetNumber, fmtDate } from '../utils/format.js'
@@ -13,6 +16,8 @@ const STATUS_CFG = {
   'inservível':  { label: 'Inservível',  color: '#64748b', bg: 'rgba(100,116,139,.12)' },
   'com defeito': { label: 'Com Defeito', color: '#dc2626', bg: 'rgba(239,68,68,.12)' },
 }
+
+const STATUS_PROBLEMA = new Set(['inservível', 'com defeito'])
 
 const CATEGORIA_ICON = {
   'notebook':    Monitor,
@@ -45,12 +50,65 @@ function StatusBadge({ status }) {
   )
 }
 
+async function exportInventario(groups, room, sigla) {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Fundepar TI'
+  const ws = wb.addWorksheet(`Inventário ${sigla?.toUpperCase()}`)
+
+  ws.columns = [
+    { header: 'Responsável',    key: 'person',    width: 28 },
+    { header: 'Equipamento',    key: 'name',      width: 32 },
+    { header: 'Categoria',      key: 'categoria', width: 18 },
+    { header: 'Nº Patrimônio',  key: 'asset',     width: 16 },
+    { header: 'Nº Série',       key: 'serial',    width: 20 },
+    { header: 'Status',         key: 'status',    width: 14 },
+    { header: 'Última Mov.',    key: 'moved_at',  width: 14 },
+  ]
+
+  const headerRow = ws.getRow(1)
+  headerRow.font = { bold: true }
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0FB' } }
+
+  for (const group of groups) {
+    for (const item of group.items) {
+      const row = ws.addRow({
+        person:    group.name || 'Sem responsável',
+        name:      item.equipment?.name || '—',
+        categoria: item.equipment?.categoria || '—',
+        asset:     item.asset_number ? formatAssetNumber(item.asset_number) : '—',
+        serial:    item.serial_number || '—',
+        status:    STATUS_CFG[item.equipment?.status]?.label || (item.equipment?.status || '—'),
+        moved_at:  item.moved_at ? fmtDate(item.moved_at) : '—',
+      })
+      if (STATUS_PROBLEMA.has(item.equipment?.status)) {
+        row.getCell('status').font = { color: { argb: 'FFDC2626' }, bold: true }
+      }
+    }
+  }
+
+  ws.addRow([])
+  ws.addRow([`Gerado em ${new Date().toLocaleString('pt-BR')} — Sala: ${room?.name || sigla}`])
+
+  const buf = await wb.xlsx.writeBuffer()
+  const url = URL.createObjectURL(new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `inventario-${sigla?.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export function MapaSetor() {
   const { sigla } = useParams()
   const { user } = useAuth()
   const room = user?.coordinator_room
-  const [items, setItems] = useState(null)
+  const [items, setItems]         = useState(null)
   const [loadError, setLoadError] = useState(null)
+  const [search, setSearch]       = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async () => {
     if (!room?.id) return
@@ -68,7 +126,6 @@ export function MapaSetor() {
     const eqIds        = [...new Set(locs.map((l) => l.equipment_id).filter(Boolean))]
     const assetNumbers = locs.map((l) => l.asset_number).filter(Boolean)
 
-    // Busca equipamentos e a movimentação mais recente de entrada em cada asset
     const secondaryResults = await Promise.all([
       eqIds.length > 0
         ? supabase.from('equipment').select('id, name, categoria, status').in('id', eqIds)
@@ -88,7 +145,6 @@ export function MapaSetor() {
 
     const eqMap = Object.fromEntries((eqRes.data || []).map((e) => [e.id, e]))
 
-    // Pega o received_by da movimentação mais recente por asset (já vem ordenado desc)
     const receivedByMap = {}
     for (const mov of (movRes.data || [])) {
       if (!(mov.asset_number in receivedByMap)) {
@@ -99,7 +155,6 @@ export function MapaSetor() {
     setItems(locs.map((loc) => ({
       ...loc,
       equipment:   eqMap[loc.equipment_id] || null,
-      // received_by: prioridade para o campo da tabela, fallback para movimentação mais recente
       received_by: loc.received_by || receivedByMap[loc.asset_number] || null,
     })))
   }, [room?.id])
@@ -112,9 +167,7 @@ export function MapaSetor() {
     for (const item of items) {
       const name = item.received_by || null
       const key  = name || '__none__'
-      if (!map.has(key)) {
-        map.set(key, { key, name, items: [] })
-      }
+      if (!map.has(key)) map.set(key, { key, name, items: [] })
       map.get(key).items.push(item)
     }
     return [...map.values()].sort((a, b) => {
@@ -123,6 +176,33 @@ export function MapaSetor() {
       return (a.name || '').localeCompare(b.name || '', 'pt-BR')
     })
   }, [items])
+
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return groups
+    const q = search.toLowerCase().trim()
+    return groups
+      .map((g) => ({
+        ...g,
+        items: g.items.filter((item) =>
+          (item.equipment?.name || '').toLowerCase().includes(q) ||
+          (item.asset_number?.toString() || '').includes(q) ||
+          (item.serial_number || '').toLowerCase().includes(q) ||
+          (g.name || '').toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.items.length > 0)
+  }, [groups, search])
+
+  const problemCount = useMemo(
+    () => (items || []).filter((i) => STATUS_PROBLEMA.has(i.equipment?.status)).length,
+    [items],
+  )
+
+  const handleExport = async () => {
+    setExporting(true)
+    try { await exportInventario(groups, room, sigla) }
+    finally { setExporting(false) }
+  }
 
   if (!room) return <SkeletonTable />
 
@@ -148,31 +228,63 @@ export function MapaSetor() {
           <p>{room.name}</p>
         </div>
         {items && (
-          <div style={{
-            display: 'flex', gap: 12, flexWrap: 'wrap',
-          }}>
-            <SummaryChip label="Equipamentos" value={items.length} color="#6366f1" bg="rgba(99,102,241,.08)" />
-            <SummaryChip label="Responsáveis" value={groups.filter((g) => g.name).length} color="#059669" bg="rgba(16,185,129,.08)" />
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <SummaryChip label="Equipamentos"   value={items.length}                             color="#6366f1" bg="rgba(99,102,241,.08)" />
+            <SummaryChip label="Responsáveis"   value={groups.filter((g) => g.name).length}      color="#059669" bg="rgba(16,185,129,.08)" />
             {groups.some((g) => !g.name) && (
               <SummaryChip label="Sem responsável" value={groups.find((g) => !g.name)?.items.length || 0} color="#d97706" bg="rgba(245,158,11,.08)" />
             )}
+            {problemCount > 0 && (
+              <SummaryChip label="Com problema" value={problemCount} color="#dc2626" bg="rgba(239,68,68,.08)" icon={AlertTriangle} />
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleExport}
+              disabled={exporting || items.length === 0}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+            >
+              <Download size={14} /> {exporting ? 'Exportando…' : 'Exportar Excel'}
+            </button>
           </div>
         )}
       </div>
+
+      {items && items.length > 0 && (
+        <div style={{ marginBottom: 16, position: 'relative' }}>
+          <Search size={14} style={{
+            position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-secondary)', pointerEvents: 'none',
+          }} />
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Buscar por nome, patrimônio, série ou responsável…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ paddingLeft: 34 }}
+          />
+        </div>
+      )}
 
       {!items ? (
         <SkeletonTable />
       ) : items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-secondary)' }}>
-          <Package size={48} style={{ opacity: 0.2, marginBottom: 12, display: 'block', margin: '0 auto 12px' }} />
+          <Package size={48} style={{ opacity: 0.2, display: 'block', margin: '0 auto 12px' }} />
           <p style={{ fontSize: 15 }}>Nenhum equipamento registrado nesta sala.</p>
           <p style={{ fontSize: 13, marginTop: 4 }}>
             Quando o TI registrar movimentações para este setor, os equipamentos aparecerão aqui.
           </p>
         </div>
+      ) : filteredGroups.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
+          <Search size={32} style={{ opacity: 0.2, display: 'block', margin: '0 auto 12px' }} />
+          <p>Nenhum equipamento encontrado para "{search}".</p>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {groups.map((group) => (
+          {filteredGroups.map((group) => (
             <PersonCard key={group.key} group={group} />
           ))}
         </div>
@@ -181,14 +293,16 @@ export function MapaSetor() {
   )
 }
 
-function SummaryChip({ label, value, color, bg }) {
+function SummaryChip({ label, value, color, bg, icon: Icon }) {
   return (
     <div style={{
       background: bg, borderRadius: 10,
       padding: '10px 16px', borderLeft: `3px solid ${color}`,
       minWidth: 110,
     }}>
-      <div style={{ fontSize: 20, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {Icon && <Icon size={16} />}{value}
+      </div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{label}</div>
     </div>
   )
@@ -201,7 +315,6 @@ function PersonCard({ group }) {
 
   return (
     <div className="table-card fade-in" style={{ padding: 0, overflow: 'hidden' }}>
-      {/* Cabeçalho da pessoa */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '14px 20px',
@@ -227,7 +340,6 @@ function PersonCard({ group }) {
         </div>
       </div>
 
-      {/* Tabela de equipamentos */}
       <table className="data-table">
         <thead>
           <tr>
@@ -241,13 +353,19 @@ function PersonCard({ group }) {
         </thead>
         <tbody>
           {group.items.map((item, idx) => {
-            const Icon = categoriaIcon(item.equipment?.categoria)
+            const Icon      = categoriaIcon(item.equipment?.categoria)
+            const problema  = STATUS_PROBLEMA.has(item.equipment?.status)
             return (
-              <tr key={item.asset_number || item.equipment_id || idx}>
+              <tr
+                key={item.asset_number || item.equipment_id || idx}
+                style={problema ? { background: 'rgba(239,68,68,.04)' } : undefined}
+              >
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Icon size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-                    <strong>{item.equipment?.name || '—'}</strong>
+                    <strong style={problema ? { color: '#dc2626' } : undefined}>
+                      {item.equipment?.name || '—'}
+                    </strong>
                   </div>
                 </td>
                 <td style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
