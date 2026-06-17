@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   ClipboardList, CheckCircle2, AlertTriangle, XCircle,
@@ -432,8 +432,15 @@ export function ConferenciasSetor() {
   const [saving, setSaving]             = useState(false)
   const [deletingId, setDeletingId]     = useState(null)
   const [draftRestored, setDraftRestored] = useState(false)
+  const [currentExpanded, setCurrentExpanded] = useState(false)
 
   const COMP = currentCompetencia()
+
+  const prevMonthComp = useMemo(() => {
+    const now = new Date()
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }, [])
 
   const draftKey = room?.id ? `conf_draft_${room.id}_${COMP}` : null
 
@@ -540,7 +547,7 @@ export function ConferenciasSetor() {
 
   const markAllOk = () =>
     setChecklist((prev) =>
-      Object.fromEntries(Object.keys(prev).map((k) => [k, { status: 'ok', notes: '' }])),
+      Object.fromEntries(Object.keys(prev).map((k) => [k, { ...prev[k], status: 'ok' }])),
     )
 
   const saveConference = async () => {
@@ -654,8 +661,9 @@ export function ConferenciasSetor() {
     }
   }
 
-  const thisMonthConf = conferences?.find((c) => c.competencia === COMP)
-  const history       = conferences?.filter((c) => c.competencia !== COMP) || []
+  const thisMonthConf  = conferences?.find((c) => c.competencia === COMP)
+  const prevMonthDone  = !conferences || conferences.some((c) => c.competencia === prevMonthComp)
+  const history        = conferences?.filter((c) => c.competencia !== COMP) || []
 
   if (!room) return <SkeletonTable />
 
@@ -687,6 +695,21 @@ export function ConferenciasSetor() {
         </div>
       </div>
 
+      {!prevMonthDone && (
+        <div style={{
+          margin: '0 0 20px', padding: '14px 18px', borderRadius: 12,
+          background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)',
+          display: 'flex', gap: 10, alignItems: 'center',
+        }}>
+          <AlertTriangle size={16} style={{ color: '#d97706', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: '#92400e' }}>
+            <strong>Conferência pendente!</strong> A conferência de{' '}
+            <strong style={{ textTransform: 'capitalize' }}>{compLabel(prevMonthComp)}</strong>{' '}
+            ainda não foi registrada.
+          </span>
+        </div>
+      )}
+
       {loadError && (
         <div style={{
           margin: '0 0 20px', padding: '16px 20px', borderRadius: 12,
@@ -704,6 +727,7 @@ export function ConferenciasSetor() {
         borderLeft: `4px solid ${thisMonthConf ? '#059669' : '#d97706'}`,
       }}>
         {thisMonthConf ? (
+          <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <CalendarCheck size={22} style={{ color: '#059669', flexShrink: 0 }} />
@@ -745,6 +769,15 @@ export function ConferenciasSetor() {
                     </button>
                     <button
                       type="button"
+                      className="btn-table-action"
+                      onClick={() => setCurrentExpanded((v) => !v)}
+                      title={currentExpanded ? 'Recolher itens' : 'Ver itens'}
+                    >
+                      {currentExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      {currentExpanded ? 'Recolher' : 'Ver itens'}
+                    </button>
+                    <button
+                      type="button"
                       className="btn-table-action delete"
                       onClick={() => deleteConference(thisMonthConf)}
                       disabled={deletingId === thisMonthConf.id}
@@ -757,6 +790,44 @@ export function ConferenciasSetor() {
               )
             })()}
           </div>
+          {currentExpanded && (thisMonthConf.conference_items || []).length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+              <table className="data-table" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>Equipamento</th>
+                    <th>Nº Patrimônio</th>
+                    <th>Categoria</th>
+                    <th>Status</th>
+                    <th>Observação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(thisMonthConf.conference_items || []).map((it) => {
+                    const cfg = STATUS_CFG[it.status]
+                    return (
+                      <tr key={it.id}>
+                        <td><strong style={{ fontSize: 13 }}>{it.equipment_name || '—'}</strong></td>
+                        <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                          {it.asset_number ? formatAssetNumber(it.asset_number) : '—'}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{it.categoria || '—'}</td>
+                        <td>
+                          {cfg ? (
+                            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: cfg.bg, color: cfg.color }}>
+                              {cfg.label}
+                            </span>
+                          ) : it.status}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{it.notes || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          </>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

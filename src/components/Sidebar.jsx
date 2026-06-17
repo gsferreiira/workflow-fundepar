@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft } from 'lucide-react'
+import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft, LayoutDashboard } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
@@ -65,7 +65,8 @@ export function Sidebar({ open, onLinkClick }) {
   if (isCoordinator && coordSigla) {
     const sl = coordSigla.toLowerCase()
     navItems = [
-      { key: 'minha-sala',      to: `/setor/${sl}`,                  icon: LayoutGrid,      label: 'Minha Sala' },
+      { key: 'painel',          to: `/setor/${sl}`,                  icon: LayoutDashboard, label: 'Painel' },
+      { key: 'inventario',      to: `/setor/${sl}/inventario`,       icon: LayoutGrid,      label: 'Inventário' },
       { key: 'movimentacoes',   to: `/setor/${sl}/movimentacoes`,    icon: ArrowRightLeft,  label: 'Movimentações' },
       { key: 'conferencias',    to: `/setor/${sl}/conferencias`,     icon: ClipboardList,   label: 'Conferências', badge: conferencePending },
       { separator: 'Conta' },

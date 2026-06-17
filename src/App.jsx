@@ -32,6 +32,7 @@ import { Permissoes } from "./pages/Permissoes.jsx";
 import { MapaSetor } from "./pages/MapaSetor.jsx";
 import { MovimentacoesSetor } from "./pages/MovimentacoesSetor.jsx";
 import { ConferenciasSetor } from "./pages/ConferenciasSetor.jsx";
+import { DashboardSetor } from "./pages/DashboardSetor.jsx";
 import { Conferencias } from "./pages/Conferencias.jsx";
 
 const Dashboard = lazy(() =>
@@ -131,7 +132,8 @@ function App() {
                       <Route path="/permissoes" element={<Permissoes />} />
                     </Route>
                     <Route path="/perfil" element={<Perfil />} />
-                    <Route path="/setor/:sigla" element={<MapaSetor />} />
+                    <Route path="/setor/:sigla" element={<DashboardSetor />} />
+                    <Route path="/setor/:sigla/inventario" element={<MapaSetor />} />
                     <Route path="/setor/:sigla/movimentacoes" element={<MovimentacoesSetor />} />
                     <Route path="/setor/:sigla/conferencias" element={<ConferenciasSetor />} />
                     <Route

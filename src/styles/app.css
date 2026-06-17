@@ -995,3 +995,13 @@ body.dark .global-search-dropdown { box-shadow: 0 12px 32px rgba(0,0,0,.4); }
   .bulk-action-buttons .btn-primary,
   .bulk-action-buttons .btn-filter-clear { padding: 10px 12px; }
 }
+
+@media print {
+  .sidebar, #sidebar, .topbar, #topbar,
+  .view-header > div:last-child,
+  .btn, button:not(.no-print) { display: none !important; }
+  .main-content { margin: 0 !important; padding: 0 !important; }
+  .view-content { padding: 0 !important; }
+  .table-card { break-inside: avoid; box-shadow: none; border: 1px solid #ddd; }
+  body { background: white !important; color: black !important; }
+}

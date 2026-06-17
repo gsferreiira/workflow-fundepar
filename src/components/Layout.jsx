@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase.js'
 import { debounce } from '../utils/format.js'
 import { Onboarding, shouldShowOnboarding } from './Onboarding.jsx'
 import { usePullToRefresh } from '../hooks/usePullToRefresh.js'
+import { useRoomNotifications } from '../hooks/useRoomNotifications.js'
 
 // Contexto compartilhado com as páginas — value vem do <Outlet context={...}/>
 import { createContext, useContext } from 'react'
@@ -39,6 +40,7 @@ export function Layout() {
   const { rooms: roomsFetcher } = useStore()
   const [rooms, setRooms] = useState([])
   const { items, badge, seenAt, refresh, markAsSeen } = useNotifications()
+  const { notifications: roomNotifs, dismiss: dismissRoomNotif } = useRoomNotifications(user)
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
   const refreshFnRef = useRef(null)
   const registerRefresh = useCallback((fn) => { refreshFnRef.current = fn }, [])
@@ -249,6 +251,8 @@ export function Layout() {
           }}
         />
       )}
+      <RoomNotificationStack notifications={roomNotifs} onDismiss={dismissRoomNotif} user={user} />
+
       {pullState !== 'idle' && (
         <div className={`pull-indicator ${pullState}`}>
           {pullState === 'refreshing'
@@ -258,6 +262,131 @@ export function Layout() {
         </div>
       )}
     </LayoutContext.Provider>
+  )
+}
+
+function RoomNotificationStack({ notifications, onDismiss, user }) {
+  const [reportingId, setReportingId] = useState(null)
+  const [ticketMsg, setTicketMsg]     = useState('')
+  const [sending, setSending]         = useState(false)
+  const { showToast } = useToast()
+
+  if (!notifications.length) return null
+
+  const handleReport = async (notif) => {
+    setSending(true)
+    const title = `Movimentação indevida: ${notif.equipmentName}${notif.assetNumber ? ` (Pat. ${notif.assetNumber})` : ''}`
+    const description = [
+      `Equipamento: ${notif.equipmentName}`,
+      notif.assetNumber ? `Patrimônio: ${notif.assetNumber}` : '',
+      ticketMsg.trim() ? `\nDetalhes: ${ticketMsg.trim()}` : '',
+    ].filter(Boolean).join('\n')
+
+    const { error } = await supabase.from('tickets').insert({
+      title,
+      description,
+      room_id:      user?.coordinator_room?.id || null,
+      requester_id: user?.id || null,
+      status:       'aberto',
+    })
+    setSending(false)
+    if (error) { showToast('Erro ao abrir chamado.', 'danger'); return }
+    showToast('Chamado aberto! O TI foi notificado.', 'success')
+    setReportingId(null)
+    setTicketMsg('')
+    onDismiss(notif.id)
+  }
+
+  const fmtTime = (iso) => {
+    try { return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) }
+    catch { return '' }
+  }
+
+  return (
+    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1200, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, width: 'calc(100vw - 48px)' }}>
+      {notifications.map((notif) => (
+        <div key={notif.id} style={{ background: 'var(--bg-card)', border: '1px solid rgba(99,102,241,.3)', borderLeft: '4px solid #6366f1', borderRadius: 12, boxShadow: '0 4px 20px rgba(0,0,0,.12)', padding: '14px 16px', animation: 'fadeIn .25s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>
+                📦 Novo equipamento recebido
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {notif.equipmentName}
+              </div>
+              {notif.assetNumber && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>
+                  Patrimônio: {notif.assetNumber}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                {fmtTime(notif.movedAt)}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onDismiss(notif.id)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2, flexShrink: 0 }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {reportingId === notif.id ? (
+            <div style={{ marginTop: 10 }}>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Descreva o problema (opcional)..."
+                value={ticketMsg}
+                onChange={(e) => setTicketMsg(e.target.value)}
+                style={{ fontSize: 12, marginBottom: 8 }}
+                autoFocus
+              />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, flex: 1 }}
+                  onClick={() => { setReportingId(null); setTicketMsg('') }}
+                  disabled={sending}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ fontSize: 12, flex: 1 }}
+                  onClick={() => handleReport(notif)}
+                  disabled={sending}
+                >
+                  {sending ? 'Enviando…' : 'Enviar'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 12, flex: 1 }}
+                onClick={() => { setReportingId(notif.id); setTicketMsg('') }}
+              >
+                Contatar TI
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ fontSize: 12, flex: 1 }}
+                onClick={() => onDismiss(notif.id)}
+              >
+                Tudo certo
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }
 
