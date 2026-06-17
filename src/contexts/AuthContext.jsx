@@ -19,7 +19,10 @@ export function AuthProvider({ children }) {
   // de "senha inválida" e demais erros de auth caíam silenciosamente no console.
   const { showToast } = useToast()
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const fallbackUser = useCallback((authUser) => ({
     ...authUser,
@@ -53,7 +56,8 @@ export function AuthProvider({ children }) {
     if (error) {
       console.error('Erro ao buscar perfil:', error.message)
       const fallback = fallbackUser(authUser)
-      if (mountedRef.current) setUser(fallback)
+      // Não regride usuário já autenticado para fallback em erros transientes
+      if (mountedRef.current) setUser((prev) => prev ?? fallback)
       return fallback
     }
 
@@ -71,8 +75,8 @@ export function AuthProvider({ children }) {
 
     if (mountedRef.current) setUser(merged)
 
-    // Atualiza o último acesso — fire-and-forget
-    supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', authUser.id)
+    // Atualiza o último acesso (.then() é obrigatório — Supabase JS v2 é lazy)
+    supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', authUser.id).then()
 
     // Sincroniza email no perfil
     if (!profile.email && mountedRef.current) {
@@ -98,7 +102,8 @@ export function AuthProvider({ children }) {
   }, [])
 
   const fetchProfileInBackground = useCallback((authUser) => {
-    setUser(fallbackUser(authUser))
+    // Só aplica fallback se ainda não há usuário carregado (evita sobrescrever role real)
+    setUser((prev) => prev ?? fallbackUser(authUser))
 
     setTimeout(() => {
       withTimeout(fetchProfile(authUser), 'A busca do perfil').catch((error) => {
@@ -157,7 +162,7 @@ export function AuthProvider({ children }) {
     if (!user?.id) return
     const ping = () => {
       if (document.visibilityState !== 'visible') return
-      supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id)
+      supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id).then()
     }
     document.addEventListener('visibilitychange', ping)
     const timer = setInterval(ping, 5 * 60 * 1000)
