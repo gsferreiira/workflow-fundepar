@@ -32,11 +32,11 @@ const ROLES = [
 const roleLabel = (r) => ROLES.find((x) => x.value === r)?.label || r || '—'
 
 // ── Status de conta ──────────────────────────────────────────────────────────
-function getUserStatus(authInfo) {
+function getUserStatus(authInfo, profile) {
   if (!authInfo) return null
   if (!authInfo.confirmed_at) return 'pending'
-  if (!authInfo.last_sign_in_at) return 'never'
-  const days = (Date.now() - new Date(authInfo.last_sign_in_at)) / 86_400_000
+  if (!profile?.last_seen_at) return 'never'
+  const days = (Date.now() - new Date(profile.last_seen_at)) / 86_400_000
   return days <= 30 ? 'active' : 'inactive'
 }
 
@@ -194,10 +194,10 @@ export function Usuarios() {
   const counts = useMemo(() => {
     if (!list) return null
     const total = list.length
-    const pending = list.filter((u) => getUserStatus(authMap[u.id]) === 'pending').length
-    const active = list.filter((u) => getUserStatus(authMap[u.id]) === 'active').length
-    const inactive = list.filter((u) => getUserStatus(authMap[u.id]) === 'inactive').length
-    const never = list.filter((u) => getUserStatus(authMap[u.id]) === 'never').length
+    const pending = list.filter((u) => getUserStatus(authMap[u.id], u) === 'pending').length
+    const active = list.filter((u) => getUserStatus(authMap[u.id], u) === 'active').length
+    const inactive = list.filter((u) => getUserStatus(authMap[u.id], u) === 'inactive').length
+    const never = list.filter((u) => getUserStatus(authMap[u.id], u) === 'never').length
     return { total, pending, active, inactive, never }
   }, [list, authMap])
 
@@ -299,7 +299,7 @@ export function Usuarios() {
             ) : (
               filtered.map((u) => {
                 const auth = authMap[u.id]
-                const status = getUserStatus(auth)
+                const status = getUserStatus(auth, u)
                 const isPending = status === 'pending'
                 return (
                   <tr key={u.id}>
@@ -363,8 +363,8 @@ export function Usuarios() {
                     )}
                     {isAdmin && (
                       <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                        {auth?.last_sign_in_at
-                          ? fmtDateTime(auth.last_sign_in_at)
+                        {u.last_seen_at
+                          ? fmtDateTime(u.last_seen_at)
                           : <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                         }
                       </td>
@@ -456,7 +456,7 @@ export function Usuarios() {
           currentUserId={user?.id}
           onClose={() => setDetailUser(null)}
           onEdit={() => { setDetailUser(null); setEditUser(detailUser.profile) }}
-          onResetSenha={() => resetSenha(detailUser.profile, getUserStatus(detailUser.auth) === 'pending')}
+          onResetSenha={() => resetSenha(detailUser.profile, getUserStatus(detailUser.auth, detailUser.profile) === 'pending')}
           onDelete={() => { setDetailUser(null); deleteUsuario(detailUser.profile.id) }}
         />
       )}
@@ -466,7 +466,7 @@ export function Usuarios() {
 
 // ── Modal de detalhes do usuário ──────────────────────────────────────────────
 function UserDetailModal({ profile, auth, currentUserId, onClose, onEdit, onResetSenha, onDelete }) {
-  const status = getUserStatus(auth)
+  const status = getUserStatus(auth, profile)
   const cfg = STATUS_CFG[status]
   const isPending = status === 'pending'
   const initials = (profile.full_name || profile.email || '?')[0].toUpperCase()
@@ -553,7 +553,7 @@ function UserDetailModal({ profile, auth, currentUserId, onClose, onEdit, onRese
             <InfoRow
               icon={Clock}
               label="Último acesso"
-              value={auth.last_sign_in_at ? fmtDateTime(auth.last_sign_in_at) : '—'}
+              value={profile.last_seen_at ? fmtDateTime(profile.last_seen_at) : '—'}
             />
             {auth.invited_at && (
               <InfoRow

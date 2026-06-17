@@ -71,6 +71,9 @@ export function AuthProvider({ children }) {
 
     if (mountedRef.current) setUser(merged)
 
+    // Atualiza o último acesso — fire-and-forget
+    supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', authUser.id)
+
     // Sincroniza email no perfil
     if (!profile.email && mountedRef.current) {
       const { error: syncError } = await supabase
@@ -148,6 +151,21 @@ export function AuthProvider({ children }) {
       subscription?.unsubscribe()
     }
   }, [fetchProfile, fetchProfileInBackground, withTimeout])
+
+  // Mantém last_seen_at atualizado enquanto o usuário está ativo
+  useEffect(() => {
+    if (!user?.id) return
+    const ping = () => {
+      if (document.visibilityState !== 'visible') return
+      supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id)
+    }
+    document.addEventListener('visibilitychange', ping)
+    const timer = setInterval(ping, 5 * 60 * 1000)
+    return () => {
+      document.removeEventListener('visibilitychange', ping)
+      clearInterval(timer)
+    }
+  }, [user?.id])
 
   const signIn = async (email, password) => {
     try {

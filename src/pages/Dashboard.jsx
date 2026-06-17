@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext.jsx'
 import {
   Area,
   AreaChart,
@@ -132,6 +133,10 @@ const fmtDuration = (hours) => {
 export function Dashboard() {
   const [period, setPeriod] = useState('6m')
   const [data, setData] = useState(null)
+  const { user } = useAuth()
+  const role = user?.role || 'usuario'
+  const isAdmin = role === 'admin'
+  const isTecnico = role === 'tecnico'
 
   useEffect(() => {
     let cancelled = false
@@ -141,6 +146,51 @@ export function Dashboard() {
       try {
       const startDate = startOfPeriod(period)
       const startIso = startDate.toISOString()
+
+      // Construtores de query com escopo por role
+      const ticketsPendingQ = (() => {
+        let q = supabase.from('tickets').select('*', { count: 'exact', head: true })
+          .in('status', ['aberto', 'em_progresso']).is('deleted_at', null)
+        if (isTecnico) q = q.eq('assigned_to', user.id)
+        if (!isAdmin && !isTecnico) q = q.eq('requester_id', user.id)
+        return q
+      })()
+      const ticketsResolvedQ = (() => {
+        let q = supabase.from('tickets').select('*', { count: 'exact', head: true })
+          .eq('status', 'resolvido').is('deleted_at', null)
+        if (isTecnico) q = q.eq('assigned_to', user.id)
+        if (!isAdmin && !isTecnico) q = q.eq('requester_id', user.id)
+        return q
+      })()
+      const ticketsHistoryQ = (() => {
+        let q = supabase.from('tickets').select('id, status, priority, created_at, updated_at')
+          .is('deleted_at', null).gte('created_at', startIso)
+        if (isTecnico) q = q.eq('assigned_to', user.id)
+        if (!isAdmin && !isTecnico) q = q.eq('requester_id', user.id)
+        return q
+      })()
+      const resolvedTimesQ = (() => {
+        let q = supabase.from('tickets').select('priority, created_at, updated_at')
+          .eq('status', 'resolvido').is('deleted_at', null).gte('created_at', startIso)
+        if (isTecnico) q = q.eq('assigned_to', user.id)
+        if (!isAdmin && !isTecnico) q = q.eq('requester_id', user.id)
+        return q
+      })()
+      const recentMovementsQ = (() => {
+        let q = supabase.from('asset_movements')
+          .select('id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number, received_by')
+          .is('deleted_at', null).order('moved_at', { ascending: false }).limit(10)
+        if (isTecnico) q = q.eq('moved_by', user.id)
+        return q
+      })()
+      const periodMovementsQ = (() => {
+        let q = supabase.from('asset_movements')
+          .select('id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number')
+          .is('deleted_at', null).gte('moved_at', startIso)
+        if (isTecnico) q = q.eq('moved_by', user.id)
+        return q
+      })()
+
       const [
         { count: pendingTickets },
         { count: resolvedTickets },
@@ -156,64 +206,28 @@ export function Dashboard() {
         { data: auditLogs },
         { data: resolvedTicketsTimes },
       ] = await Promise.all([
-        supabase
-          .from('tickets')
-          .select('*', { count: 'exact', head: true })
-          .in('status', ['aberto', 'em_progresso'])
-          .is('deleted_at', null),
-        supabase
-          .from('tickets')
-          .select('*', { count: 'exact', head: true })
-          .eq('status', 'resolvido')
-          .is('deleted_at', null),
-        supabase
-          .from('rooms')
-          .select('*', { count: 'exact', head: true })
-          .is('deleted_at', null),
-        supabase
-          .from('profiles')
-          .select('*', { count: 'exact', head: true })
-          .is('deleted_at', null),
+        ticketsPendingQ,
+        ticketsResolvedQ,
+        isAdmin
+          ? supabase.from('rooms').select('*', { count: 'exact', head: true }).is('deleted_at', null)
+          : Promise.resolve({ count: null }),
+        isAdmin
+          ? supabase.from('profiles').select('*', { count: 'exact', head: true }).is('deleted_at', null)
+          : Promise.resolve({ count: null }),
         supabase.from('profiles').select('id, full_name, role').is('deleted_at', null),
         supabase.from('equipment').select('id, name, categoria').is('deleted_at', null),
         supabase.from('rooms').select('id, name').is('deleted_at', null),
-        supabase
-          .from('equipment_locations')
-          .select(
-            'id, equipment_id, equipment(name,categoria), asset_number, serial_number, moved_at',
-          ),
-        supabase
-          .from('asset_movements')
-          .select(
-            'id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number, received_by',
-          )
-          .is('deleted_at', null)
-          .order('moved_at', { ascending: false })
-          .limit(10),
-        supabase
-          .from('asset_movements')
-          .select(
-            'id, equipment_id, equipment(name,categoria), origin_room_id, destination_room_id, moved_by, moved_at, asset_number, serial_number',
-          )
-          .is('deleted_at', null)
-          .gte('moved_at', startIso),
-        supabase
-          .from('tickets')
-          .select('id, status, priority, created_at, updated_at')
-          .is('deleted_at', null)
-          .gte('created_at', startIso),
-        supabase
-          .from('audit_logs')
-          .select('id, action, table_name, actor_id, actor_name, created_at')
-          .gte('created_at', startIso)
-          .order('created_at', { ascending: false })
-          .limit(500),
-        supabase
-          .from('tickets')
-          .select('priority, created_at, updated_at')
-          .eq('status', 'resolvido')
-          .is('deleted_at', null)
-          .gte('created_at', startIso),
+        isAdmin
+          ? supabase.from('equipment_locations').select('id, equipment_id, equipment(name,categoria), asset_number, serial_number, moved_at')
+          : Promise.resolve({ data: [] }),
+        recentMovementsQ,
+        periodMovementsQ,
+        ticketsHistoryQ,
+        isAdmin
+          ? supabase.from('audit_logs').select('id, action, table_name, actor_id, actor_name, created_at')
+              .gte('created_at', startIso).order('created_at', { ascending: false }).limit(500)
+          : Promise.resolve({ data: [] }),
+        resolvedTimesQ,
       ])
 
       if (cancelled) return
@@ -360,9 +374,9 @@ export function Dashboard() {
         stats: {
           pendingTickets: pendingTickets || 0,
           resolvedTickets: resolvedTickets || 0,
-          totalRooms: totalRooms || 0,
-          totalAssets,
-          totalUsers: totalUsers || 0,
+          totalRooms: isAdmin ? (totalRooms || 0) : null,
+          totalAssets: isAdmin ? totalAssets : null,
+          totalUsers: isAdmin ? (totalUsers || 0) : null,
         },
         recent,
         charts: {
@@ -420,23 +434,25 @@ export function Dashboard() {
       <DashboardHeader period={period} onPeriodChange={setPeriod} />
 
       <div className="stat-grid dashboard-stat-grid fade-in">
-        <MetricCard icon={Ticket} value={stats.pendingTickets} label="Chamados Pendentes" tone="info" />
-        <MetricCard icon={CheckCircle} value={stats.resolvedTickets} label="Chamados Resolvidos" tone="success" />
-        <MetricCard icon={MapPin} value={stats.totalRooms} label="Locais / Salas" tone="warning" />
-        <MetricCard
-          icon={Package}
-          value={stats.totalAssets}
-          label="Equipamentos Patrimoniais"
-          tone="purple"
-          subtitle="Contagem por patrimônio"
-        />
-        <MetricCard icon={Users} value={stats.totalUsers} label="Usuários" tone="neutral" />
+        <MetricCard icon={Ticket} value={stats.pendingTickets} label={isTecnico ? 'Meus Chamados Ativos' : isAdmin ? 'Chamados Pendentes' : 'Meus Chamados Abertos'} tone="info" />
+        <MetricCard icon={CheckCircle} value={stats.resolvedTickets} label={isTecnico ? 'Meus Chamados Resolvidos' : isAdmin ? 'Chamados Resolvidos' : 'Meus Chamados Resolvidos'} tone="success" />
+        {stats.totalRooms !== null && <MetricCard icon={MapPin} value={stats.totalRooms} label="Locais / Salas" tone="warning" />}
+        {stats.totalAssets !== null && (
+          <MetricCard
+            icon={Package}
+            value={stats.totalAssets}
+            label="Equipamentos Patrimoniais"
+            tone="purple"
+            subtitle="Contagem por patrimônio"
+          />
+        )}
+        {stats.totalUsers !== null && <MetricCard icon={Users} value={stats.totalUsers} label="Usuários" tone="neutral" />}
       </div>
 
       <div className="dashboard-charts-grid fade-in">
         <ChartCard
           title="Histórico de Tráfego"
-          subtitle={`Chamados, movimentações e auditoria nos últimos ${PERIODS[period].label}`}
+          subtitle={`Chamados e movimentações nos últimos ${PERIODS[period].label}`}
           icon={BarChart3}
           className="dashboard-chart-wide"
         >
@@ -459,11 +475,12 @@ export function Dashboard() {
               <Legend />
               <Area type="monotone" dataKey="movimentacoes" name="Movimentações" stroke="#0ea5e9" fill="url(#trafficMoves)" strokeWidth={2} />
               <Area type="monotone" dataKey="chamados" name="Chamados" stroke="#10b981" fill="url(#trafficTickets)" strokeWidth={2} />
-              <Area type="monotone" dataKey="auditoria" name="Atividades" stroke="#6366f1" fill="transparent" strokeWidth={2} />
+              {isAdmin && <Area type="monotone" dataKey="auditoria" name="Atividades" stroke="#6366f1" fill="transparent" strokeWidth={2} />}
             </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
 
+        {isAdmin && (<>
         <ChartCard
           title="Top 10 Equipamentos Movimentados"
           subtitle={`Patrimônios com mais trocas de sala (${PERIODS[period].label})`}
@@ -560,6 +577,7 @@ export function Dashboard() {
             </div>
           )}
         </ChartCard>
+        </>)}
 
         <ChartCard
           title="Tempo Médio de Resolução"
@@ -589,6 +607,7 @@ export function Dashboard() {
           )}
         </ChartCard>
 
+        {isAdmin && (<>
         <ChartCard
           title="Atividades dos Visitantes"
           subtitle="Ações registradas na auditoria do sistema"
@@ -654,9 +673,11 @@ export function Dashboard() {
             ))}
           </div>
         </ChartCard>
+        </>)}
 
       </div>
 
+      {isAdmin && (
       <div className="dashboard-section fade-in">
         <div className="dashboard-section-header">
           <h3>
@@ -717,6 +738,7 @@ export function Dashboard() {
           </table>
         </div>
       </div>
+      )}
     </>
   )
 }
