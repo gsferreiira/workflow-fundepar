@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { ErrorBoundary } from './ErrorBoundary.jsx'
 import { X, MapPin, Loader2, RefreshCw } from 'lucide-react'
 import { Sidebar } from './Sidebar.jsx'
 import { Topbar } from './Topbar.jsx'
@@ -199,7 +200,9 @@ export function Layout() {
               }}
             />
             <div id="view-content" className="view-content fade-in">
-              <Outlet context={layoutValue} />
+              <ErrorBoundary>
+                <Outlet context={layoutValue} />
+              </ErrorBoundary>
             </div>
           </main>
         </div>

@@ -116,7 +116,7 @@ export function Equipamentos() {
           </div>
           {canSeeAll && (
             <div className="filter-group">
-              <label className="filter-label">Domínio</label>
+              <label className="filter-label">Classificação</label>
               <select
                 className="form-control filter-control"
                 value={filterDominio}
@@ -158,7 +158,7 @@ export function Equipamentos() {
           <thead>
             <tr>
               <th>Nome do Equipamento</th>
-              {canSeeAll && <th style={{ width: 130 }}>Domínio</th>}
+              {canSeeAll && <th style={{ width: 130 }}>Classificação</th>}
               <th>Categoria</th>
               <th style={{ width: 130 }}>Ações</th>
             </tr>
@@ -308,7 +308,7 @@ function EquipModal({ eq, onClose, onSaved }) {
           </div>
           {canSeeAll && (
             <div className="form-group">
-              <label>Domínio <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <label>Classificação <span style={{ color: 'var(--danger-color)' }}>*</span></label>
               <select className="form-control" value={dominio} onChange={(e) => handleDominioChange(e.target.value)}>
                 {DOMINIOS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>

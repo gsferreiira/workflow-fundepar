@@ -125,7 +125,7 @@ export function DashboardPatrimonio() {
         {/* Distribuição por domínio */}
         <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 16 }}>
-            Distribuição por domínio
+            Distribuição por classificação
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {DOMINIOS.map((d) => {

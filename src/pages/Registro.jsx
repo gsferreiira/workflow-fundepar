@@ -10,9 +10,9 @@ import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
 import { Scanner } from '../components/Scanner.jsx'
 import { Pagination } from '../components/Pagination.jsx'
-import { applyAssetMask, formatAssetNumber, fmtDateTime, normalizeAssetNumber, normalizeText } from '../utils/format.js'
+import { applyAssetMask, formatAssetNumber, fmtDateTime, normalizeAssetNumber, normalizeText, debounce } from '../utils/format.js'
 import { exportXlsx } from '../utils/spreadsheet.js'
-import { DOMINIOS, ROLES_FULL_ACCESS } from '../config/dominios.js'
+import { DOMINIOS, ROLES_FULL_ACCESS, CATEGORIAS_POR_DOMINIO } from '../config/dominios.js'
 
 const PAGE_SIZE = 25
 
@@ -63,7 +63,12 @@ export function Registro() {
   const { showToast } = useToast()
   const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const [data, setData] = useState(null)
+  const [total, setTotal] = useState(0)
+  const [roomOptions, setRoomOptions] = useState([])
   const [search, setSearch] = useState('')
+  const [searchDebounced, setSearchDebounced] = useState('')
+  const debouncedSetSearch = useMemo(() => debounce((v) => setSearchDebounced(v), 300), [])
+  useEffect(() => { debouncedSetSearch(search) }, [search, debouncedSetSearch])
   const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
   const [filterRoom, setFilterRoom] = useState('')
   const [filterDominio, setFilterDominio] = useState('')
@@ -106,60 +111,124 @@ export function Registro() {
   const showToastRef = useRef(showToast)
   showToastRef.current = showToast
 
+  // Carrega opções de sala (para o filtro de sala) sem misturar com a query paginada
   useEffect(() => {
-    const load = async () => {
-      const [
-        { data: locations, error },
-        { data: rooms },
-      ] = await Promise.all([
-        supabase
-          .from('equipment_locations')
-          .select(
-            'equipment_id, equipment(name,categoria,status,observacao,dominio), asset_number, serial_number, received_by, moved_at, current_room_id',
-          )
-          .order('moved_at', { ascending: false })
-          .limit(5000),
-        supabase.from('rooms').select('id, name').is('deleted_at', null),
-      ])
+    supabase
+      .from('rooms')
+      .select('id, name')
+      .is('deleted_at', null)
+      .then(({ data: rooms }) => {
+        setRoomOptions(
+          (rooms || []).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+        )
+      })
+  }, [reloadToken])
 
-      if (error) {
-        showToastRef.current(error.message, 'danger')
-        return
+  // Categorias derivadas do config — sem consulta extra ao banco
+  const categoriaOptions = useMemo(() => {
+    if (!canSeeAll) return CATEGORIAS_POR_DOMINIO['TI'] || []
+    if (filterDominio && CATEGORIAS_POR_DOMINIO[filterDominio]) return CATEGORIAS_POR_DOMINIO[filterDominio]
+    return Object.values(CATEGORIAS_POR_DOMINIO).flat()
+  }, [canSeeAll, filterDominio])
+
+  useEffect(() => {
+    let cancelled = false
+    setData(null)
+
+    const load = async () => {
+      // Busca IDs de equipamentos pelo nome para text search cross-join
+      let eqIds = null
+      const sq = searchDebounced.trim()
+      if (sq) {
+        const { data: matchEq } = await supabase
+          .from('equipment')
+          .select('id')
+          .ilike('name', `%${sq}%`)
+          .is('deleted_at', null)
+        if (cancelled) return
+        eqIds = (matchEq || []).map((e) => e.id)
       }
 
-      const roomMap = Object.fromEntries((rooms || []).map((r) => [r.id, r]))
-      const assetNumbers = [...new Set((locations || []).map((m) => m.asset_number).filter(Boolean))]
-      let receiverByAsset = {}
-      if (assetNumbers.length > 0) {
-        const { data: latestMovements, error: movementsError } = await supabase
-          .from('asset_movements')
-          .select('asset_number, received_by, moved_at')
-          .in('asset_number', assetNumbers)
-          .is('deleted_at', null)
-          .order('moved_at', { ascending: false })
+      const applyFilters = (q) => {
+        if (!canSeeAll)      q = q.eq('equipment.dominio', 'TI')
+        if (filterRoom)      q = q.eq('current_room_id', filterRoom)
+        if (filterDominio)   q = q.eq('equipment.dominio', filterDominio)
+        if (filterCat)       q = q.eq('equipment.categoria', filterCat)
+        if (filterStatus)    q = q.eq('equipment.status', filterStatus)
+        if (filterMovedFrom) q = q.gte('moved_at', `${filterMovedFrom}T00:00:00`)
+        if (filterMovedTo)   q = q.lte('moved_at', `${filterMovedTo}T23:59:59`)
+        if (sq) {
+          const conds = [
+            `asset_number.ilike.%${sq}%`,
+            `serial_number.ilike.%${sq}%`,
+            `received_by.ilike.%${sq}%`,
+          ]
+          if (eqIds && eqIds.length > 0) conds.push(`equipment_id.in.(${eqIds.join(',')})`)
+          q = q.or(conds.join(','))
+        }
+        return q
+      }
 
-        if (movementsError) {
-          console.warn('Registro — recebedor não carregado:', movementsError.message)
-        } else {
-          ;(latestMovements || []).forEach((movement) => {
-            if (!receiverByAsset[movement.asset_number]) {
-              receiverByAsset[movement.asset_number] = movement.received_by || null
-            }
-          })
+      const applySort = (q) => {
+        switch (sort) {
+          case 'za':        return q.order('name', { referencedTable: 'equipment', ascending: false })
+          case 'pat':       return q.order('asset_number', { ascending: true, nullsFirst: false })
+          case 'sala':      return q.order('name', { referencedTable: 'room', ascending: true })
+          case 'cat':       return q.order('categoria', { referencedTable: 'equipment', ascending: true })
+          case 'data_desc': return q.order('moved_at', { ascending: false })
+          case 'data_asc':  return q.order('moved_at', { ascending: true })
+          default:          return q.order('name', { referencedTable: 'equipment', ascending: true })
         }
       }
 
-      const items = []
-      ;(locations || []).forEach((m) => {
-        if (!m.current_room_id) return
-        // tecnico vê apenas domínio TI
-        if (!canSeeAll && (m.equipment?.dominio || 'TI') !== 'TI') return
+      const from = (page - 1) * PAGE_SIZE
+      const [pageRes, countRes] = await Promise.all([
+        applySort(applyFilters(
+          supabase
+            .from('equipment_locations')
+            .select('equipment_id, equipment!inner(name,categoria,status,observacao,dominio), asset_number, serial_number, received_by, moved_at, current_room_id, room:current_room_id(id,name)')
+            .not('current_room_id', 'is', null),
+        )).range(from, from + PAGE_SIZE - 1),
+        applyFilters(
+          supabase
+            .from('equipment_locations')
+            .select('equipment!inner(id)', { count: 'exact', head: true })
+            .not('current_room_id', 'is', null),
+        ),
+      ])
+
+      if (cancelled) return
+      if (pageRes.error) {
+        showToastRef.current(pageRes.error.message, 'danger')
+        setData([])
+        return
+      }
+
+      const locations = pageRes.data || []
+
+      // Fallback de received_by via asset_movements apenas para a página atual
+      const assetNums = locations.map((l) => l.asset_number).filter(Boolean)
+      let receiverByAsset = {}
+      if (assetNums.length > 0) {
+        const { data: movs } = await supabase
+          .from('asset_movements')
+          .select('asset_number, received_by, moved_at')
+          .in('asset_number', assetNums)
+          .is('deleted_at', null)
+          .order('moved_at', { ascending: false })
+        if (cancelled) return
+        ;(movs || []).forEach((m) => {
+          if (!receiverByAsset[m.asset_number]) receiverByAsset[m.asset_number] = m.received_by || null
+        })
+      }
+
+      const items = locations.map((m) => {
         const key = m.asset_number
           ? `pat_${m.asset_number}`
           : m.serial_number
             ? `eq_${m.equipment_id}_ser_${m.serial_number}`
             : `eq_${m.equipment_id}`
-        items.push({
+        return {
           key,
           equipment_id: m.equipment_id,
           equipment: m.equipment,
@@ -174,99 +243,29 @@ export function Registro() {
           destination_room_id: m.current_room_id,
           current_room_id: m.current_room_id,
           moved_by: null,
-          room: roomMap[m.current_room_id] || null,
+          room: m.room || null,
           profile: null,
-        })
+        }
       })
 
       setData(items)
+      setTotal(countRes.count || 0)
     }
-    load()
-  }, [reloadToken])
 
-  const uniqueRooms = useMemo(() => {
-    if (!data) return []
-    return Object.values(
-      Object.fromEntries(
-        data.filter((d) => d.room).map((d) => [d.destination_room_id, d.room]),
-      ),
-    ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-  }, [data])
-
-  const categorias = useMemo(() => {
-    if (!data) return []
-    return [...new Set(data.filter((d) => d.categoria).map((d) => d.categoria))].sort()
-  }, [data])
-
-  const filtered = useMemo(() => {
-    if (!data) return []
-    const q = (search || '').toLowerCase().trim()
-    const fromTs = filterMovedFrom ? new Date(`${filterMovedFrom}T00:00:00`).toISOString() : null
-    const toTs = filterMovedTo ? new Date(`${filterMovedTo}T23:59:59`).toISOString() : null
-
-    let result = data.filter((d) => {
-      if (filterRoom && d.destination_room_id !== filterRoom) return false
-      if (filterDominio && (d.dominio || 'TI') !== filterDominio) return false
-      if (filterCat && (d.categoria || '') !== filterCat) return false
-      if (filterStatus && (d.status || '') !== filterStatus) return false
-      if (fromTs && (d.moved_at || '') < fromTs) return false
-      if (toTs && (d.moved_at || '') > toTs) return false
-      if (q) {
-        const hay = [
-          d.equipment?.name || '',
-          d.asset_number || '',
-          d.serial_number || '',
-          d.categoria || '',
-          d.received_by || '',
-          d.observacao || '',
-        ]
-          .join(' ')
-          .toLowerCase()
-        if (!hay.includes(q)) return false
+    load().catch((err) => {
+      if (!cancelled) {
+        showToastRef.current(err?.message || 'Erro inesperado', 'danger')
+        setData([])
       }
-      return true
     })
 
-    if (sort === 'az')
-      result.sort((a, b) =>
-        (a.equipment?.name || '').localeCompare(b.equipment?.name || '', 'pt-BR'),
-      )
-    else if (sort === 'za')
-      result.sort((a, b) =>
-        (b.equipment?.name || '').localeCompare(a.equipment?.name || '', 'pt-BR'),
-      )
-    else if (sort === 'pat')
-      result.sort((a, b) =>
-        (a.asset_number || 'zzz').localeCompare(b.asset_number || 'zzz', 'pt-BR', {
-          numeric: true,
-        }),
-      )
-    else if (sort === 'sala')
-      result.sort((a, b) =>
-        (a.room?.name || 'zzz').localeCompare(b.room?.name || 'zzz', 'pt-BR'),
-      )
-    else if (sort === 'cat')
-      result.sort((a, b) =>
-        (a.categoria || 'zzz').localeCompare(b.categoria || 'zzz', 'pt-BR'),
-      )
-    else if (sort === 'data_desc')
-      result.sort((a, b) => (b.moved_at || '').localeCompare(a.moved_at || ''))
-    else if (sort === 'data_asc')
-      result.sort((a, b) => (a.moved_at || '').localeCompare(b.moved_at || ''))
-
-    return result
-  }, [data, search, filterRoom, filterDominio, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
-
-  const total = filtered.length
-  const pageItems = useMemo(() => {
-    const from = (page - 1) * PAGE_SIZE
-    return filtered.slice(from, from + PAGE_SIZE)
-  }, [filtered, page])
+    return () => { cancelled = true }
+  }, [page, searchDebounced, filterRoom, filterDominio, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort, reloadToken, canSeeAll])
 
   useEffect(() => {
     setPage(1)
     setSelectedKeys(new Set())
-  }, [search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
+  }, [searchDebounced, filterRoom, filterDominio, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -279,9 +278,72 @@ export function Registro() {
     return Math.min(totalPages, p + 1)
   })
 
+  const fetchAllForExport = async () => {
+    const sq = searchDebounced.trim()
+    let eqIds = null
+    if (sq) {
+      const { data: matchEq } = await supabase
+        .from('equipment')
+        .select('id')
+        .ilike('name', `%${sq}%`)
+        .is('deleted_at', null)
+      eqIds = (matchEq || []).map((e) => e.id)
+    }
+
+    let q = supabase
+      .from('equipment_locations')
+      .select('equipment_id, equipment!inner(name,categoria,status,observacao,dominio), asset_number, serial_number, received_by, moved_at, current_room_id, room:current_room_id(id,name)')
+      .not('current_room_id', 'is', null)
+
+    if (!canSeeAll)      q = q.eq('equipment.dominio', 'TI')
+    if (filterRoom)      q = q.eq('current_room_id', filterRoom)
+    if (filterDominio)   q = q.eq('equipment.dominio', filterDominio)
+    if (filterCat)       q = q.eq('equipment.categoria', filterCat)
+    if (filterStatus)    q = q.eq('equipment.status', filterStatus)
+    if (filterMovedFrom) q = q.gte('moved_at', `${filterMovedFrom}T00:00:00`)
+    if (filterMovedTo)   q = q.lte('moved_at', `${filterMovedTo}T23:59:59`)
+    if (sq) {
+      const conds = [
+        `asset_number.ilike.%${sq}%`,
+        `serial_number.ilike.%${sq}%`,
+        `received_by.ilike.%${sq}%`,
+      ]
+      if (eqIds && eqIds.length > 0) conds.push(`equipment_id.in.(${eqIds.join(',')})`)
+      q = q.or(conds.join(','))
+    }
+    switch (sort) {
+      case 'za':        q = q.order('name', { referencedTable: 'equipment', ascending: false }); break
+      case 'pat':       q = q.order('asset_number', { ascending: true, nullsFirst: false }); break
+      case 'sala':      q = q.order('name', { referencedTable: 'room', ascending: true }); break
+      case 'cat':       q = q.order('categoria', { referencedTable: 'equipment', ascending: true }); break
+      case 'data_desc': q = q.order('moved_at', { ascending: false }); break
+      case 'data_asc':  q = q.order('moved_at', { ascending: true }); break
+      default:          q = q.order('name', { referencedTable: 'equipment', ascending: true }); break
+    }
+
+    const { data: locations, error } = await q
+    if (error) throw error
+    return (locations || []).map((m) => ({
+      equipment: m.equipment,
+      categoria: m.equipment?.categoria || null,
+      status: m.equipment?.status || null,
+      observacao: m.equipment?.observacao || null,
+      asset_number: m.asset_number || null,
+      serial_number: m.serial_number || null,
+      received_by: m.received_by || null,
+      moved_at: m.moved_at || null,
+      room: m.room || null,
+    }))
+  }
+
   const exportExcel = async (scope = 'all') => {
     try {
-      const rows = scope === 'page' ? pageItems : filtered
+      let rows
+      if (scope === 'page') {
+        rows = data || []
+      } else {
+        rows = await fetchAllForExport()
+      }
       if (rows.length === 0) {
         showToast('Nenhum equipamento para exportar.', 'warning')
         return
@@ -314,6 +376,7 @@ export function Registro() {
 
   const clearFilters = () => {
     setSearch('')
+    setSearchDebounced('')
     setFilterRoom('')
     setFilterCat('')
     setFilterStatus('')
@@ -337,25 +400,25 @@ export function Registro() {
   }, [])
 
   const allPageSelected =
-    pageItems.length > 0 && pageItems.every((d) => selectedKeys.has(d.key))
+    (data?.length ?? 0) > 0 && (data || []).every((d) => selectedKeys.has(d.key))
 
   const toggleAllPage = useCallback(() => {
     setSelectedKeys((prev) => {
       const next = new Set(prev)
       if (allPageSelected) {
-        pageItems.forEach((d) => next.delete(d.key))
+        ;(data || []).forEach((d) => next.delete(d.key))
       } else {
-        pageItems.forEach((d) => next.add(d.key))
+        ;(data || []).forEach((d) => next.add(d.key))
       }
       return next
     })
-  }, [pageItems, allPageSelected])
+  }, [data, allPageSelected])
 
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), [])
 
   const selectedItems = useMemo(
-    () => filtered.filter((d) => selectedKeys.has(d.key)),
-    [filtered, selectedKeys],
+    () => (data || []).filter((d) => selectedKeys.has(d.key)),
+    [data, selectedKeys],
   )
 
   const exportSelected = async () => {
@@ -436,7 +499,7 @@ export function Registro() {
                   >
                     <div className="export-menu-item-title">Esta página</div>
                     <div className="export-menu-item-desc">
-                      Exporta os {pageItems.length} registros visíveis (página {page}).
+                      Exporta os {(data || []).length} registros visíveis (página {page}).
                     </div>
                   </button>
                   <button
@@ -492,7 +555,7 @@ export function Registro() {
               onChange={(e) => setFilterRoom(e.target.value)}
             >
               <option value="">Todas</option>
-              {uniqueRooms.map((r) => (
+              {roomOptions.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
                 </option>
@@ -501,7 +564,7 @@ export function Registro() {
           </div>
           {canSeeAll && (
             <div className="filter-group">
-              <label className="filter-label">Domínio</label>
+              <label className="filter-label">Classificação</label>
               <select
                 className="form-control filter-control"
                 value={filterDominio}
@@ -520,7 +583,7 @@ export function Registro() {
               onChange={(e) => setFilterCat(e.target.value)}
             >
               <option value="">Todas</option>
-              {categorias.map((c) => (
+              {categoriaOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -586,7 +649,6 @@ export function Registro() {
         <div className="filter-actions">
           <span className="filter-count">
             {total} equipamento{total !== 1 ? 's' : ''}
-            {data && total !== data.length ? ` de ${data.length}` : ''}
           </span>
           <button className="btn-filter-clear" onClick={clearFilters} disabled={!hasFilters}>
             <X size={13} /> Limpar filtros
@@ -670,7 +732,7 @@ export function Registro() {
                 </td>
               </tr>
             ) : (
-              pageItems.map((d) => (
+              data.map((d) => (
                 <tr
                   key={d.key}
                   className={selectedKeys.has(d.key) ? 'row-selected' : ''}
