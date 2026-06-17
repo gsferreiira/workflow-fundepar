@@ -11,6 +11,8 @@ export function useRoomNotifications(user) {
   const handleInsert = useCallback(async (payload) => {
     const mov = payload.new
     if (!mov) return
+    // Guard: Supabase Realtime pode não filtrar server-side se replicação por linha não estiver ativa
+    if (mov.destination_room_id !== roomId) return
 
     let equipmentName = null
     if (mov.equipment_id) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
-import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2, ScanLine, Pencil } from 'lucide-react'
+import { X, FileSpreadsheet, History, MapPin, ArrowRightLeft, Check, UserMinus, Filter, ChevronDown, Plus, Loader2, ScanLine, Pencil, Trash2 } from 'lucide-react'
 import { useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -73,6 +73,7 @@ export function Registro() {
   const [editRegistroItem, setEditRegistroItem] = useState(null)
   const [assetLookupOpen, setAssetLookupOpen] = useState(false)
   const [batchRegisterOpen, setBatchRegisterOpen] = useState(false)
+  const [deleteItem, setDeleteItem] = useState(null)
   const [newRegistroAsset, setNewRegistroAsset] = useState(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set())
   const [bulkModalOpen, setBulkModalOpen] = useState(false)
@@ -634,7 +635,7 @@ export function Registro() {
               <th>Localização Atual</th>
               <th>Com quem está</th>
               <th>Último Registro</th>
-              <th style={{ width: 112 }}>Ações</th>
+              <th style={{ width: 144 }}>Ações</th>
             </tr>
           </thead>
           <tbody>
@@ -733,10 +734,20 @@ export function Registro() {
                       <button
                         className="btn-table-action edit"
                         onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}
-                        title={'Ver hist\u00f3rico'}
+                        title="Ver hist\u00f3rico"
                       >
                         <History size={14} />
                       </button>
+                      {user?.role === 'admin' && (
+                        <button
+                          className="btn-table-action"
+                          style={{ color: '#dc2626' }}
+                          onClick={(e) => { e.stopPropagation(); setDeleteItem(d) }}
+                          title="Excluir equipamento"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -836,6 +847,14 @@ export function Registro() {
             setBatchRegisterOpen(false)
             refetch()
           }}
+        />
+      )}
+
+      {deleteItem && (
+        <DeleteEquipmentModal
+          item={deleteItem}
+          onClose={() => setDeleteItem(null)}
+          onDeleted={() => { setDeleteItem(null); refetch() }}
         />
       )}
     </>
@@ -2049,6 +2068,107 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+function DeleteEquipmentModal({ item, onClose, onDeleted }) {
+  const { showToast } = useToast()
+  const audit = useAudit()
+  const [busy, setBusy] = useState(false)
+  const [typed, setTyped] = useState('')
+
+  const equipName = item.equipment?.name || '—'
+  const assetLabel = item.asset_number ? formatAssetNumber(item.asset_number) : null
+  const canDelete = typed.trim().toUpperCase() === 'EXCLUIR'
+
+  const handleDelete = async () => {
+    if (!canDelete) return
+    setBusy(true)
+
+    let q = supabase.from('equipment_locations').delete()
+    if (item.asset_number) {
+      q = q.eq('asset_number', item.asset_number)
+    } else {
+      q = q.eq('equipment_id', item.equipment_id)
+      if (item.serial_number) q = q.eq('serial_number', item.serial_number)
+      else q = q.is('serial_number', null)
+    }
+
+    const { error } = await q
+    setBusy(false)
+    if (error) { showToast('Erro ao excluir: ' + error.message, 'danger'); return }
+
+    audit.log('delete', 'equipment_locations', item.asset_number || item.equipment_id, {
+      equipment_name: equipName,
+      asset_number: item.asset_number || null,
+      serial_number: item.serial_number || null,
+      room: item.room?.name || null,
+    })
+
+    showToast(`${equipName} excluído do registro.`, 'success')
+    onDeleted()
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 440 }}>
+        <div className="modal-header">
+          <div>
+            <h3>Excluir equipamento</h3>
+            <div style={{ fontSize: 13, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>Ação irreversível</div>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div style={{ padding: '4px 0 16px' }}>
+          <div style={{ padding: '12px 16px', borderRadius: 10, background: 'rgba(239,68,68,.07)', border: '1px solid rgba(239,68,68,.2)', marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{equipName}</div>
+            {assetLabel && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>PAT {assetLabel}</div>}
+            {item.serial_number && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Série: {item.serial_number}</div>}
+            {item.room && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{item.room.name}</div>}
+          </div>
+
+          <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.55 }}>
+            O registro de localização deste patrimônio será removido permanentemente do sistema.
+            O histórico de movimentações será mantido.
+          </p>
+
+          <div className="form-group">
+            <label style={{ fontSize: 13 }}>Digite <strong>EXCLUIR</strong> para confirmar</label>
+            <input
+              type="text"
+              className="form-control"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder="EXCLUIR"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) handleDelete() }}
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ background: '#e2e8f0', color: '#475569' }}
+            onClick={onClose}
+            disabled={busy}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ background: '#dc2626', opacity: canDelete ? 1 : .5 }}
+            onClick={handleDelete}
+            disabled={busy || !canDelete}
+          >
+            {busy ? <Loader2 size={14} className="spin" /> : 'Excluir permanentemente'}
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   Package, AlertTriangle, CalendarCheck, ArrowDownToLine,
-  LayoutGrid, ArrowRightLeft, ClipboardList, ChevronRight, CalendarX,
+  LayoutGrid, ArrowRightLeft, ClipboardList, ChevronRight, CalendarX, X,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { supabase } from '../lib/supabase.js'
@@ -70,12 +70,126 @@ function QuickLink({ to, icon: Icon, label, desc, color }) {
   )
 }
 
+function NewMovementsModal({ movements, onClose, onViewDetails }) {
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content fade-in" style={{ maxWidth: 500, padding: 0, overflow: 'hidden' }}>
+
+        {/* Header colorido */}
+        <div style={{
+          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+          padding: '24px 24px 22px',
+          position: 'relative',
+        }}>
+          <button
+            className="modal-close"
+            type="button"
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              color: 'rgba(255,255,255,.8)',
+              background: 'rgba(255,255,255,.15)',
+              border: 'none',
+              borderRadius: 8,
+              width: 28, height: 28,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={15} />
+          </button>
+          <div style={{
+            width: 50, height: 50, borderRadius: 14,
+            background: 'rgba(255,255,255,.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 14,
+          }}>
+            <Package size={24} style={{ color: '#fff' }} />
+          </div>
+          <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 18, fontWeight: 800 }}>
+            Novidades na sua sala!
+          </h3>
+          <p style={{ color: 'rgba(255,255,255,.8)', margin: 0, fontSize: 13, lineHeight: 1.4 }}>
+            {movements.length} equipamento{movements.length !== 1 ? 's' : ''}{' '}
+            {movements.length !== 1 ? 'foram recebidos' : 'foi recebido'} desde sua última visita
+          </p>
+        </div>
+
+        {/* Lista de equipamentos */}
+        <div style={{ padding: '16px 20px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {movements.map((mov, i) => (
+            <div
+              key={mov.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: 'var(--bg-main)',
+                border: '1px solid var(--border-color)',
+                animation: `fadeIn .25s ease ${i * 40}ms both`,
+              }}
+            >
+              <div style={{
+                width: 40, height: 40, borderRadius: 11,
+                background: 'rgba(99,102,241,.1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Package size={18} style={{ color: '#6366f1' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {mov.equipment?.name || '—'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
+                  {mov.asset_number ? `PAT ${mov.asset_number.toString().padStart(6, '0')} · ` : ''}
+                  {fmtDate(mov.moved_at)}
+                </div>
+              </div>
+              <span style={{
+                flexShrink: 0, fontSize: 10, fontWeight: 700,
+                padding: '3px 9px', borderRadius: 20,
+                background: 'rgba(99,102,241,.1)', color: '#6366f1',
+                textTransform: 'uppercase', letterSpacing: '.05em',
+              }}>
+                Novo
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Rodapé */}
+        <div style={{
+          padding: '14px 20px 20px',
+          borderTop: '1px solid var(--border-color)',
+          display: 'flex', gap: 10, justifyContent: 'flex-end',
+        }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            OK, ciente
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onViewDetails}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <ArrowRightLeft size={14} />
+            Ver movimentações
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function DashboardSetor() {
   const { sigla } = useParams()
+  const navigate  = useNavigate()
   const { user }  = useAuth()
   const room      = user?.coordinator_room
 
   const [stats, setStats] = useState(null)
+  const [newMovements, setNewMovements] = useState(null)
   const COMP = currentCompetencia()
 
   const load = useCallback(async () => {
@@ -126,12 +240,62 @@ export function DashboardSetor() {
 
   useEffect(() => { load() }, [load])
 
-  if (!room) return <SkeletonTable />
+  useEffect(() => {
+    if (!room?.id || !user?.id) return
+    let cancelled = false
+    const key = `coord_last_seen_${user.id}_${room.id}`
+    const since = localStorage.getItem(key)
+      || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    supabase
+      .from('asset_movements')
+      .select('id, moved_at, asset_number, equipment_id, equipment(name)')
+      .eq('destination_room_id', room.id)
+      .is('deleted_at', null)
+      .gte('moved_at', since)
+      .order('moved_at', { ascending: false })
+      .limit(20)
+      .then(({ data }) => {
+        if (cancelled || !data || data.length === 0) return
+        setNewMovements(data)
+      })
+      .catch(() => {})
+
+    return () => { cancelled = true }
+  }, [room?.id, user?.id])
+
+  const dismissNewMovements = useCallback((andNavigate = false) => {
+    if (room?.id && user?.id) {
+      localStorage.setItem(`coord_last_seen_${user.id}_${room.id}`, new Date().toISOString())
+    }
+    setNewMovements(null)
+    if (andNavigate) {
+      const path = sigla?.toLowerCase() || room?.sigla?.toLowerCase() || ''
+      navigate(`/setor/${path}/movimentacoes`)
+    }
+  }, [room?.id, room?.sigla, user?.id, navigate, sigla])
+
+  if (!room) return (
+    <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-secondary)' }}>
+      <AlertTriangle size={40} style={{ opacity: .2, display: 'block', margin: '0 auto 16px' }} />
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Nenhuma sala vinculada</h3>
+      <p style={{ fontSize: 13, maxWidth: 320, margin: '0 auto' }}>
+        Sua conta não está associada a nenhuma sala. Contate o administrador para configurar seu acesso.
+      </p>
+    </div>
+  )
 
   const sl = sigla?.toLowerCase() || room.sigla?.toLowerCase() || ''
 
   return (
     <>
+      {newMovements?.length > 0 && (
+        <NewMovementsModal
+          movements={newMovements}
+          onClose={() => dismissNewMovements(false)}
+          onViewDetails={() => dismissNewMovements(true)}
+        />
+      )}
       <div className="view-header">
         <div>
           <h2>Painel — {sigla?.toUpperCase()}</h2>
@@ -181,6 +345,22 @@ export function DashboardSetor() {
               bg="rgba(59,130,246,.06)"
             />
           </div>
+
+          {/* CTA: conferência do mês pendente */}
+          {!stats.thisMonth && (
+            <div className="fade-in" style={{ padding: '14px 18px', borderRadius: 12, background: 'rgba(245,158,11,.07)', border: '1px solid rgba(245,158,11,.25)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <CalendarX size={18} style={{ color: '#d97706', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#b45309' }}>Conferência de {compLabel(COMP)} pendente</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>Realize a conferência mensal para manter o inventário atualizado.</div>
+                </div>
+              </div>
+              <Link to={`/setor/${sl}/conferencias`} className="btn btn-primary" style={{ fontSize: 12, textDecoration: 'none', flexShrink: 0 }}>
+                Conferir agora
+              </Link>
+            </div>
+          )}
 
           {/* Último resultado de conferência */}
           {stats.lastConf && (
