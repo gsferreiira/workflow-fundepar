@@ -26,8 +26,9 @@ const normalizeEmail = (raw) => {
 const ROLES = [
   { value: 'usuario', label: 'Usuário' },
   { value: 'tecnico', label: 'Técnico' },
-  { value: 'admin', label: 'Administrador' },
   { value: 'coordenador', label: 'Coordenador' },
+  { value: 'patrimonio', label: 'Patrimônio' },
+  { value: 'admin', label: 'Administrador' },
 ]
 const roleLabel = (r) => ROLES.find((x) => x.value === r)?.label || r || '—'
 

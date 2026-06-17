@@ -12,6 +12,7 @@ import { Scanner } from '../components/Scanner.jsx'
 import { Pagination } from '../components/Pagination.jsx'
 import { applyAssetMask, formatAssetNumber, fmtDateTime, normalizeAssetNumber, normalizeText } from '../utils/format.js'
 import { exportXlsx } from '../utils/spreadsheet.js'
+import { DOMINIOS, ROLES_FULL_ACCESS } from '../config/dominios.js'
 
 const PAGE_SIZE = 25
 
@@ -63,7 +64,9 @@ export function Registro() {
   const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const [data, setData] = useState(null)
   const [search, setSearch] = useState('')
+  const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
   const [filterRoom, setFilterRoom] = useState('')
+  const [filterDominio, setFilterDominio] = useState('')
   const [filterCat, setFilterCat] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterMovedFrom, setFilterMovedFrom] = useState('')
@@ -112,7 +115,7 @@ export function Registro() {
         supabase
           .from('equipment_locations')
           .select(
-            'equipment_id, equipment(name,categoria,status,observacao), asset_number, serial_number, received_by, moved_at, current_room_id',
+            'equipment_id, equipment(name,categoria,status,observacao,dominio), asset_number, serial_number, received_by, moved_at, current_room_id',
           )
           .order('moved_at', { ascending: false })
           .limit(5000),
@@ -149,6 +152,8 @@ export function Registro() {
       const items = []
       ;(locations || []).forEach((m) => {
         if (!m.current_room_id) return
+        // tecnico vê apenas domínio TI
+        if (!canSeeAll && (m.equipment?.dominio || 'TI') !== 'TI') return
         const key = m.asset_number
           ? `pat_${m.asset_number}`
           : m.serial_number
@@ -158,6 +163,7 @@ export function Registro() {
           key,
           equipment_id: m.equipment_id,
           equipment: m.equipment,
+          dominio: m.equipment?.dominio || 'TI',
           categoria: m.equipment?.categoria || null,
           status: m.equipment?.status || null,
           observacao: m.equipment?.observacao || null,
@@ -200,6 +206,7 @@ export function Registro() {
 
     let result = data.filter((d) => {
       if (filterRoom && d.destination_room_id !== filterRoom) return false
+      if (filterDominio && (d.dominio || 'TI') !== filterDominio) return false
       if (filterCat && (d.categoria || '') !== filterCat) return false
       if (filterStatus && (d.status || '') !== filterStatus) return false
       if (fromTs && (d.moved_at || '') < fromTs) return false
@@ -248,7 +255,7 @@ export function Registro() {
       result.sort((a, b) => (a.moved_at || '').localeCompare(b.moved_at || ''))
 
     return result
-  }, [data, search, filterRoom, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
+  }, [data, search, filterRoom, filterDominio, filterCat, filterStatus, filterMovedFrom, filterMovedTo, sort])
 
   const total = filtered.length
   const pageItems = useMemo(() => {
@@ -492,6 +499,19 @@ export function Registro() {
               ))}
             </select>
           </div>
+          {canSeeAll && (
+            <div className="filter-group">
+              <label className="filter-label">Domínio</label>
+              <select
+                className="form-control filter-control"
+                value={filterDominio}
+                onChange={(e) => setFilterDominio(e.target.value)}
+              >
+                <option value="">Todos</option>
+                {DOMINIOS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          )}
           <div className="filter-group">
             <label className="filter-label">Categoria</label>
             <select

@@ -33,17 +33,17 @@ export const NAV_PAGES = [
 
 // Permissões padrão (usadas como fallback antes de carregar do banco)
 export const DEFAULT_PERMISSIONS = {
-  inicio:        ['admin', 'tecnico', 'usuario', 'coordenador'],
-  dashboard:     ['admin', 'tecnico', 'usuario'],
+  inicio:        ['admin', 'tecnico', 'usuario', 'coordenador', 'patrimonio'],
+  dashboard:     ['admin', 'tecnico', 'usuario', 'patrimonio'],
   workflow:      ['admin', 'tecnico', 'usuario'],
-  equipamentos:  ['admin', 'tecnico', 'usuario'],
-  movimentacoes: ['admin', 'tecnico', 'usuario'],
-  rastreio:      ['admin', 'tecnico', 'usuario'],
-  'mapa-salas':  ['admin', 'tecnico', 'usuario'],
+  equipamentos:  ['admin', 'tecnico', 'usuario', 'patrimonio'],
+  movimentacoes: ['admin', 'tecnico', 'usuario', 'patrimonio'],
+  rastreio:      ['admin', 'tecnico', 'usuario', 'patrimonio'],
+  'mapa-salas':  ['admin', 'tecnico', 'usuario', 'patrimonio'],
   salas:         ['admin'],
   impressoras:   ['admin', 'tecnico'],
   usuarios:      ['admin'],
-  conferencias:  ['admin', 'tecnico'],
-  auditoria:     ['admin'],
+  conferencias:  ['admin', 'tecnico', 'patrimonio'],
+  auditoria:     ['admin', 'patrimonio'],
   permissoes:    ['admin'],
 }

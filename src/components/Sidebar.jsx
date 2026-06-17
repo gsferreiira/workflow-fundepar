@@ -55,7 +55,7 @@ export function Sidebar({ open, onLinkClick }) {
   const conferencePending = useConferencePending(user)
   const role = user?.role || 'usuario'
   const avatarInitial = (user?.full_name || 'U').charAt(0).toUpperCase()
-  const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
+  const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador', patrimonio: 'Patrimônio' }
 
   const isCoordinator = role === 'coordenador'
   const coordSigla = user?.coordinator_room?.sigla || ''

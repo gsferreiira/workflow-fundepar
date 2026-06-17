@@ -8,6 +8,7 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
+import { DOMINIOS, CATEGORIAS_POR_DOMINIO, ROLES_FULL_ACCESS } from '../config/dominios.js'
 
 
 export function Equipamentos() {
@@ -16,18 +17,19 @@ export function Equipamentos() {
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [list, setList] = useState(null)
+  const { user } = useAuth()
+  const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
   const [createOpen, setCreateOpen] = useState(false)
   const [editEq, setEditEq] = useState(null)
   const [filterCat, setFilterCat] = useState('')
+  const [filterDominio, setFilterDominio] = useState('')
   const [searchLocal, setSearchLocal] = useState('')
   const loadRef = useRef(null)
 
   const load = async () => {
-    const { data, error } = await supabase
-      .from('equipment')
-      .select('*')
-      .is('deleted_at', null)
-      .order('name')
+    let q = supabase.from('equipment').select('*').is('deleted_at', null).order('name')
+    if (!canSeeAll) q = q.eq('dominio', 'TI')
+    const { data, error } = await q
     if (error) {
       showToast(error.message, 'danger')
       return
@@ -52,14 +54,15 @@ export function Equipamentos() {
     if (!list) return []
     const q = (search || searchLocal).toLowerCase().trim()
     return list.filter((eq) => {
+      if (filterDominio && (eq.dominio || 'TI') !== filterDominio) return false
       if (filterCat && (eq.categoria || '') !== filterCat) return false
       if (q) {
-        const hay = ((eq.name || '') + ' ' + (eq.categoria || '')).toLowerCase()
+        const hay = ((eq.name || '') + ' ' + (eq.categoria || '') + ' ' + (eq.dominio || '')).toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [list, filterCat, search, searchLocal])
+  }, [list, filterDominio, filterCat, search, searchLocal])
 
   const onDelete = async (id) => {
     const eq = list.find((e) => e.id === id)
@@ -106,11 +109,24 @@ export function Equipamentos() {
             <input
               type="text"
               className="form-control filter-control"
-              placeholder="Nome ou observação..."
+              placeholder="Nome ou categoria..."
               value={searchLocal}
               onChange={(e) => setSearchLocal(e.target.value)}
             />
           </div>
+          {canSeeAll && (
+            <div className="filter-group">
+              <label className="filter-label">Domínio</label>
+              <select
+                className="form-control filter-control"
+                value={filterDominio}
+                onChange={(e) => { setFilterDominio(e.target.value); setFilterCat('') }}
+              >
+                <option value="">Todos</option>
+                {DOMINIOS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          )}
           <div className="filter-group">
             <label className="filter-label">Categoria</label>
             <select
@@ -120,9 +136,7 @@ export function Equipamentos() {
             >
               <option value="">Todas</option>
               {categorias.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -133,10 +147,7 @@ export function Equipamentos() {
           </span>
           <button
             className="btn-filter-clear"
-            onClick={() => {
-              setSearchLocal('')
-              setFilterCat('')
-            }}
+            onClick={() => { setSearchLocal(''); setFilterCat(''); setFilterDominio('') }}
           >
             <X size={13} /> Limpar
           </button>
@@ -147,6 +158,7 @@ export function Equipamentos() {
           <thead>
             <tr>
               <th>Nome do Equipamento</th>
+              {canSeeAll && <th style={{ width: 130 }}>Domínio</th>}
               <th>Categoria</th>
               <th style={{ width: 130 }}>Ações</th>
             </tr>
@@ -154,11 +166,11 @@ export function Equipamentos() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={3}>
+                <td colSpan={canSeeAll ? 4 : 3}>
                   <EmptyState
-                    preset={search || filterCat ? 'search' : 'package'}
-                    title={search || filterCat ? 'Nenhum equipamento encontrado' : 'Nenhum equipamento cadastrado'}
-                    description={search || filterCat ? 'Tente ajustar o filtro ou a busca.' : 'Clique em "Novo Equipamento" para cadastrar.'}
+                    preset={search || filterCat || filterDominio ? 'search' : 'package'}
+                    title={search || filterCat || filterDominio ? 'Nenhum equipamento encontrado' : 'Nenhum equipamento cadastrado'}
+                    description={search || filterCat || filterDominio ? 'Tente ajustar o filtro ou a busca.' : 'Clique em "Cadastrar Equipamento" para cadastrar.'}
                   />
                 </td>
               </tr>
@@ -168,18 +180,20 @@ export function Equipamentos() {
                   <td>
                     <strong>{eq.name}</strong>
                   </td>
+                  {canSeeAll && (
+                    <td>
+                      <span style={{
+                        background: (eq.dominio || 'TI') === 'TI' ? 'rgba(99,102,241,.1)' : 'rgba(16,185,129,.1)',
+                        color: (eq.dominio || 'TI') === 'TI' ? '#6366f1' : '#059669',
+                        padding: '2px 8px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                      }}>
+                        {eq.dominio || 'TI'}
+                      </span>
+                    </td>
+                  )}
                   <td>
                     {eq.categoria ? (
-                      <span
-                        style={{
-                          background: 'rgba(99,102,241,.1)',
-                          color: '#6366f1',
-                          padding: '2px 8px',
-                          borderRadius: 20,
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
+                      <span style={{ background: 'rgba(99,102,241,.1)', color: '#6366f1', padding: '2px 8px', borderRadius: 20, fontSize: 12, fontWeight: 600 }}>
                         {eq.categoria}
                       </span>
                     ) : (
@@ -232,32 +246,32 @@ function EquipModal({ eq, onClose, onSaved }) {
   const { user } = useAuth()
   const { showToast } = useToast()
   const audit = useAudit()
+  const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState(eq?.name || '')
+  const [dominio, setDominio] = useState(eq?.dominio || 'TI')
   const [categoria, setCategoria] = useState(eq?.categoria || '')
   const editing = !!eq
+
+  const catOptions = CATEGORIAS_POR_DOMINIO[dominio] || []
+
+  const handleDominioChange = (v) => {
+    setDominio(v)
+    setCategoria('') // reset categoria ao mudar domínio
+  }
 
   const submit = async (e) => {
     e.preventDefault()
     setBusy(true)
     const updates = {
       name: name.trim(),
+      dominio: canSeeAll ? dominio : 'TI',
       categoria: categoria.trim() || null,
     }
     if (editing) {
       const { error } = await supabase.from('equipment').update(updates).eq('id', eq.id)
-      if (error) {
-        showToast('Erro ao atualizar: ' + error.message, 'danger')
-        setBusy(false)
-        return
-      }
-      audit.updated('equipment', eq.id, {
-        previous: {
-          name: eq.name || null,
-          categoria: eq.categoria || null,
-        },
-        next: updates,
-      })
+      if (error) { showToast('Erro ao atualizar: ' + error.message, 'danger'); setBusy(false); return }
+      audit.updated('equipment', eq.id, { previous: { name: eq.name, categoria: eq.categoria, dominio: eq.dominio }, next: updates })
       showToast('Equipamento atualizado!', 'success')
       onSaved()
     } else {
@@ -266,12 +280,8 @@ function EquipModal({ eq, onClose, onSaved }) {
         .insert([{ ...updates, created_by: user.id }])
         .select('id')
         .single()
-      if (error) {
-        showToast('Erro ao cadastrar: ' + error.message, 'danger')
-        setBusy(false)
-        return
-      }
-      audit.created('equipment', inserted?.id, { name: updates.name })
+      if (error) { showToast('Erro ao cadastrar: ' + error.message, 'danger'); setBusy(false); return }
+      audit.created('equipment', inserted?.id, { name: updates.name, dominio: updates.dominio })
       showToast('Equipamento cadastrado!', 'success')
       onSaved()
     }
@@ -282,15 +292,11 @@ function EquipModal({ eq, onClose, onSaved }) {
       <div className="modal-content" style={{ maxWidth: 520 }}>
         <div className="modal-header">
           <h3>{editing ? 'Editar Equipamento' : 'Cadastrar Equipamento'}</h3>
-          <button className="modal-close" type="button" onClick={onClose}>
-            <X size={16} />
-          </button>
+          <button className="modal-close" type="button" onClick={onClose}><X size={16} /></button>
         </div>
         <form onSubmit={submit}>
           <div className="form-group">
-            <label>
-              Nome do Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span>
-            </label>
+            <label>Nome do Equipamento <span style={{ color: 'var(--danger-color)' }}>*</span></label>
             <input
               type="text"
               className="form-control"
@@ -300,29 +306,23 @@ function EquipModal({ eq, onClose, onSaved }) {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+          {canSeeAll && (
+            <div className="form-group">
+              <label>Domínio <span style={{ color: 'var(--danger-color)' }}>*</span></label>
+              <select className="form-control" value={dominio} onChange={(e) => handleDominioChange(e.target.value)}>
+                {DOMINIOS.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          )}
           <div className="form-group">
             <label>Categoria</label>
-            <input
-              type="text"
-              className="form-control"
-              placeholder="Ex: Computador, Monitor, Switch..."
-              value={categoria}
-              onChange={(e) => setCategoria(e.target.value)}
-              list="equip-cat-list"
-            />
-            <datalist id="equip-cat-list">
-              {['Computador', 'Notebook', 'Monitor', 'Switch', 'Roteador', 'Impressora', 'Projetor', 'Teclado', 'Mouse', 'Servidor', 'No-break', 'Câmera'].map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
+            <select className="form-control" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
+              <option value="">Selecione...</option>
+              {catOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ background: '#e2e8f0', color: '#475569' }}
-              onClick={onClose}
-            >
+            <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
               Cancelar
             </button>
             <button type="submit" className="btn-primary" disabled={busy}>

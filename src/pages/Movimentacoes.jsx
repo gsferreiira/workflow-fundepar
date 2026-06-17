@@ -36,6 +36,7 @@ import {
   dateTimeLocalValueToIso,
 } from '../utils/format.js'
 import { exportXlsx, readFirstSheetAsObjects } from '../utils/spreadsheet.js'
+import { ROLES_FULL_ACCESS } from '../config/dominios.js'
 
 const PAGE_SIZE = 25
 const EQUIPMENT_STATUS_OPTIONS = [
@@ -85,11 +86,12 @@ function ReceiverSelect({ profiles, profileId, text, onProfileChange, onTextChan
   )
 }
 
-function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE }) {
+function buildQuery(filters, { page, count = false, pageSize = PAGE_SIZE, tiOnly = false }) {
   let q = supabase
     .from('asset_movements')
-    .select('*, equipment(name)', count ? { count: 'exact' } : {})
+    .select(tiOnly ? '*, equipment!inner(name,dominio)' : '*, equipment(name)', count ? { count: 'exact' } : {})
     .is('deleted_at', null)
+  if (tiOnly) q = q.eq('equipment.dominio', 'TI')
   if (filters.dateFrom)
     q = q.gte('moved_at', new Date(filters.dateFrom + 'T00:00:00').toISOString())
   if (filters.dateTo)
@@ -123,6 +125,7 @@ export function Movimentacoes() {
   const audit = useAudit()
   const isAdmin = user?.role === 'admin'
   const canEditMovements = isAdmin || user?.role === 'tecnico'
+  const tiOnly = !ROLES_FULL_ACCESS.includes(user?.role)
 
   const [list, setList] = useState(null)
   const [total, setTotal] = useState(0)
@@ -304,7 +307,7 @@ export function Movimentacoes() {
     async (p, currentFilters = filters, currentSearch = search) => {
       setList(null)
       const f = { ...currentFilters, search: currentSearch || '' }
-      const { data, count, error } = await buildQuery(f, { page: p, count: true })
+      const { data, count, error } = await buildQuery(f, { page: p, count: true, tiOnly })
       if (error) {
         showToast('Erro ao carregar movimentações: ' + error.message, 'danger')
         setList([])
@@ -442,7 +445,7 @@ export function Movimentacoes() {
       let all = []
       if (scope === 'page') {
         // Só a página visível — usa o PAGE_SIZE padrão.
-        const { data, error } = await buildQuery(f, { page, count: false })
+        const { data, error } = await buildQuery(f, { page, count: false, tiOnly })
         if (error) {
           showToast('Erro ao exportar: ' + error.message, 'danger')
           return
@@ -458,6 +461,7 @@ export function Movimentacoes() {
             page: p2,
             count: false,
             pageSize: BATCH,
+            tiOnly,
           })
           if (error) {
             showToast('Erro ao exportar: ' + error.message, 'danger')
