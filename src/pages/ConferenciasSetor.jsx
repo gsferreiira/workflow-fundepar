@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase.js'
 import { useAudit } from '../hooks/useAudit.js'
 import { formatAssetNumber, fmtDate } from '../utils/format.js'
 import { SkeletonTable } from '../components/Skeleton.jsx'
+import { DOMINIO_ICONS } from '../config/dominios.js'
 
 function currentCompetencia() {
   const now = new Date()
@@ -245,6 +246,30 @@ function StatusBtn({ value, current, onClick }) {
 
 // ─── ChecklistView ────────────────────────────────────────────────────────────
 
+const DOMAIN_ORDER = ['TI', 'Mobiliário', 'Eletrodoméstico', 'Outros']
+const DOMAIN_COLORS = {
+  TI:             '#6366f1',
+  Mobiliário:     '#059669',
+  Eletrodoméstico:'#2563eb',
+  Outros:         '#d97706',
+}
+
+function DomainSectionHeader({ dominio, items, checklist }) {
+  const total    = items.length
+  const okCount  = items.filter((eq) => (checklist[eq.key]?.status || 'ok') === 'ok').length
+  const problems = total - okCount
+  const color    = DOMAIN_COLORS[dominio] || '#6366f1'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px 8px', borderBottom: `2px solid ${color}22`, marginBottom: 4, marginTop: 8 }}>
+      <span style={{ fontSize: 18, lineHeight: 1 }}>{DOMINIO_ICONS[dominio] || '📦'}</span>
+      <span style={{ fontWeight: 700, fontSize: 15, color }}>{dominio}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 4 }}>
+        {okCount}/{total} ok{problems > 0 ? ` · ${problems} com problema` : ''}
+      </span>
+    </div>
+  )
+}
+
 function ChecklistView({
   sigla, equipment, checklist, generalNotes,
   onGeneralNotes, onStatusChange, onNotesChange,
@@ -255,6 +280,19 @@ function ChecklistView({
   const okCount  = Object.values(checklist).filter((v) => v.status === 'ok').length
   const problems = Object.values(checklist).filter((v) => v.status !== 'ok').length
   const okPct    = total ? Math.round((okCount / total) * 100) : 0
+
+  // Group by dominio for visual sections
+  const domainGroups = (() => {
+    if (!equipment) return []
+    const grouped = {}
+    for (const eq of equipment) {
+      const d = eq.dominio || 'TI'
+      if (!grouped[d]) grouped[d] = []
+      grouped[d].push(eq)
+    }
+    return DOMAIN_ORDER.filter((d) => grouped[d]?.length).map((d) => ({ dominio: d, items: grouped[d] }))
+  })()
+  const multiDomain = domainGroups.length > 1
 
   return (
     <>
@@ -333,55 +371,62 @@ function ChecklistView({
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {equipment.map((eq) => {
-            const item = checklist[eq.key] || { status: 'ok', notes: '' }
-            const cfg  = STATUS_CFG[item.status]
-            return (
-              <div
-                key={eq.key}
-                className="table-card fade-in"
-                style={{ padding: '16px 18px', borderLeft: `3px solid ${cfg.color}`, transition: 'border-color .2s' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{eq.equipment_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                      {eq.categoria && <span>{eq.categoria}</span>}
-                      {eq.asset_number && <span>Patr. {formatAssetNumber(eq.asset_number)}</span>}
-                      {eq.serial_number && <span>S/N {eq.serial_number}</span>}
+          {domainGroups.map(({ dominio, items }) => (
+            <div key={dominio}>
+              {multiDomain && (
+                <DomainSectionHeader dominio={dominio} items={items} checklist={checklist} />
+              )}
+              {items.map((eq) => {
+                const item = checklist[eq.key] || { status: 'ok', notes: '' }
+                const cfg  = STATUS_CFG[item.status]
+                return (
+                  <div
+                    key={eq.key}
+                    className="table-card fade-in"
+                    style={{ padding: '16px 18px', borderLeft: `3px solid ${cfg.color}`, transition: 'border-color .2s', marginBottom: 10 }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{eq.equipment_name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          {eq.categoria && <span>{eq.categoria}</span>}
+                          {eq.asset_number && <span>Patr. {formatAssetNumber(eq.asset_number)}</span>}
+                          {eq.serial_number && <span>S/N {eq.serial_number}</span>}
+                        </div>
+                        {eq.received_by && (
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
+                            Responsável: {eq.received_by}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {Object.keys(STATUS_CFG).map((s) => (
+                          <StatusBtn
+                            key={s}
+                            value={s}
+                            current={item.status}
+                            onClick={(v) => onStatusChange(eq.key, v)}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    {eq.received_by && (
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
-                        Responsável: {eq.received_by}
+                    {item.status !== 'ok' && (
+                      <div style={{ marginTop: 10 }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Descreva o problema ou motivo da ausência (opcional)..."
+                          value={item.notes}
+                          onChange={(e) => onNotesChange(eq.key, e.target.value)}
+                          style={{ fontSize: 13, padding: '8px 12px' }}
+                        />
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {Object.keys(STATUS_CFG).map((s) => (
-                      <StatusBtn
-                        key={s}
-                        value={s}
-                        current={item.status}
-                        onClick={(v) => onStatusChange(eq.key, v)}
-                      />
-                    ))}
-                  </div>
-                </div>
-                {item.status !== 'ok' && (
-                  <div style={{ marginTop: 10 }}>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="Descreva o problema ou motivo da ausência (opcional)..."
-                      value={item.notes}
-                      onChange={(e) => onNotesChange(eq.key, e.target.value)}
-                      style={{ fontSize: 13, padding: '8px 12px' }}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          ))}
 
           <div className="table-card" style={{ padding: '16px 18px', marginTop: 8 }}>
             <label style={{ display: 'block', fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
@@ -488,7 +533,7 @@ export function ConferenciasSetor() {
 
     const eqIds = [...new Set(locs.map((l) => l.equipment_id).filter(Boolean))]
     const { data: eqs } = eqIds.length
-      ? await supabase.from('equipment').select('id, name, categoria').in('id', eqIds)
+      ? await supabase.from('equipment').select('id, name, categoria, dominio').in('id', eqIds)
       : { data: [] }
     const eqMap = Object.fromEntries((eqs || []).map((e) => [e.id, e]))
 
@@ -499,6 +544,7 @@ export function ConferenciasSetor() {
       received_by:    loc.received_by   || null,
       equipment_name: eqMap[loc.equipment_id]?.name     || '—',
       categoria:      eqMap[loc.equipment_id]?.categoria || null,
+      dominio:        eqMap[loc.equipment_id]?.dominio   || 'TI',
     }))
 
     // Attempt to restore draft

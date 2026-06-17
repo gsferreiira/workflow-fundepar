@@ -34,8 +34,9 @@ import { MovimentacoesSetor } from "./pages/MovimentacoesSetor.jsx";
 import { ConferenciasSetor } from "./pages/ConferenciasSetor.jsx";
 import { DashboardSetor } from "./pages/DashboardSetor.jsx";
 import { Conferencias } from "./pages/Conferencias.jsx";
+import { DashboardPatrimonio } from "./pages/DashboardPatrimonio.jsx";
 
-const Dashboard = lazy(() =>
+const DashboardTI = lazy(() =>
   import("./pages/Dashboard.jsx").then((module) => ({
     default: module.Dashboard,
   })),
@@ -43,6 +44,16 @@ const Dashboard = lazy(() =>
 
 function LoadingScreen() {
   return null;
+}
+
+function DashboardRoute() {
+  const { user } = useAuth();
+  if (user?.role === 'patrimonio') return <DashboardPatrimonio />;
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <DashboardTI />
+    </Suspense>
+  );
 }
 
 function ProtectedRoute() {
@@ -99,14 +110,7 @@ function App() {
                       element={<TiOnlyRedirect element={<Navigate to="/inicio" replace />} />}
                     />
                     <Route path="/inicio" element={<TiOnlyRedirect element={<Inicio />} />} />
-                    <Route
-                      path="/dashboard"
-                      element={
-                        <Suspense fallback={<LoadingScreen />}>
-                          <Dashboard />
-                        </Suspense>
-                      }
-                    />
+                    <Route path="/dashboard" element={<DashboardRoute />} />
                     <Route path="/workflow" element={<Workflow />} />
                     <Route path="/equipamentos" element={<Equipamentos />} />
                     <Route path="/movimentacoes" element={<Movimentacoes />} />
