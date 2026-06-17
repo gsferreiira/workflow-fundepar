@@ -95,22 +95,11 @@ export function Sidebar({ open, onLinkClick }) {
   return (
     <aside id="sidebar" className={`sidebar ${open ? 'open' : ''}`}>
       <div className="sidebar-header">
-        <div
-          style={{
-            background: 'var(--primary-color)',
-            color: 'white',
-            width: 40,
-            height: 40,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            fontWeight: 'bold',
-            borderRadius: 8,
-          }}
-        >
-          F
-        </div>
+        <img
+          src="/assets/logo_fundepar.png"
+          alt="Fundepar"
+          style={{ width: 40, height: 40, objectFit: 'contain', flexShrink: 0 }}
+        />
         <h1>
           Fundepar <span>{brandSigla}</span>
         </h1>

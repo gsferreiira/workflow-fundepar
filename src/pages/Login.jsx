@@ -81,22 +81,12 @@ export function Login() {
 
 function LogoHeader() {
   return (
-    <div
-      style={{
-        background: 'var(--primary-color)',
-        color: 'white',
-        width: 60,
-        height: 60,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 24,
-        fontWeight: 'bold',
-        borderRadius: 12,
-        margin: '0 auto 16px auto',
-      }}
-    >
-      F
+    <div style={{ textAlign: 'center', margin: '0 auto 16px auto' }}>
+      <img
+        src="/assets/logo_fundepar.png"
+        alt="Fundepar"
+        style={{ height: 72, objectFit: 'contain' }}
+      />
     </div>
   )
 }
