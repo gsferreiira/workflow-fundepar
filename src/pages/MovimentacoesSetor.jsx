@@ -115,12 +115,13 @@ export function MovimentacoesSetor() {
 
     const from = (p - 1) * PAGE_SIZE
 
-    const buildBase = () => {
-      let q = supabase.from('asset_movements').is('deleted_at', null)
-
+    // .is() só existe em PostgrestFilterBuilder (após .select/.update/.delete)
+    const applyFilters = (q) => {
       if (typeFilter === 'entrada')      q = q.eq('destination_room_id', room.id)
       else if (typeFilter === 'saida')   q = q.eq('origin_room_id', room.id)
       else q = q.or(`origin_room_id.eq.${room.id},destination_room_id.eq.${room.id}`)
+
+      q = q.is('deleted_at', null)
 
       if (monthFilter) {
         const [y, m] = monthFilter.split('-').map(Number)
@@ -131,9 +132,8 @@ export function MovimentacoesSetor() {
     }
 
     const [countRes, dataRes] = await Promise.all([
-      buildBase().select('id', { count: 'exact', head: true }),
-      buildBase()
-        .select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id')
+      applyFilters(supabase.from('asset_movements').select('id', { count: 'exact', head: true })),
+      applyFilters(supabase.from('asset_movements').select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id'))
         .order('moved_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1),
     ])
@@ -175,7 +175,15 @@ export function MovimentacoesSetor() {
     finally { setExporting(false) }
   }
 
-  if (!room) return <SkeletonTable />
+  if (!room) return (
+    <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-secondary)' }}>
+      <AlertCircle size={40} style={{ opacity: .2, display: 'block', margin: '0 auto 16px' }} />
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Nenhuma sala vinculada</h3>
+      <p style={{ fontSize: 13, maxWidth: 320, margin: '0 auto' }}>
+        Sua conta não está associada a nenhuma sala. Contate o administrador para configurar seu acesso.
+      </p>
+    </div>
+  )
 
   if (loadError) return (
     <div style={{ margin: '40px 0', padding: '20px 24px', borderRadius: 12, background: 'rgba(239,68,68,.07)', border: '1px solid rgba(239,68,68,.2)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -197,7 +205,9 @@ export function MovimentacoesSetor() {
         {list && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              {total} movimentaç{total !== 1 ? 'ões' : 'ão'}
+              {search.trim()
+                ? `${filteredList?.length ?? 0} resultado${(filteredList?.length ?? 0) !== 1 ? 's' : ''} de ${total}`
+                : `${total} movimentaç${total !== 1 ? 'ões' : 'ão'}`}
             </span>
             <button
               type="button"

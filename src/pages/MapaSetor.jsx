@@ -296,7 +296,15 @@ export function MapaSetor() {
     finally { setExporting(false) }
   }
 
-  if (!room) return <SkeletonTable />
+  if (!room) return (
+    <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-secondary)' }}>
+      <AlertCircle size={40} style={{ opacity: .2, display: 'block', margin: '0 auto 16px' }} />
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Nenhuma sala vinculada</h3>
+      <p style={{ fontSize: 13, maxWidth: 320, margin: '0 auto' }}>
+        Sua conta não está associada a nenhuma sala. Contate o administrador para configurar seu acesso.
+      </p>
+    </div>
+  )
 
   if (loadError) return (
     <div style={{ margin: '40px 0', padding: '20px 24px', borderRadius: 12, background: 'rgba(239,68,68,.07)', border: '1px solid rgba(239,68,68,.2)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>

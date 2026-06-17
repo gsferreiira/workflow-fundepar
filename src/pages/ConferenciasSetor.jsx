@@ -665,7 +665,15 @@ export function ConferenciasSetor() {
   const prevMonthDone  = !conferences || conferences.some((c) => c.competencia === prevMonthComp)
   const history        = conferences?.filter((c) => c.competencia !== COMP) || []
 
-  if (!room) return <SkeletonTable />
+  if (!room) return (
+    <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--text-secondary)' }}>
+      <AlertCircle size={40} style={{ opacity: .2, display: 'block', margin: '0 auto 16px' }} />
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Nenhuma sala vinculada</h3>
+      <p style={{ fontSize: 13, maxWidth: 320, margin: '0 auto' }}>
+        Sua conta não está associada a nenhuma sala. Contate o administrador para configurar seu acesso.
+      </p>
+    </div>
+  )
 
   if (mode === 'checklist') {
     return (

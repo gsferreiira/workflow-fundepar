@@ -99,41 +99,54 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt 
  * para persistir entre sessões — se falhar silenciosamente, o sistema continua
  * funcionando dentro da sessão sem entrar em loop infinito.
  */
-export function useNotifications() {
+// roomId: quando passado, filtra notificações apenas para aquela sala (coordenador)
+export function useNotifications({ roomId } = {}) {
+  const storageKey = roomId ? `notif_last_seen_room_${roomId}` : 'notif_last_seen'
+
   const [items, setItems] = useState([])
   const [badge, setBadge] = useState(0)
   const [seenAt, setSeenAt] = useState(() => {
-    const raw = safeGetItem('notif_last_seen')
+    const raw = safeGetItem(storageKey)
     return raw ? new Date(raw) : null
   })
-  // Ref sempre atualizado — permite que refresh() (async) leia o valor corrente
-  // sem depender de closure ou localStorage.
   const seenAtRef = useRef(seenAt)
   seenAtRef.current = seenAt
 
   const refresh = useCallback(async () => {
-    const [{ data: movements }, { data: equipment }, { data: profiles }] = await Promise.all([
-      supabase
-        .from('asset_movements')
-        .select(
-          'id, equipment(name), moved_by, moved_at, destination_room:destination_room_id(name), origin_room:origin_room_id(name), asset_number, serial_number, received_by',
-        )
-        .is('deleted_at', null)
-        .order('moved_at', { ascending: false })
-        .limit(15),
-      supabase
-        .from('equipment')
-        .select('id, name, created_by, created_at')
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-        .limit(10),
-      supabase.from('profiles').select('id, full_name').is('deleted_at', null),
-    ])
+    let movQuery = supabase
+      .from('asset_movements')
+      .select(
+        'id, equipment(name), moved_by, moved_at, destination_room:destination_room_id(name), origin_room:origin_room_id(name), asset_number, serial_number, received_by',
+      )
+      .is('deleted_at', null)
+      .order('moved_at', { ascending: false })
+      .limit(15)
 
-    const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]))
+    if (roomId) movQuery = movQuery.eq('destination_room_id', roomId)
+
+    const queries = [movQuery, supabase.from('profiles').select('id, full_name').is('deleted_at', null)]
+
+    // Coordenadores veem apenas movimentações do setor; cadastros globais de equipamento só para TI
+    if (!roomId) {
+      queries.splice(1, 0,
+        supabase
+          .from('equipment')
+          .select('id, name, created_by, created_at')
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false })
+          .limit(10),
+      )
+    }
+
+    const results = await Promise.all(queries)
+    const movements = results[0].data || []
+    const equipment = roomId ? [] : (results[1].data || [])
+    const profiles  = roomId ? (results[1].data || []) : (results[2].data || [])
+
+    const profileMap = Object.fromEntries(profiles.map((p) => [p.id, p]))
 
     const collected = [
-      ...(movements || []).map((m) => ({
+      ...movements.map((m) => ({
         id: 'mov_' + m.id,
         refId: m.id,
         type: 'movement',
@@ -141,7 +154,7 @@ export function useNotifications() {
         date: new Date(m.moved_at),
         data: m,
       })),
-      ...(equipment || []).map((e) => ({
+      ...equipment.map((e) => ({
         id: 'eq_' + e.id,
         refId: e.id,
         type: 'equipment',
@@ -154,18 +167,15 @@ export function useNotifications() {
       .slice(0, 25)
 
     setItems(collected)
-    // Usa ref (não localStorage) — garante consistência mesmo se localStorage falhar
     const seen = seenAtRef.current
     const unseen = seen ? collected.filter((i) => i.date > seen).length : collected.length
     setBadge(unseen)
-  }, [])
+  }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     refresh()
   }, [refresh])
 
-  // Realtime: refeta as notificações quando alguém insere movimentação ou equipamento.
-  // Throttle leve: agrupa múltiplos eventos em janelas de 1.5s para evitar refetch em rajada.
   const throttleRef = useRef(null)
   const throttledRefresh = useCallback(() => {
     if (throttleRef.current) return
@@ -184,11 +194,11 @@ export function useNotifications() {
 
   const markAsSeen = useCallback(() => {
     const now = new Date()
-    safeSetItem('notif_last_seen', now.toISOString())
+    safeSetItem(storageKey, now.toISOString())
     seenAtRef.current = now
     setSeenAt(now)
     setBadge(0)
-  }, [])
+  }, [storageKey])
 
   return { items, badge, seenAt, refresh, markAsSeen }
 }

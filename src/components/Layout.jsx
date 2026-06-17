@@ -39,7 +39,9 @@ export function Layout() {
   const { user } = useAuth()
   const { rooms: roomsFetcher } = useStore()
   const [rooms, setRooms] = useState([])
-  const { items, badge, seenAt, refresh, markAsSeen } = useNotifications()
+  const { items, badge, seenAt, refresh, markAsSeen } = useNotifications({
+    roomId: user?.role === 'coordenador' ? user?.coordinator_room?.id : undefined,
+  })
   const { notifications: roomNotifs, dismiss: dismissRoomNotif } = useRoomNotifications(user)
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
   const refreshFnRef = useRef(null)
@@ -270,6 +272,7 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
   const [ticketMsg, setTicketMsg]     = useState('')
   const [sending, setSending]         = useState(false)
   const { showToast } = useToast()
+  const navigate = useNavigate()
 
   if (!notifications.length) return null
 
@@ -295,6 +298,7 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
     setReportingId(null)
     setTicketMsg('')
     onDismiss(notif.id)
+    navigate('/workflow')
   }
 
   const fmtTime = (iso) => {
