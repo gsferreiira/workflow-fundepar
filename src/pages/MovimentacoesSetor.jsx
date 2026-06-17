@@ -115,12 +115,13 @@ export function MovimentacoesSetor() {
 
     const from = (p - 1) * PAGE_SIZE
 
-    const buildBase = () => {
-      let q = supabase.from('asset_movements').is('deleted_at', null)
-
+    // .is() só existe em PostgrestFilterBuilder (após .select/.update/.delete)
+    const applyFilters = (q) => {
       if (typeFilter === 'entrada')      q = q.eq('destination_room_id', room.id)
       else if (typeFilter === 'saida')   q = q.eq('origin_room_id', room.id)
       else q = q.or(`origin_room_id.eq.${room.id},destination_room_id.eq.${room.id}`)
+
+      q = q.is('deleted_at', null)
 
       if (monthFilter) {
         const [y, m] = monthFilter.split('-').map(Number)
@@ -131,9 +132,8 @@ export function MovimentacoesSetor() {
     }
 
     const [countRes, dataRes] = await Promise.all([
-      buildBase().select('id', { count: 'exact', head: true }),
-      buildBase()
-        .select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id')
+      applyFilters(supabase.from('asset_movements').select('id', { count: 'exact', head: true })),
+      applyFilters(supabase.from('asset_movements').select('id, asset_number, serial_number, moved_at, received_by, equipment_id, moved_by, origin_room_id, destination_room_id'))
         .order('moved_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1),
     ])
