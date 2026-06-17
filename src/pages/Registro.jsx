@@ -950,10 +950,12 @@ function NewRegistroModal({ assetNumber, roomsFetcher, equipmentFetcher, invalid
   const [status, setStatus] = useState('')
 
   useEffect(() => {
-    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
-      setRooms(rm || [])
-      setEquipment(eq || [])
-    })
+    Promise.all([roomsFetcher(), equipmentFetcher()])
+      .then(([rm, eq]) => {
+        setRooms(rm || [])
+        setEquipment(eq || [])
+      })
+      .catch((err) => console.error('Registro: erro ao carregar salas/equipamentos', err))
   }, [roomsFetcher, equipmentFetcher])
 
   const submit = async (e) => {
@@ -1083,10 +1085,12 @@ function BatchRegistroModal({ roomsFetcher, equipmentFetcher, invalidate, onClos
   const [scannerOpen, setScannerOpen] = useState(false)
 
   useEffect(() => {
-    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
-      setRooms(rm || [])
-      setEquipment(eq || [])
-    })
+    Promise.all([roomsFetcher(), equipmentFetcher()])
+      .then(([rm, eq]) => {
+        setRooms(rm || [])
+        setEquipment(eq || [])
+      })
+      .catch((err) => console.error('Registro: erro ao carregar salas/equipamentos', err))
   }, [roomsFetcher, equipmentFetcher])
 
   const assets = useMemo(
@@ -1268,10 +1272,12 @@ function EditRegistroEquipmentModal({ item, roomsFetcher, equipmentFetcher, inva
   const selectedEquipment = equipment.find((eq) => eq.id === equipmentId) || null
 
   useEffect(() => {
-    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
-      setRooms(rm || [])
-      setEquipment(eq || [])
-    })
+    Promise.all([roomsFetcher(), equipmentFetcher()])
+      .then(([rm, eq]) => {
+        setRooms(rm || [])
+        setEquipment(eq || [])
+      })
+      .catch((err) => console.error('Registro: erro ao carregar salas/equipamentos', err))
   }, [roomsFetcher, equipmentFetcher])
 
   useEffect(() => {
@@ -1469,7 +1475,7 @@ function BulkMovementModal({ items, user, onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    roomsFetcher().then(setRooms)
+    roomsFetcher().then(setRooms).catch((err) => console.error('Registro: erro ao carregar salas', err))
   }, [roomsFetcher])
 
   const skippable = useMemo(
@@ -1697,10 +1703,12 @@ function BulkMoveModal({ items, onClose, onSuccess }) {
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    Promise.all([roomsFetcher(), equipmentFetcher()]).then(([rm, eq]) => {
-      setRooms(rm || [])
-      setEquipment(eq || [])
-    })
+    Promise.all([roomsFetcher(), equipmentFetcher()])
+      .then(([rm, eq]) => {
+        setRooms(rm || [])
+        setEquipment(eq || [])
+      })
+      .catch((err) => console.error('Registro: erro ao carregar salas/equipamentos', err))
   }, [roomsFetcher, equipmentFetcher])
 
   const skippable = useMemo(

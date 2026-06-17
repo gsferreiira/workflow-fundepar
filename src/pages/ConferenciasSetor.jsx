@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   ClipboardList, CheckCircle2, AlertTriangle, XCircle,
   Package, AlertCircle, ChevronLeft, CalendarCheck,
-  Trash2,
+  Trash2, ChevronDown, ChevronUp, Download, CheckSquare,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
@@ -48,11 +48,77 @@ function SummaryChip({ label, value, color, bg }) {
   )
 }
 
-function ConferenceCard({ conf, onDelete, deleting }) {
+async function exportConference(conf, roomName) {
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Fundepar TI'
+  const ws = wb.addWorksheet('Conferência')
+
+  const titleRow = ws.addRow([`Conferência — ${roomName} — ${compLabel(conf.competencia)}`])
+  titleRow.font = { bold: true, size: 13 }
+  ws.mergeCells('A1:E1')
+
+  ws.addRow([])
+
+  const headerRow = ws.addRow(['Nº Patrimônio', 'Equipamento', 'Categoria', 'Status', 'Observação'])
+  headerRow.font = { bold: true }
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9F0FB' } }
+
+  ws.getColumn(1).width = 16
+  ws.getColumn(2).width = 32
+  ws.getColumn(3).width = 18
+  ws.getColumn(4).width = 14
+  ws.getColumn(5).width = 40
+
+  for (const item of (conf.conference_items || [])) {
+    const row = ws.addRow([
+      item.asset_number ? formatAssetNumber(item.asset_number) : '—',
+      item.equipment_name || '—',
+      item.categoria || '—',
+      STATUS_CFG[item.status]?.label || item.status,
+      item.notes || '',
+    ])
+    if (item.status === 'com_problema') {
+      row.getCell(4).font = { color: { argb: 'FFD97706' }, bold: true }
+    } else if (item.status === 'ausente') {
+      row.getCell(4).font = { color: { argb: 'FFDC2626' }, bold: true }
+    }
+  }
+
+  ws.addRow([])
+  const s = summarize(conf.conference_items)
+  ws.addRow([`Resumo: ${s.ok} ok · ${s.ausente} ausente(s) · ${s.com_problema} com problema`])
+  if (conf.notes) ws.addRow([`Observações gerais: ${conf.notes}`])
+  ws.addRow([`Gerado em ${new Date().toLocaleString('pt-BR')}`])
+
+  const buf = await wb.xlsx.writeBuffer()
+  const url = URL.createObjectURL(new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `conferencia-${conf.competencia}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── ConferenceCard ────────────────────────────────────────────────────────────
+
+function ConferenceCard({ conf, room, onDelete, deleting }) {
+  const [expanded, setExpanded]     = useState(false)
+  const [exporting, setExporting]   = useState(false)
   const summary = summarize(conf.conference_items || [])
-  const total = (conf.conference_items || []).length
+  const total   = (conf.conference_items || []).length
+  const items   = conf.conference_items || []
+
+  const handleExport = async () => {
+    setExporting(true)
+    try { await exportConference(conf, room?.name || '') }
+    finally { setExporting(false) }
+  }
+
   return (
-    <div className="table-card fade-in" style={{ padding: '16px 20px' }}>
+    <div className="table-card fade-in" style={{ padding: '16px 20px', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, textTransform: 'capitalize' }}>
@@ -67,31 +133,94 @@ function ConferenceCard({ conf, onDelete, deleting }) {
             </div>
           )}
         </div>
+
         <div className="conference-card-actions">
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <SummaryChip label="Ok"          value={summary.ok}           color="#059669" bg="rgba(16,185,129,.08)" />
             <SummaryChip label="Ausente"     value={summary.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
             <SummaryChip label="Com Problema" value={summary.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
           </div>
-          <button
-            type="button"
-            className="btn-table-action delete"
-            onClick={() => onDelete?.(conf)}
-            disabled={deleting}
-            title="Excluir conferência"
-          >
-            <Trash2 size={14} /> Excluir
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className="btn-table-action"
+              onClick={handleExport}
+              disabled={exporting}
+              title="Exportar Excel"
+              style={{ color: '#6366f1' }}
+            >
+              <Download size={13} /> {exporting ? 'Exportando…' : 'Excel'}
+            </button>
+            <button
+              type="button"
+              className="btn-table-action"
+              onClick={() => setExpanded((v) => !v)}
+              title={expanded ? 'Recolher itens' : 'Ver itens'}
+            >
+              {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              {expanded ? 'Recolher' : 'Ver itens'}
+            </button>
+            <button
+              type="button"
+              className="btn-table-action delete"
+              onClick={() => onDelete?.(conf)}
+              disabled={deleting}
+              title="Excluir conferência"
+            >
+              <Trash2 size={13} /> Excluir
+            </button>
+          </div>
         </div>
       </div>
+
+      {expanded && items.length > 0 && (
+        <div style={{ marginTop: 14, borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+          <table className="data-table" style={{ fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th>Equipamento</th>
+                <th>Nº Patrimônio</th>
+                <th>Categoria</th>
+                <th>Status</th>
+                <th>Observação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => {
+                const cfg = STATUS_CFG[it.status]
+                return (
+                  <tr key={it.id}>
+                    <td><strong style={{ fontSize: 13 }}>{it.equipment_name || '—'}</strong></td>
+                    <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                      {it.asset_number ? formatAssetNumber(it.asset_number) : '—'}
+                    </td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{it.categoria || '—'}</td>
+                    <td>
+                      {cfg ? (
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                          background: cfg.bg, color: cfg.color,
+                        }}>
+                          {cfg.label}
+                        </span>
+                      ) : it.status}
+                    </td>
+                    <td style={{ color: 'var(--text-secondary)' }}>{it.notes || '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Checklist ────────────────────────────────────────────────────────────────
+// ─── StatusBtn ─────────────────────────────────────────────────────────────────
 
 function StatusBtn({ value, current, onClick }) {
-  const cfg = STATUS_CFG[value]
+  const cfg    = STATUS_CFG[value]
   const active = current === value
   const { Icon } = cfg
   return (
@@ -99,28 +228,33 @@ function StatusBtn({ value, current, onClick }) {
       type="button"
       onClick={() => onClick(value)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 5,
-        padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-        border: `1.5px solid ${active ? cfg.color : 'var(--border-color)'}`,
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '9px 18px', borderRadius: 24, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        border: `2px solid ${active ? cfg.color : 'var(--border-color)'}`,
         background: active ? cfg.bg : 'transparent',
         color: active ? cfg.color : 'var(--text-secondary)',
         transition: 'all .15s',
+        minWidth: 110,
+        justifyContent: 'center',
       }}
     >
-      <Icon size={13} /> {cfg.label}
+      <Icon size={14} /> {cfg.label}
     </button>
   )
 }
 
+// ─── ChecklistView ────────────────────────────────────────────────────────────
+
 function ChecklistView({
   sigla, equipment, checklist, generalNotes,
   onGeneralNotes, onStatusChange, onNotesChange,
-  onCancel, onSave, saving,
+  onCancel, onSave, saving, onMarkAllOk, draftRestored,
 }) {
-  const COMP    = currentCompetencia()
-  const total   = equipment?.length || 0
-  const okCount = Object.values(checklist).filter((v) => v.status === 'ok').length
+  const COMP     = currentCompetencia()
+  const total    = equipment?.length || 0
+  const okCount  = Object.values(checklist).filter((v) => v.status === 'ok').length
   const problems = Object.values(checklist).filter((v) => v.status !== 'ok').length
+  const okPct    = total ? Math.round((okCount / total) * 100) : 0
 
   return (
     <>
@@ -142,11 +276,53 @@ function ChecklistView({
           </h2>
           <p>Marque o status de cada equipamento da sala.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <SummaryChip label="Ok"       value={okCount}  color="#059669" bg="rgba(16,185,129,.08)" />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <SummaryChip label="Ok"        value={okCount}  color="#059669" bg="rgba(16,185,129,.08)" />
           <SummaryChip label="Problemas" value={problems} color="#d97706" bg="rgba(245,158,11,.08)" />
         </div>
       </div>
+
+      {draftRestored && (
+        <div style={{
+          padding: '10px 16px', borderRadius: 10, marginBottom: 16,
+          background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)',
+          fontSize: 13, color: '#6366f1', display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <CheckSquare size={14} />
+          Rascunho restaurado — suas marcações anteriores foram recuperadas automaticamente.
+        </div>
+      )}
+
+      {equipment && equipment.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+            <span>{okCount} de {total} com status OK</span>
+            <span>{problems > 0 ? `${problems} com problema` : 'Nenhum problema até agora'}</span>
+          </div>
+          <div style={{ height: 7, borderRadius: 6, background: 'var(--border-color)', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${okPct}%`,
+              background: problems > 0 ? '#d97706' : '#059669',
+              borderRadius: 6,
+              transition: 'width .3s ease',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {equipment && equipment.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={onMarkAllOk}
+            style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <CheckSquare size={14} /> Marcar todos como OK
+          </button>
+        </div>
+      )}
 
       {!equipment ? (
         <SkeletonTable />
@@ -164,23 +340,23 @@ function ChecklistView({
               <div
                 key={eq.key}
                 className="table-card fade-in"
-                style={{ padding: '14px 18px', borderLeft: `3px solid ${cfg.color}`, transition: 'border-color .2s' }}
+                style={{ padding: '16px 18px', borderLeft: `3px solid ${cfg.color}`, transition: 'border-color .2s' }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
                     <div style={{ fontWeight: 700, fontSize: 14 }}>{eq.equipment_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                       {eq.categoria && <span>{eq.categoria}</span>}
                       {eq.asset_number && <span>Patr. {formatAssetNumber(eq.asset_number)}</span>}
                       {eq.serial_number && <span>S/N {eq.serial_number}</span>}
                     </div>
                     {eq.received_by && (
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
                         Responsável: {eq.received_by}
                       </div>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {Object.keys(STATUS_CFG).map((s) => (
                       <StatusBtn
                         key={s}
@@ -199,7 +375,7 @@ function ChecklistView({
                       placeholder="Descreva o problema ou motivo da ausência (opcional)..."
                       value={item.notes}
                       onChange={(e) => onNotesChange(eq.key, e.target.value)}
-                      style={{ fontSize: 13, padding: '7px 10px' }}
+                      style={{ fontSize: 13, padding: '8px 12px' }}
                     />
                   </div>
                 )}
@@ -241,11 +417,11 @@ function ChecklistView({
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export function ConferenciasSetor() {
-  const { sigla }           = useParams()
-  const { user }            = useAuth()
+  const { sigla }              = useParams()
+  const { user }               = useAuth()
   const { showToast, confirm } = useToast()
-  const audit                = useAudit()
-  const room                = user?.coordinator_room
+  const audit                  = useAudit()
+  const room                   = user?.coordinator_room
 
   const [conferences, setConferences]   = useState(null)
   const [loadError, setLoadError]       = useState(null)
@@ -255,8 +431,32 @@ export function ConferenciasSetor() {
   const [generalNotes, setGeneralNotes] = useState('')
   const [saving, setSaving]             = useState(false)
   const [deletingId, setDeletingId]     = useState(null)
+  const [draftRestored, setDraftRestored] = useState(false)
+  const [currentExpanded, setCurrentExpanded] = useState(false)
 
   const COMP = currentCompetencia()
+
+  const prevMonthComp = useMemo(() => {
+    const now = new Date()
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }, [])
+
+  const draftKey = room?.id ? `conf_draft_${room.id}_${COMP}` : null
+
+  // Auto-save draft while in checklist mode
+  useEffect(() => {
+    if (mode !== 'checklist' || !equipment || !draftKey) return
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ checklist, generalNotes }))
+    } catch {
+      // localStorage might be full — silently ignore
+    }
+  }, [checklist, generalNotes, mode, equipment, draftKey])
+
+  const clearDraft = useCallback(() => {
+    if (draftKey) localStorage.removeItem(draftKey)
+  }, [draftKey])
 
   const loadConferences = useCallback(async () => {
     if (!room?.id) return
@@ -264,7 +464,7 @@ export function ConferenciasSetor() {
     setLoadError(null)
     const { data, error } = await supabase
       .from('room_conferences')
-      .select('id, competencia, concluded_at, notes, conference_items(id, status)')
+      .select('id, competencia, concluded_at, notes, conference_items(id, status, asset_number, serial_number, equipment_name, categoria, notes)')
       .eq('room_id', room.id)
       .order('competencia', { ascending: false })
     if (error) { setLoadError(error.message); setConferences([]); return }
@@ -276,6 +476,8 @@ export function ConferenciasSetor() {
   const loadEquipment = useCallback(async () => {
     if (!room?.id) return
     setEquipment(null)
+    setDraftRestored(false)
+
     const { data: locs, error } = await supabase
       .from('equipment_locations')
       .select('asset_number, serial_number, equipment_id, received_by')
@@ -299,14 +501,42 @@ export function ConferenciasSetor() {
       categoria:      eqMap[loc.equipment_id]?.categoria || null,
     }))
 
+    // Attempt to restore draft
+    const key = `conf_draft_${room.id}_${currentCompetencia()}`
+    const rawDraft = localStorage.getItem(key)
+    let restoredChecklist = Object.fromEntries(items.map((it) => [it.key, { status: 'ok', notes: '' }]))
+    let restoredNotes = ''
+    let restored = false
+
+    if (rawDraft) {
+      try {
+        const draft = JSON.parse(rawDraft)
+        const currentKeys = new Set(items.map((it) => it.key))
+        const draftKeys   = new Set(Object.keys(draft.checklist || {}))
+        const keysMatch   = currentKeys.size === draftKeys.size &&
+          [...currentKeys].every((k) => draftKeys.has(k))
+
+        if (keysMatch) {
+          restoredChecklist = draft.checklist
+          restoredNotes     = draft.generalNotes || ''
+          restored          = true
+        } else {
+          localStorage.removeItem(key)
+        }
+      } catch {
+        localStorage.removeItem(key)
+      }
+    }
+
     setEquipment(items)
-    setChecklist(Object.fromEntries(items.map((it) => [it.key, { status: 'ok', notes: '' }])))
+    setChecklist(restoredChecklist)
+    setGeneralNotes(restoredNotes)
+    setDraftRestored(restored)
   }, [room?.id, showToast])
 
   const startChecklist = () => {
-    setGeneralNotes('')
-    loadEquipment()
     setMode('checklist')
+    loadEquipment()
   }
 
   const setItemStatus = (key, status) =>
@@ -315,8 +545,18 @@ export function ConferenciasSetor() {
   const setItemNotes = (key, notes) =>
     setChecklist((prev) => ({ ...prev, [key]: { ...prev[key], notes } }))
 
+  const markAllOk = () =>
+    setChecklist((prev) =>
+      Object.fromEntries(Object.keys(prev).map((k) => [k, { ...prev[k], status: 'ok' }])),
+    )
+
   const saveConference = async () => {
     if (!room?.id || !equipment) return
+    if (conferences?.some((c) => c.competencia === COMP)) {
+      showToast('A conferência deste mês já foi realizada.', 'warning')
+      setMode('history')
+      return
+    }
     setSaving(true)
     try {
       const { data: conf, error: confErr } = await supabase
@@ -325,6 +565,7 @@ export function ConferenciasSetor() {
           room_id:        room.id,
           coordinator_id: user.id,
           competencia:    COMP,
+          concluded_at:   new Date().toISOString(),
           notes:          generalNotes.trim() || null,
         })
         .select('id')
@@ -370,6 +611,13 @@ export function ConferenciasSetor() {
         }
       }
 
+      audit.created('room_conferences', conf.id, {
+        room_id: room.id,
+        room_sigla: sigla,
+        competencia: COMP,
+        items_count: equipment.length,
+      })
+      clearDraft()
       showToast('Conferência finalizada com sucesso!', 'success')
       setMode('history')
       loadConferences()
@@ -383,39 +631,39 @@ export function ConferenciasSetor() {
   const deleteConference = async (conf) => {
     if (!room?.id || !conf?.id) return
     const ok = await confirm({
-      title: 'Excluir conferencia',
-      message: `Tem certeza que deseja excluir a conferencia de ${compLabel(conf.competencia)}? Os itens e ocorrencias vinculados tambem serao removidos.`,
+      title: 'Excluir conferência',
+      message: `Tem certeza que deseja excluir a conferência de ${compLabel(conf.competencia)}? Os itens e ocorrências vinculados também serão removidos.`,
       confirmText: 'Excluir',
       danger: true,
     })
     if (!ok) return
 
     setDeletingId(conf.id)
-    const { error } = await supabase
-      .from('room_conferences')
-      .delete()
-      .eq('id', conf.id)
-      .eq('room_id', room.id)
+    try {
+      const { error } = await supabase
+        .from('room_conferences')
+        .delete()
+        .eq('id', conf.id)
+        .eq('room_id', room.id)
 
-    if (error) {
-      showToast('Erro ao excluir conferencia: ' + error.message, 'danger')
+      if (error) { showToast('Erro ao excluir conferência: ' + error.message, 'danger'); return }
+
+      audit.deleted('room_conferences', conf.id, {
+        room_id: room.id,
+        room_sigla: sigla,
+        competencia: conf.competencia,
+        items_count: conf.conference_items?.length || 0,
+      })
+      showToast('Conferência excluída com sucesso.', 'success')
+      loadConferences()
+    } finally {
       setDeletingId(null)
-      return
     }
-
-    audit.deleted('room_conferences', conf.id, {
-      room_id: room.id,
-      room_sigla: sigla,
-      competencia: conf.competencia,
-      items_count: conf.conference_items?.length || 0,
-    })
-    showToast('Conferência excluída com sucesso.', 'success')
-    setDeletingId(null)
-    loadConferences()
   }
 
-  const thisMonthConf = conferences?.find((c) => c.competencia === COMP)
-  const history       = conferences?.filter((c) => c.competencia !== COMP) || []
+  const thisMonthConf  = conferences?.find((c) => c.competencia === COMP)
+  const prevMonthDone  = !conferences || conferences.some((c) => c.competencia === prevMonthComp)
+  const history        = conferences?.filter((c) => c.competencia !== COMP) || []
 
   if (!room) return <SkeletonTable />
 
@@ -429,9 +677,11 @@ export function ConferenciasSetor() {
         onGeneralNotes={setGeneralNotes}
         onStatusChange={setItemStatus}
         onNotesChange={setItemNotes}
-        onCancel={() => setMode('history')}
+        onCancel={() => { clearDraft(); setMode('history') }}
         onSave={saveConference}
         saving={saving}
+        onMarkAllOk={markAllOk}
+        draftRestored={draftRestored}
       />
     )
   }
@@ -444,6 +694,21 @@ export function ConferenciasSetor() {
           <p>Histórico de conferências mensais do setor.</p>
         </div>
       </div>
+
+      {!prevMonthDone && (
+        <div style={{
+          margin: '0 0 20px', padding: '14px 18px', borderRadius: 12,
+          background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.25)',
+          display: 'flex', gap: 10, alignItems: 'center',
+        }}>
+          <AlertTriangle size={16} style={{ color: '#d97706', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: '#92400e' }}>
+            <strong>Conferência pendente!</strong> A conferência de{' '}
+            <strong style={{ textTransform: 'capitalize' }}>{compLabel(prevMonthComp)}</strong>{' '}
+            ainda não foi registrada.
+          </span>
+        </div>
+      )}
 
       {loadError && (
         <div style={{
@@ -462,6 +727,7 @@ export function ConferenciasSetor() {
         borderLeft: `4px solid ${thisMonthConf ? '#059669' : '#d97706'}`,
       }}>
         {thisMonthConf ? (
+          <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <CalendarCheck size={22} style={{ color: '#059669', flexShrink: 0 }} />
@@ -488,19 +754,80 @@ export function ConferenciasSetor() {
                     <SummaryChip label="Ausente"      value={s.ausente}      color="#dc2626" bg="rgba(239,68,68,.08)" />
                     <SummaryChip label="Com Problema" value={s.com_problema} color="#d97706" bg="rgba(245,158,11,.08)" />
                   </div>
-                  <button
-                    type="button"
-                    className="btn-table-action delete"
-                    onClick={() => deleteConference(thisMonthConf)}
-                    disabled={deletingId === thisMonthConf.id}
-                    title="Excluir conferência"
-                  >
-                    <Trash2 size={14} /> Excluir
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn-table-action"
+                      onClick={async () => {
+                        try { await exportConference(thisMonthConf, room?.name || '') }
+                        catch { showToast('Erro ao exportar.', 'danger') }
+                      }}
+                      style={{ color: '#6366f1' }}
+                      title="Exportar Excel"
+                    >
+                      <Download size={13} /> Excel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-table-action"
+                      onClick={() => setCurrentExpanded((v) => !v)}
+                      title={currentExpanded ? 'Recolher itens' : 'Ver itens'}
+                    >
+                      {currentExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                      {currentExpanded ? 'Recolher' : 'Ver itens'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-table-action delete"
+                      onClick={() => deleteConference(thisMonthConf)}
+                      disabled={deletingId === thisMonthConf.id}
+                      title="Excluir conferência"
+                    >
+                      <Trash2 size={13} /> Excluir
+                    </button>
+                  </div>
                 </div>
               )
             })()}
           </div>
+          {currentExpanded && (thisMonthConf.conference_items || []).length > 0 && (
+            <div style={{ marginTop: 14, borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+              <table className="data-table" style={{ fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    <th>Equipamento</th>
+                    <th>Nº Patrimônio</th>
+                    <th>Categoria</th>
+                    <th>Status</th>
+                    <th>Observação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(thisMonthConf.conference_items || []).map((it) => {
+                    const cfg = STATUS_CFG[it.status]
+                    return (
+                      <tr key={it.id}>
+                        <td><strong style={{ fontSize: 13 }}>{it.equipment_name || '—'}</strong></td>
+                        <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                          {it.asset_number ? formatAssetNumber(it.asset_number) : '—'}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{it.categoria || '—'}</td>
+                        <td>
+                          {cfg ? (
+                            <span style={{ padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: cfg.bg, color: cfg.color }}>
+                              {cfg.label}
+                            </span>
+                          ) : it.status}
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{it.notes || '—'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          </>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -543,6 +870,7 @@ export function ConferenciasSetor() {
               <ConferenceCard
                 key={conf.id}
                 conf={conf}
+                room={room}
                 onDelete={deleteConference}
                 deleting={deletingId === conf.id}
               />

@@ -13,7 +13,7 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase.js'
 
-export function useRealtime(table, callback, { event = '*', enabled = true } = {}) {
+export function useRealtime(table, callback, { event = '*', enabled = true, filter } = {}) {
   // ref mantém o callback atualizado sem precisar derrubar o canal a cada render
   const cbRef = useRef(callback)
   cbRef.current = callback
@@ -23,11 +23,14 @@ export function useRealtime(table, callback, { event = '*', enabled = true } = {
 
     // Nome do canal precisa ser único; sufixo aleatório evita colisão entre instâncias
     const channelName = `rt-${table}-${Math.random().toString(36).slice(2, 8)}`
+    const pgOptions = { event, schema: 'public', table }
+    if (filter) pgOptions.filter = filter
+
     const channel = supabase
       .channel(channelName)
       .on(
         'postgres_changes',
-        { event, schema: 'public', table },
+        pgOptions,
         (payload) => {
           try {
             cbRef.current?.(payload)
@@ -41,5 +44,5 @@ export function useRealtime(table, callback, { event = '*', enabled = true } = {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [table, event, enabled])
+  }, [table, event, enabled, filter])
 }

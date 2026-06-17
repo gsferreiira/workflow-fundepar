@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft } from 'lucide-react'
+import { LogOut, Download, LayoutGrid, ClipboardList, CircleUser, ArrowRightLeft, LayoutDashboard } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useNavPermissions } from '../contexts/NavPermissionsContext.jsx'
@@ -25,6 +25,7 @@ function useConferencePending(user) {
       .then(({ count }) => {
         if (!cancelled) setPending((count ?? 0) === 0)
       })
+      .catch(() => {})
     return () => { cancelled = true }
   }, [user?.role, user?.coordinator_room?.id])
 
@@ -53,7 +54,7 @@ export function Sidebar({ open, onLinkClick }) {
   const { canInstall, install } = usePWAInstall()
   const conferencePending = useConferencePending(user)
   const role = user?.role || 'usuario'
-  const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || 'U')}&background=0c4a6e&color=fff`
+  const avatarInitial = (user?.full_name || 'U').charAt(0).toUpperCase()
   const roleLabels = { admin: 'Admin', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
 
   const isCoordinator = role === 'coordenador'
@@ -64,7 +65,8 @@ export function Sidebar({ open, onLinkClick }) {
   if (isCoordinator && coordSigla) {
     const sl = coordSigla.toLowerCase()
     navItems = [
-      { key: 'minha-sala',      to: `/setor/${sl}`,                  icon: LayoutGrid,      label: 'Minha Sala' },
+      { key: 'painel',          to: `/setor/${sl}`,                  icon: LayoutDashboard, label: 'Painel' },
+      { key: 'inventario',      to: `/setor/${sl}/inventario`,       icon: LayoutGrid,      label: 'Inventário' },
       { key: 'movimentacoes',   to: `/setor/${sl}/movimentacoes`,    icon: ArrowRightLeft,  label: 'Movimentações' },
       { key: 'conferencias',    to: `/setor/${sl}/conferencias`,     icon: ClipboardList,   label: 'Conferências', badge: conferencePending },
       { separator: 'Conta' },
@@ -148,7 +150,9 @@ export function Sidebar({ open, onLinkClick }) {
           title="Ver meu perfil"
           onClick={onLinkClick}
         >
-          <img src={avatarUrl} alt="Avatar" className="avatar" />
+          <div className="avatar" style={{ background: '#0c4a6e', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, userSelect: 'none', flexShrink: 0 }}>
+            {avatarInitial}
+          </div>
           <div className="profile-info">
             <div className="name" title={user?.full_name || ''}>
               {user?.full_name || '—'}

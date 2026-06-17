@@ -89,7 +89,7 @@ export function Workflow() {
       `)
       .is('deleted_at', null)
       .order('created_at', { ascending: false })
-    if (error) { showToast(error.message, 'danger'); return }
+    if (error) { showToast(error.message, 'danger'); setTickets([]); return }
     setTickets(data || [])
   }, [showToast])
 
@@ -107,7 +107,7 @@ export function Workflow() {
         .order('full_name')
       setTechs(data || [])
     }
-    init()
+    init().catch((err) => console.error('Workflow: erro ao carregar dados iniciais', err))
   }, [roomsFetcher])
 
   useRealtime('tickets', useCallback(() => load(), [load]))
@@ -141,13 +141,20 @@ export function Workflow() {
 
   // ── Ações ───────────────────────────────────────────────────────────────────
   const inicializar = async (ticketId) => {
-    const { error } = await supabase.from('tickets').update({
+    const { data: updated, error } = await supabase.from('tickets').update({
       status: 'em_atendimento',
       assigned_to: user.id,
       started_at: new Date().toISOString(),
-    }).eq('id', ticketId).is('assigned_to', null)
+    }).eq('id', ticketId).is('assigned_to', null).select('id')
 
     if (error) { showToast('Erro ao inicializar: ' + error.message, 'danger'); return }
+
+    // Se 0 linhas afetadas, o ticket já foi iniciado por outro técnico
+    if (!updated || updated.length === 0) {
+      showToast('Este chamado já foi iniciado por outro técnico.', 'warning')
+      await load()
+      return
+    }
 
     await supabase.from('ticket_records').insert({
       ticket_id: ticketId, author_id: user.id,
