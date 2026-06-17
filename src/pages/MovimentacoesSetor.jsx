@@ -51,11 +51,13 @@ export function MovimentacoesSetor() {
     const roomIds    = [...new Set([...rows.map((r) => r.origin_room_id), ...rows.map((r) => r.destination_room_id)].filter(Boolean))]
     const profileIds = [...new Set(rows.map((r) => r.moved_by).filter(Boolean))]
 
-    const [eqRes, roomRes, profileRes] = await Promise.all([
+    const enrichResults = await Promise.all([
       eqIds.length      ? supabase.from('equipment').select('id, name, categoria').in('id', eqIds)   : { data: [] },
       roomIds.length    ? supabase.from('rooms').select('id, name, sigla').in('id', roomIds)          : { data: [] },
       profileIds.length ? supabase.from('profiles').select('id, full_name').in('id', profileIds)      : { data: [] },
-    ])
+    ]).catch((err) => { setLoadError(err.message); setList([]); return null })
+    if (!enrichResults) return
+    const [eqRes, roomRes, profileRes] = enrichResults
 
     const eqMap      = Object.fromEntries((eqRes.data      || []).map((x) => [x.id, x]))
     const roomMap    = Object.fromEntries((roomRes.data    || []).map((x) => [x.id, x]))
@@ -130,8 +132,7 @@ export function MovimentacoesSetor() {
               <tbody>
                 {list.map((m) => {
                   const isEntrada = m.destination?.id === room.id
-                  const receivedName =
-                    m.received_profile?.full_name || m.received_by || null
+                  const receivedName = m.received_by || null
 
                   return (
                     <tr key={m.id}>

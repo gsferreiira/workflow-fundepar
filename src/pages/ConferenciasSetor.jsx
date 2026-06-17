@@ -317,6 +317,11 @@ export function ConferenciasSetor() {
 
   const saveConference = async () => {
     if (!room?.id || !equipment) return
+    if (conferences?.some((c) => c.competencia === COMP)) {
+      showToast('A conferência deste mês já foi realizada.', 'warning')
+      setMode('history')
+      return
+    }
     setSaving(true)
     try {
       const { data: conf, error: confErr } = await supabase
@@ -325,6 +330,7 @@ export function ConferenciasSetor() {
           room_id:        room.id,
           coordinator_id: user.id,
           competencia:    COMP,
+          concluded_at:   new Date().toISOString(),
           notes:          generalNotes.trim() || null,
         })
         .select('id')
@@ -370,6 +376,12 @@ export function ConferenciasSetor() {
         }
       }
 
+      audit.created('room_conferences', conf.id, {
+        room_id: room.id,
+        room_sigla: sigla,
+        competencia: COMP,
+        items_count: equipment.length,
+      })
       showToast('Conferência finalizada com sucesso!', 'success')
       setMode('history')
       loadConferences()
@@ -383,35 +395,37 @@ export function ConferenciasSetor() {
   const deleteConference = async (conf) => {
     if (!room?.id || !conf?.id) return
     const ok = await confirm({
-      title: 'Excluir conferencia',
-      message: `Tem certeza que deseja excluir a conferencia de ${compLabel(conf.competencia)}? Os itens e ocorrencias vinculados tambem serao removidos.`,
+      title: 'Excluir conferência',
+      message: `Tem certeza que deseja excluir a conferência de ${compLabel(conf.competencia)}? Os itens e ocorrências vinculados também serão removidos.`,
       confirmText: 'Excluir',
       danger: true,
     })
     if (!ok) return
 
     setDeletingId(conf.id)
-    const { error } = await supabase
-      .from('room_conferences')
-      .delete()
-      .eq('id', conf.id)
-      .eq('room_id', room.id)
+    try {
+      const { error } = await supabase
+        .from('room_conferences')
+        .delete()
+        .eq('id', conf.id)
+        .eq('room_id', room.id)
 
-    if (error) {
-      showToast('Erro ao excluir conferencia: ' + error.message, 'danger')
+      if (error) {
+        showToast('Erro ao excluir conferência: ' + error.message, 'danger')
+        return
+      }
+
+      audit.deleted('room_conferences', conf.id, {
+        room_id: room.id,
+        room_sigla: sigla,
+        competencia: conf.competencia,
+        items_count: conf.conference_items?.length || 0,
+      })
+      showToast('Conferência excluída com sucesso.', 'success')
+      loadConferences()
+    } finally {
       setDeletingId(null)
-      return
     }
-
-    audit.deleted('room_conferences', conf.id, {
-      room_id: room.id,
-      room_sigla: sigla,
-      competencia: conf.competencia,
-      items_count: conf.conference_items?.length || 0,
-    })
-    showToast('Conferência excluída com sucesso.', 'success')
-    setDeletingId(null)
-    loadConferences()
   }
 
   const thisMonthConf = conferences?.find((c) => c.competencia === COMP)

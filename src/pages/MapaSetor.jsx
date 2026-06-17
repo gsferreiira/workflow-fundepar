@@ -69,7 +69,7 @@ export function MapaSetor() {
     const assetNumbers = locs.map((l) => l.asset_number).filter(Boolean)
 
     // Busca equipamentos e a movimentação mais recente de entrada em cada asset
-    const [eqRes, movRes] = await Promise.all([
+    const secondaryResults = await Promise.all([
       eqIds.length > 0
         ? supabase.from('equipment').select('id, name, categoria, status').in('id', eqIds)
         : { data: [] },
@@ -82,7 +82,9 @@ export function MapaSetor() {
             .is('deleted_at', null)
             .order('moved_at', { ascending: false })
         : { data: [] },
-    ])
+    ]).catch((err) => { setLoadError(err.message); setItems([]); return null })
+    if (!secondaryResults) return
+    const [eqRes, movRes] = secondaryResults
 
     const eqMap = Object.fromEntries((eqRes.data || []).map((e) => [e.id, e]))
 
@@ -238,10 +240,10 @@ function PersonCard({ group }) {
           </tr>
         </thead>
         <tbody>
-          {group.items.map((item) => {
+          {group.items.map((item, idx) => {
             const Icon = categoriaIcon(item.equipment?.categoria)
             return (
-              <tr key={item.asset_number || item.equipment_id}>
+              <tr key={item.asset_number || item.equipment_id || idx}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Icon size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
