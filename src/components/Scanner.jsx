@@ -122,7 +122,6 @@ export function Scanner({
     ]
     const supported = await BarcodeDetector.getSupportedFormats().catch(() => [])
     const formats = supported.length ? supported.filter((f) => wanted.includes(f)) : wanted
-    // eslint-disable-next-line no-undef
     detectorRef.current = new BarcodeDetector({
       formats: formats.length ? formats : ['code_128', 'ean_13', 'qr_code'],
     })

@@ -1,6 +1,6 @@
 function safeSheetName(name) {
   return String(name || 'Planilha')
-    .replace(/[:\\/?*\[\]]/g, ' ')
+    .replace(/[:\\/?*[\]]/g, ' ')
     .slice(0, 31)
     .trim() || 'Planilha'
 }

@@ -34,7 +34,7 @@ export function usePullToRefresh(onRefresh, { threshold = 80 } = {}) {
       currentDist.current = 0
       if (d >= threshold) {
         setState('refreshing')
-        try { await onRefreshRef.current?.() } catch {}
+        try { await onRefreshRef.current?.() } catch { /* ignora erro do refresh */ }
         setState('idle')
       } else {
         setState('idle')
