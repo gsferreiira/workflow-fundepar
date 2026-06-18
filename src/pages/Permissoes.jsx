@@ -6,9 +6,10 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { NAV_PAGES } from '../config/navPages.js'
 
 const ROLES = [
-  { key: 'admin',   label: 'Administrador' },
-  { key: 'tecnico', label: 'Técnico' },
-  { key: 'usuario', label: 'Usuário' },
+  { key: 'admin',      label: 'Administrador' },
+  { key: 'tecnico',    label: 'Técnico' },
+  { key: 'usuario',    label: 'Usuário' },
+  { key: 'patrimonio', label: 'Patrimônio' },
 ]
 
 // Páginas que entram na matrix (exclui separadores, perfil e a própria página de permissões)

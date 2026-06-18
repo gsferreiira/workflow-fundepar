@@ -1,0 +1,8 @@
+export { AssetLookupModal } from "./Registro/AssetLookupModal.jsx"
+export { NewRegistroModal } from "./Registro/NewRegistroModal.jsx"
+export { BatchRegistroModal } from "./Registro/BatchRegistroModal.jsx"
+export { EditRegistroEquipmentModal } from "./Registro/EditRegistroEquipmentModal.jsx"
+export { BulkMovementModal } from "./Registro/BulkMovementModal.jsx"
+export { BulkMoveModal } from "./Registro/BulkMoveModal.jsx"
+export { DeleteEquipmentModal } from "./Registro/DeleteEquipmentModal.jsx"
+export { HistoryModal } from "./Registro/HistoryModal.jsx"

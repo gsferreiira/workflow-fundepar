@@ -21,8 +21,14 @@ export function NavPermissionsProvider({ children }) {
       .eq('key', 'nav_permissions')
       .maybeSingle()
     if (data?.value) {
-      // Mescla com defaults para garantir que novas páginas tenham valores
-      setPermissions({ ...DEFAULT_PERMISSIONS, ...data.value, permissoes: ['admin'] })
+      // União por chave: roles do DEFAULT nunca são removidos por dados antigos do banco.
+      // DB só pode adicionar roles além do default (ex: conceder acesso extra).
+      const merged = { ...DEFAULT_PERMISSIONS }
+      for (const [key, dbRoles] of Object.entries(data.value)) {
+        const def = DEFAULT_PERMISSIONS[key] || []
+        merged[key] = [...new Set([...def, ...dbRoles])]
+      }
+      setPermissions({ ...merged, permissoes: ['admin'] })
     }
     setLoading(false)
   }, [])

@@ -16,31 +16,35 @@ import {
 } from "./contexts/NavPermissionsContext.jsx";
 import { Layout } from "./components/Layout.jsx";
 import { PWAUpdater } from "./components/PWAUpdater.jsx";
-import { Login } from "./pages/Login.jsx";
-import { Inicio } from "./pages/Inicio.jsx";
-import { Workflow } from "./pages/Workflow.jsx";
-import { Equipamentos } from "./pages/Equipamentos.jsx";
-import { Movimentacoes } from "./pages/Movimentacoes.jsx";
-import { Registro } from "./pages/Registro.jsx";
-import { MapaSalas } from "./pages/MapaSalas.jsx";
-import { Salas } from "./pages/Salas.jsx";
-import { Impressoras } from "./pages/Impressoras.jsx";
-import { Usuarios } from "./pages/Usuarios.jsx";
-import { Perfil } from "./pages/Perfil.jsx";
-import { Auditoria } from "./pages/Auditoria.jsx";
-import { Permissoes } from "./pages/Permissoes.jsx";
-import { MapaSetor } from "./pages/MapaSetor.jsx";
-import { MovimentacoesSetor } from "./pages/MovimentacoesSetor.jsx";
-import { ConferenciasSetor } from "./pages/ConferenciasSetor.jsx";
-import { DashboardSetor } from "./pages/DashboardSetor.jsx";
-import { Conferencias } from "./pages/Conferencias.jsx";
-import { DashboardPatrimonio } from "./pages/DashboardPatrimonio.jsx";
 
-const DashboardTI = lazy(() =>
-  import("./pages/Dashboard.jsx").then((module) => ({
-    default: module.Dashboard,
-  })),
-);
+// Páginas carregadas sob demanda (code-splitting): cada rota vira seu próprio
+// chunk, baixado só quando o usuário navega até ela. Isso reduz drasticamente o
+// bundle inicial — antes todas as páginas (incl. Registro/Movimentacoes, que têm
+// milhares de linhas) eram empacotadas juntas mesmo na tela de login.
+// Helper para componentes exportados como named export.
+const lazyNamed = (factory, name) =>
+  lazy(() => factory().then((m) => ({ default: m[name] })));
+
+const Login = lazyNamed(() => import("./pages/Login.jsx"), "Login");
+const Inicio = lazyNamed(() => import("./pages/Inicio.jsx"), "Inicio");
+const Workflow = lazyNamed(() => import("./pages/Workflow.jsx"), "Workflow");
+const Equipamentos = lazyNamed(() => import("./pages/Equipamentos.jsx"), "Equipamentos");
+const Movimentacoes = lazyNamed(() => import("./pages/Movimentacoes.jsx"), "Movimentacoes");
+const Registro = lazyNamed(() => import("./pages/Registro.jsx"), "Registro");
+const MapaSalas = lazyNamed(() => import("./pages/MapaSalas.jsx"), "MapaSalas");
+const Salas = lazyNamed(() => import("./pages/Salas.jsx"), "Salas");
+const Impressoras = lazyNamed(() => import("./pages/Impressoras.jsx"), "Impressoras");
+const Usuarios = lazyNamed(() => import("./pages/Usuarios.jsx"), "Usuarios");
+const Perfil = lazyNamed(() => import("./pages/Perfil.jsx"), "Perfil");
+const Auditoria = lazyNamed(() => import("./pages/Auditoria.jsx"), "Auditoria");
+const Permissoes = lazyNamed(() => import("./pages/Permissoes.jsx"), "Permissoes");
+const MapaSetor = lazyNamed(() => import("./pages/MapaSetor.jsx"), "MapaSetor");
+const MovimentacoesSetor = lazyNamed(() => import("./pages/MovimentacoesSetor.jsx"), "MovimentacoesSetor");
+const ConferenciasSetor = lazyNamed(() => import("./pages/ConferenciasSetor.jsx"), "ConferenciasSetor");
+const DashboardSetor = lazyNamed(() => import("./pages/DashboardSetor.jsx"), "DashboardSetor");
+const Conferencias = lazyNamed(() => import("./pages/Conferencias.jsx"), "Conferencias");
+const DashboardPatrimonio = lazyNamed(() => import("./pages/DashboardPatrimonio.jsx"), "DashboardPatrimonio");
+const DashboardTI = lazyNamed(() => import("./pages/Dashboard.jsx"), "Dashboard");
 
 function LoadingScreen() {
   return null;
@@ -99,6 +103,7 @@ function App() {
         <StoreProvider>
           <NavPermissionsProvider>
             <HashRouter>
+              <Suspense fallback={<LoadingScreen />}>
               <Routes>
                 <Route element={<PublicRoute />}>
                   <Route path="/login" element={<Login />} />
@@ -154,6 +159,7 @@ function App() {
                   </Route>
                 </Route>
               </Routes>
+              </Suspense>
             </HashRouter>
           </NavPermissionsProvider>
         </StoreProvider>

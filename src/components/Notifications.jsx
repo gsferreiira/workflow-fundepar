@@ -170,7 +170,7 @@ export function useNotifications({ roomId } = {}) {
     const seen = seenAtRef.current
     const unseen = seen ? collected.filter((i) => i.date > seen).length : collected.length
     setBadge(unseen)
-  }, [roomId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [roomId])
 
   useEffect(() => {
     refresh()
