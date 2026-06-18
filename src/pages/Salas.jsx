@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
+import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
@@ -10,6 +11,8 @@ import { EmptyState } from '../components/EmptyState.jsx'
 
 export function Salas() {
   const { search, registerRefresh } = useOutletContext()
+  const { user } = useAuth()
+  const canEdit = user?.role !== 'usuario'
   const { invalidate } = useStore()
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
@@ -101,9 +104,11 @@ export function Salas() {
           <h2>Gestão de Salas</h2>
           <p>Cadastre os ambientes onde os chamados podem ocorrer.</p>
         </div>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
-          <Plus size={14} /> Cadastrar Sala
-        </button>
+        {canEdit && (
+          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} /> Cadastrar Sala
+          </button>
+        )}
       </div>
       <div className="filter-bar fade-in">
         <div className="filter-row" style={{ justifyContent: 'flex-end' }}>
@@ -130,13 +135,13 @@ export function Salas() {
               <th>Coordenador</th>
               <th>Descrição / Setor</th>
               <th>Status</th>
-              <th style={{ width: 130 }}>Ações</th>
+              {canEdit && <th style={{ width: 130 }}>Ações</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={canEdit ? 7 : 6}>
                   <EmptyState
                     preset={search ? 'search' : 'folder'}
                     title={search ? 'Nenhuma sala encontrada' : 'Nenhuma sala cadastrada'}
@@ -184,16 +189,18 @@ export function Salas() {
                       {sala.status || 'Ativa'}
                     </span>
                   </td>
-                  <td>
-                    <div className="table-actions">
-                      <button className="btn-table-action edit" onClick={() => setEditSala(sala)}>
-                        <Pencil size={14} /> Editar
-                      </button>
-                      <button className="btn-table-action delete" onClick={() => onDelete(sala.id)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+                  {canEdit && (
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn-table-action edit" onClick={() => setEditSala(sala)}>
+                          <Pencil size={14} /> Editar
+                        </button>
+                        <button className="btn-table-action delete" onClick={() => onDelete(sala.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

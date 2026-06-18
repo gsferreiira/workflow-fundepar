@@ -21,14 +21,19 @@ export function NavPermissionsProvider({ children }) {
       .eq('key', 'nav_permissions')
       .maybeSingle()
     if (data?.value) {
-      // União por chave: roles do DEFAULT nunca são removidos por dados antigos do banco.
-      // DB só pode adicionar roles além do default (ex: conceder acesso extra).
-      const merged = { ...DEFAULT_PERMISSIONS }
-      for (const [key, dbRoles] of Object.entries(data.value)) {
-        const def = DEFAULT_PERMISSIONS[key] || []
-        merged[key] = [...new Set([...def, ...dbRoles])]
+      if (data.value._legacy_migrated) {
+        // DB foi salvo após a migração — confiar inteiramente nos dados salvos
+        const { _legacy_migrated: _, ...rest } = data.value
+        setPermissions({ ...DEFAULT_PERMISSIONS, ...rest, permissoes: ['admin'] })
+      } else {
+        // Dados antigos (pré-patrimônio) — usar união para não sumir novas entradas do DEFAULT
+        const merged = { ...DEFAULT_PERMISSIONS }
+        for (const [key, dbRoles] of Object.entries(data.value)) {
+          const def = DEFAULT_PERMISSIONS[key] || []
+          merged[key] = [...new Set([...def, ...dbRoles])]
+        }
+        setPermissions({ ...merged, permissoes: ['admin'] })
       }
-      setPermissions({ ...merged, permissoes: ['admin'] })
     }
     setLoading(false)
   }, [])
@@ -36,8 +41,9 @@ export function NavPermissionsProvider({ children }) {
   useEffect(() => { load() }, [load])
 
   const save = useCallback(async (newPermissions, userId) => {
-    // Garante que a página de permissões nunca fique acessível a não-admins
-    const safe = { ...newPermissions, permissoes: ['admin'] }
+    // Garante que a página de permissões nunca fique acessível a não-admins.
+    // _legacy_migrated marca que este JSON foi salvo após a migração — no load, confiar no DB.
+    const safe = { ...newPermissions, permissoes: ['admin'], _legacy_migrated: true }
     const { error } = await supabase
       .from('app_settings')
       .upsert(

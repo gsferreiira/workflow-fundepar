@@ -69,8 +69,10 @@ function StatusBadge({ status, small = false }) {
 async function fetchAuthInfo() {
   const { data, error } = await supabase.rpc('get_users_auth_info')
   if (error) {
-    // Função não criada ainda — silencioso, UI degrada graciosamente
-    if (!error.message.includes('does not exist')) {
+    if (
+      !error.message.includes('does not exist') &&
+      !error.message.includes('Acesso negado')
+    ) {
       console.warn('get_users_auth_info:', error.message)
     }
     return {}
@@ -364,8 +366,8 @@ export function Usuarios() {
                     )}
                     {isAdmin && (
                       <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                        {u.last_seen_at
-                          ? fmtDateTime(u.last_seen_at)
+                        {(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
+                          ? fmtDateTime(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
                           : <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                         }
                       </td>

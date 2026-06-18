@@ -19,6 +19,7 @@ export function Equipamentos() {
   const [list, setList] = useState(null)
   const { user } = useAuth()
   const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
+  const canEdit = user?.role !== 'usuario'
   const [createOpen, setCreateOpen] = useState(false)
   const [editEq, setEditEq] = useState(null)
   const [filterCat, setFilterCat] = useState('')
@@ -98,9 +99,11 @@ export function Equipamentos() {
           <h2>Equipamentos</h2>
           <p>Cadastre os equipamentos que poderão ser movimentados.</p>
         </div>
-        <button className="btn-primary" onClick={() => setCreateOpen(true)}>
-          <Plus size={14} /> Cadastrar Equipamento
-        </button>
+        {canEdit && (
+          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} /> Cadastrar Equipamento
+          </button>
+        )}
       </div>
       <div className="filter-bar fade-in">
         <div className="filter-row">
@@ -160,13 +163,13 @@ export function Equipamentos() {
               <th>Nome do Equipamento</th>
               {canSeeAll && <th style={{ width: 130 }}>Classificação</th>}
               <th>Categoria</th>
-              <th style={{ width: 130 }}>Ações</th>
+              {canEdit && <th style={{ width: 130 }}>Ações</th>}
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={canSeeAll ? 4 : 3}>
+                <td colSpan={(canSeeAll ? 1 : 0) + (canEdit ? 1 : 0) + 2}>
                   <EmptyState
                     preset={search || filterCat || filterDominio ? 'search' : 'package'}
                     title={search || filterCat || filterDominio ? 'Nenhum equipamento encontrado' : 'Nenhum equipamento cadastrado'}
@@ -200,16 +203,18 @@ export function Equipamentos() {
                       <span style={{ color: 'var(--text-secondary)' }}>—</span>
                     )}
                   </td>
-                  <td>
-                    <div className="table-actions">
-                      <button className="btn-table-action edit" onClick={() => setEditEq(eq)}>
-                        <Pencil size={14} /> Editar
-                      </button>
-                      <button className="btn-table-action delete" onClick={() => onDelete(eq.id)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+                  {canEdit && (
+                    <td>
+                      <div className="table-actions">
+                        <button className="btn-table-action edit" onClick={() => setEditEq(eq)}>
+                          <Pencil size={14} /> Editar
+                        </button>
+                        <button className="btn-table-action delete" onClick={() => onDelete(eq.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
