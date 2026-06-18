@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, User, Lock, Mail, Shield, Eye, EyeOff } from 'lucide-react'
+import { Loader2, Lock, Mail, Shield, Eye, EyeOff, UserRound } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
@@ -33,7 +33,28 @@ function PasswordInput({ value, onChange, placeholder, minLength, autoComplete =
   )
 }
 
-const ROLE_LABELS = { admin: 'Administrador', tecnico: 'Técnico', usuario: 'Usuário', coordenador: 'Coordenador' }
+const ROLE_LABELS = {
+  admin:      'Administrador',
+  tecnico:    'Técnico',
+  usuario:    'Usuário',
+  coordenador:'Coordenador',
+  patrimonio: 'Patrimônio',
+}
+
+const ROLE_COLORS = {
+  admin:      { bg: 'rgba(239,68,68,.12)',    color: '#dc2626' },
+  tecnico:    { bg: 'rgba(99,102,241,.12)',   color: '#6366f1' },
+  usuario:    { bg: 'rgba(14,165,233,.12)',   color: '#0ea5e9' },
+  coordenador:{ bg: 'rgba(5,150,105,.12)',    color: '#059669' },
+  patrimonio: { bg: 'rgba(245,158,11,.12)',   color: '#d97706' },
+}
+
+function getInitials(fullName) {
+  if (!fullName) return '?'
+  const parts = fullName.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
 
 export function Perfil() {
   const { user, fetchProfile } = useAuth()
@@ -44,8 +65,6 @@ export function Perfil() {
   const [confPass, setConfPass] = useState('')
   const [busyPass, setBusyPass] = useState(false)
 
-  // Sincroniza o input quando `user.full_name` muda (ex: outra aba edita
-  // o nome, USER_UPDATED do Supabase Auth refeta o perfil).
   useEffect(() => {
     setName(user?.full_name || '')
   }, [user?.full_name])
@@ -53,6 +72,8 @@ export function Perfil() {
   if (!user) return <SkeletonProfile />
 
   const roleLabel = ROLE_LABELS[user.role] || user.role || 'Usuário'
+  const roleStyle = ROLE_COLORS[user.role] || ROLE_COLORS.usuario
+  const initials = getInitials(user.full_name)
 
   const updateName = async (e) => {
     e.preventDefault()
@@ -99,117 +120,176 @@ export function Perfil() {
         </div>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: 20,
-          alignItems: 'start',
-        }}
-      >
-        <div className="table-card fade-in" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 860 }}>
+
+        {/* Hero card */}
+        <div
+          className="table-card fade-in"
+          style={{
+            padding: 0,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Banner gradient */}
+          <div
+            style={{
+              height: 80,
+              background: 'linear-gradient(135deg, rgba(99,102,241,.18) 0%, rgba(14,165,233,.14) 100%)',
+              borderBottom: '1px solid var(--border-color)',
+            }}
+          />
+          {/* Avatar + info */}
+          <div style={{ padding: '0 28px 28px', position: 'relative' }}>
+            {/* Avatar overlapping banner */}
             <div
               style={{
-                background: 'rgba(99,102,241,.1)',
-                color: '#6366f1',
-                borderRadius: 12,
-                padding: 16,
+                width: 72,
+                height: 72,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #6366f1, #0ea5e9)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 26,
+                fontWeight: 800,
+                color: '#fff',
+                letterSpacing: 1,
+                border: '3px solid var(--bg-card)',
+                marginTop: -36,
+                marginBottom: 14,
+                boxShadow: '0 4px 14px rgba(99,102,241,.35)',
                 flexShrink: 0,
               }}
             >
-              <User size={28} />
+              {initials}
             </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 17 }}>{user.full_name || '—'}</div>
-              <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{user.email}</div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>
+                  {user.full_name || '—'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                  <Mail size={13} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{user.email}</span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingTop: 4 }}>
+                <Shield size={13} style={{ color: roleStyle.color }} />
+                <span
+                  style={{
+                    background: roleStyle.bg,
+                    color: roleStyle.color,
+                    padding: '4px 12px',
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {roleLabel}
+                </span>
+              </div>
             </div>
           </div>
-          <div
-            style={{
-              borderTop: '1px solid var(--border-color)',
-              paddingTop: 20,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Mail size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{user.email || '—'}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Shield size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-              <span
+        </div>
+
+        {/* Forms row */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: 20,
+            alignItems: 'start',
+          }}
+        >
+          {/* Alterar Nome */}
+          <div className="table-card fade-in" style={{ padding: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
+              <div
                 style={{
-                  background: 'rgba(99,102,241,.1)',
-                  color: '#6366f1',
-                  padding: '2px 8px',
-                  borderRadius: 20,
-                  fontSize: 12,
-                  fontWeight: 600,
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: 'rgba(14,165,233,.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
                 }}
               >
-                {roleLabel}
-              </span>
+                <UserRound size={16} style={{ color: '#0ea5e9' }} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Alterar Nome</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>Nome exibido no sistema</div>
+              </div>
             </div>
+            <form onSubmit={updateName}>
+              <div className="form-group">
+                <label>Nome completo</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Seu nome completo"
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                <button type="submit" className="btn-primary" disabled={busyName}>
+                  {busyName ? <Loader2 size={14} className="spin" /> : 'Salvar Nome'}
+                </button>
+              </div>
+            </form>
           </div>
-        </div>
 
-        <div className="table-card fade-in" style={{ padding: 28 }}>
-          <h3 style={{ marginBottom: 20, fontSize: 15, fontWeight: 700 }}>
-            <User size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Alterar Nome
-          </h3>
-          <form onSubmit={updateName}>
-            <div className="form-group">
-              <label>Nome completo</label>
-              <input
-                type="text"
-                className="form-control"
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Seu nome completo"
-              />
+          {/* Alterar Senha */}
+          <div className="table-card fade-in" style={{ padding: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 22 }}>
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: 10,
+                  background: 'rgba(99,102,241,.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Lock size={16} style={{ color: '#6366f1' }} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>Alterar Senha</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>Mínimo 6 caracteres</div>
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="submit" className="btn-primary" disabled={busyName}>
-                {busyName ? <Loader2 size={14} className="spin" /> : 'Salvar Nome'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="table-card fade-in" style={{ padding: 28 }}>
-          <h3 style={{ marginBottom: 20, fontSize: 15, fontWeight: 700 }}>
-            <Lock size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Alterar Senha
-          </h3>
-          <form onSubmit={updatePassword}>
-            <div className="form-group">
-              <label>Nova senha</label>
-              <PasswordInput
-                value={newPass}
-                onChange={(e) => setNewPass(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-                minLength={6}
-              />
-            </div>
-            <div className="form-group">
-              <label>Confirmar nova senha</label>
-              <PasswordInput
-                value={confPass}
-                onChange={(e) => setConfPass(e.target.value)}
-                placeholder="Repita a nova senha"
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button type="submit" className="btn-primary" disabled={busyPass}>
-                {busyPass ? <Loader2 size={14} className="spin" /> : 'Alterar Senha'}
-              </button>
-            </div>
-          </form>
+            <form onSubmit={updatePassword}>
+              <div className="form-group">
+                <label>Nova senha</label>
+                <PasswordInput
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  minLength={6}
+                />
+              </div>
+              <div className="form-group">
+                <label>Confirmar nova senha</label>
+                <PasswordInput
+                  value={confPass}
+                  onChange={(e) => setConfPass(e.target.value)}
+                  placeholder="Repita a nova senha"
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                <button type="submit" className="btn-primary" disabled={busyPass}>
+                  {busyPass ? <Loader2 size={14} className="spin" /> : 'Alterar Senha'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </>
