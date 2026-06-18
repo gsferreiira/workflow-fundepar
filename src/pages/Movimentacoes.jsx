@@ -244,6 +244,9 @@ export function Movimentacoes() {
   const fileInputRef = useRef(null)
   const filtersRef = useRef(filters)
   filtersRef.current = filters
+  const searchRef = useRef(search)
+  searchRef.current = search
+  const filterMountRef = useRef(false)
 
   const loadDropdowns = useCallback(async () => {
     const [eq, rm, pr] = await Promise.all([
@@ -300,15 +303,25 @@ export function Movimentacoes() {
     [roomsFetcher, profilesFetcher, showToast],
   )
 
-  // Único useEffect responsável pela primeira carga + recarrega quando search muda.
-  // Antes existiam DOIS useEffects (um com `[search]`, outro com `[]`) que
-  // disparavam fetches paralelos no mount, fazendo a primeira página ser
-  // requisitada duas vezes em paralelo.
+  // Única carga inicial + recarrega quando search muda (topbar debounced).
   useEffect(() => {
     setPage(1)
     fetchPage(1, filtersRef.current, search)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
+
+  // Auto-aplica filtros ao mudar (debounce 300ms). Ignora mount pois o effect
+  // acima já dispara o fetch inicial.
+  useEffect(() => {
+    if (!filterMountRef.current) { filterMountRef.current = true; return }
+    const timer = setTimeout(() => {
+      setPage(1)
+      clearSelection()
+      fetchPage(1, filters, searchRef.current)
+    }, 300)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters])
 
   const applyFilters = () => {
     setPage(1)
@@ -906,9 +919,6 @@ export function Movimentacoes() {
           </span>
           <button className="btn-filter-clear" onClick={clearFilters}>
             <X size={13} /> Limpar
-          </button>
-          <button className="btn-primary" style={{ padding: '6px 16px', fontSize: 13 }} onClick={applyFilters}>
-            Filtrar
           </button>
         </div>
       </div>

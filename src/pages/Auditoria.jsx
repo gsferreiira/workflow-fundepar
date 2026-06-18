@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X, Lock, Eye, Undo2, RotateCcw, AlertTriangle, Loader2, ArrowRightLeft, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase.js'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -76,6 +76,7 @@ export function Auditoria() {
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const isAdmin = user?.role === 'admin'
+  const filterMountRef = useRef(false)
 
   useEffect(() => {
     profilesFetcher().then(setProfiles).catch(() => {})
@@ -105,6 +106,14 @@ export function Auditoria() {
     setPage(1)
     fetchPage(1, filters)
   }
+
+  // Auto-aplica filtros ao mudar (debounce 300ms). Ignora mount.
+  useEffect(() => {
+    if (!filterMountRef.current) { filterMountRef.current = true; return }
+    const timer = setTimeout(() => applyFilters(), 300)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters])
 
   const clearFilters = () => {
     const cleared = { actorId: '', action: '', table: '', dateFrom: '', dateTo: '' }
@@ -480,9 +489,6 @@ export function Auditoria() {
           </span>
           <button className="btn-filter-clear" onClick={clearFilters}>
             <X size={13} /> Limpar
-          </button>
-          <button className="btn-primary" style={{ padding: '6px 16px', fontSize: 13 }} onClick={applyFilters}>
-            Filtrar
           </button>
         </div>
       </div>

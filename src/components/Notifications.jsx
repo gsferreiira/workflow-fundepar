@@ -286,7 +286,7 @@ export function useAlerts({ role } = {}) {
     if (!ALERT_ROLES.includes(role)) { setAlerts([]); return }
     const currentMonth = new Date().toISOString().slice(0, 7)
 
-    const [locsRes, confRes, eqRes, locRes] = await Promise.all([
+    const [locsRes, confRes, unlocRes] = await Promise.all([
       supabase
         .from('equipment_locations')
         .select('id, equipment_id, equipment(status)')
@@ -297,8 +297,11 @@ export function useAlerts({ role } = {}) {
         .eq('competencia', currentMonth)
         .is('concluded_at', null)
         .is('deleted_at', null),
-      supabase.from('equipment').select('id').is('deleted_at', null),
-      supabase.from('equipment_locations').select('equipment_id'),
+      // Conta patrimônios registrados mas sem sala definida (current_room_id nulo)
+      supabase
+        .from('equipment_locations')
+        .select('id', { count: 'exact', head: true })
+        .is('current_room_id', null),
     ])
 
     const problemCount = (locsRes.data || []).filter(l =>
@@ -307,8 +310,7 @@ export function useAlerts({ role } = {}) {
 
     const confCount = (confRes.data || []).length
 
-    const locatedIds = new Set((locRes.data || []).map(l => l.equipment_id))
-    const unlocatedCount = (eqRes.data || []).filter(e => !locatedIds.has(e.id)).length
+    const unlocatedCount = unlocRes.count || 0
 
     setAlerts([
       { type: 'problem',    count: problemCount   },
