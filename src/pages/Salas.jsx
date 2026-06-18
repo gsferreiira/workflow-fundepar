@@ -246,16 +246,43 @@ function SalaModal({ sala, onClose, onSaved }) {
   const [coordinators, setCoordinators] = useState([])
 
   useEffect(() => {
+    // Carrega todos os usuários ativos (exceto admin/patrimônio) para o dropdown —
+    // a promoção para 'coordenador' acontece automaticamente ao salvar.
     supabase
       .from('profiles')
-      .select('id, full_name, email')
-      .eq('role', 'coordenador')
+      .select('id, full_name, email, role')
+      .not('role', 'in', '("admin","patrimonio")')
       .is('deleted_at', null)
       .order('full_name')
       .then(({ data }) => setCoordinators(data || []))
   }, [])
 
   const selectedCoordinator = coordinators.find((c) => c.id === coordinatorId)
+
+  const syncCoordinatorRole = async (newCoordinatorId, oldCoordinatorId) => {
+    // Promove novo coordenador
+    if (newCoordinatorId && newCoordinatorId !== oldCoordinatorId) {
+      await supabase
+        .from('profiles')
+        .update({ role: 'coordenador' })
+        .eq('id', newCoordinatorId)
+    }
+    // Rebaixa coordenador removido, se não coordena nenhuma outra sala
+    if (oldCoordinatorId && oldCoordinatorId !== newCoordinatorId) {
+      const { data: otherRooms } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('coordinator_id', oldCoordinatorId)
+        .is('deleted_at', null)
+        .neq('id', sala?.id || '')
+      if (!otherRooms?.length) {
+        await supabase
+          .from('profiles')
+          .update({ role: 'usuario' })
+          .eq('id', oldCoordinatorId)
+      }
+    }
+  }
 
   const submit = async (e) => {
     e.preventDefault()
@@ -268,6 +295,7 @@ function SalaModal({ sala, onClose, onSaved }) {
       coordinator_id: coordinatorId || null,
       coordinator: selectedCoordinator?.full_name || null,
     }
+    const oldCoordinatorId = sala?.coordinator_id || null
     if (editing) {
       const { error } = await supabase.from('rooms').update(updates).eq('id', sala.id)
       if (error) {
@@ -275,6 +303,7 @@ function SalaModal({ sala, onClose, onSaved }) {
         setBusy(false)
         return
       }
+      await syncCoordinatorRole(coordinatorId || null, oldCoordinatorId)
       audit.updated('rooms', sala.id, updates)
       showToast('Sala atualizada!', 'success')
       onSaved()
@@ -289,6 +318,7 @@ function SalaModal({ sala, onClose, onSaved }) {
         setBusy(false)
         return
       }
+      await syncCoordinatorRole(coordinatorId || null, null)
       audit.created('rooms', inserted?.id, { name, sigla: updates.sigla })
       showToast('Sala cadastrada!', 'success')
       onSaved()
@@ -365,9 +395,9 @@ function SalaModal({ sala, onClose, onSaved }) {
                 </option>
               ))}
             </select>
-            {coordinators.length === 0 && (
-              <small className="form-hint" style={{ color: 'var(--text-secondary)' }}>
-                Nenhum usuário com perfil "Coordenador" cadastrado ainda.
+            {coordinatorId && selectedCoordinator && selectedCoordinator.role !== 'coordenador' && (
+              <small className="form-hint" style={{ color: '#d97706' }}>
+                O usuário será promovido automaticamente para a role "Coordenador" ao salvar.
               </small>
             )}
           </div>
