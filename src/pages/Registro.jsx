@@ -32,6 +32,7 @@ export function Registro() {
   const { showToast } = useToast()
   const { rooms: roomsFetcher, equipment: equipmentFetcher, invalidate } = useStore()
   const [data, setData] = useState(null)
+  const [fetching, setFetching] = useState(false)
   const [total, setTotal] = useState(0)
   const [roomOptions, setRoomOptions] = useState([])
   const [search, setSearch] = useState('')
@@ -103,7 +104,7 @@ export function Registro() {
 
   useEffect(() => {
     let cancelled = false
-    setData(null)
+    setFetching(true)
 
     const load = async () => {
       // Busca IDs de equipamentos pelo nome para text search cross-join
@@ -171,6 +172,7 @@ export function Registro() {
       if (pageRes.error) {
         showToastRef.current(pageRes.error.message, 'danger')
         setData([])
+        setFetching(false)
         return
       }
 
@@ -220,12 +222,14 @@ export function Registro() {
 
       setData(items)
       setTotal(countRes.count || 0)
+      setFetching(false)
     }
 
     load().catch((err) => {
       if (!cancelled) {
         showToastRef.current(err?.message || 'Erro inesperado', 'danger')
         setData([])
+        setFetching(false)
       }
     })
 
@@ -675,7 +679,7 @@ export function Registro() {
         </div>
       )}
 
-      <div className="table-card fade-in table-card-view">
+      <div className="table-card fade-in table-card-view" style={fetching ? { opacity: 0.6, pointerEvents: 'none', transition: 'opacity .15s' } : undefined}>
         <table className="data-table">
           <thead>
             <tr>
