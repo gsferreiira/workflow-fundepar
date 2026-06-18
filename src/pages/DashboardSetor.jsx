@@ -248,10 +248,9 @@ export function DashboardSetor() {
       || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
     supabase
-      .from('asset_movements')
+      .from('equipment_locations')
       .select('id, moved_at, asset_number, equipment_id, equipment(name)')
-      .eq('destination_room_id', room.id)
-      .is('deleted_at', null)
+      .eq('current_room_id', room.id)
       .gte('moved_at', since)
       .order('moved_at', { ascending: false })
       .limit(20)
