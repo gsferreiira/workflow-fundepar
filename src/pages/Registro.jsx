@@ -39,6 +39,7 @@ export function Registro() {
   const debouncedSetSearch = useMemo(() => debounce((v) => setSearchDebounced(v), 300), [])
   useEffect(() => { debouncedSetSearch(search) }, [search, debouncedSetSearch])
   const canSeeAll = ROLES_FULL_ACCESS.includes(user?.role)
+  const canEdit = user?.role !== 'usuario'
   const [filterRoom, setFilterRoom] = useState('')
   const [filterDominio, setFilterDominio] = useState('')
   const [filterCat, setFilterCat] = useState('')
@@ -427,18 +428,22 @@ export function Registro() {
           <p>Localização atual de cada equipamento individual no sistema.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            className="btn-primary"
-            onClick={() => setAssetLookupOpen(true)}
-          >
-            <Plus size={14} /> Registrar equipamento
-          </button>
-          <button
-            className="btn-primary"
-            onClick={() => setBatchRegisterOpen(true)}
-          >
-            <Plus size={14} /> Registrar por lote
-          </button>
+          {canEdit && (
+            <>
+              <button
+                className="btn-primary"
+                onClick={() => setAssetLookupOpen(true)}
+              >
+                <Plus size={14} /> Registrar equipamento
+              </button>
+              <button
+                className="btn-primary"
+                onClick={() => setBatchRegisterOpen(true)}
+              >
+                <Plus size={14} /> Registrar por lote
+              </button>
+            </>
+          )}
           <div className="export-menu-wrapper">
             <button
               type="button"
@@ -632,21 +637,25 @@ export function Registro() {
             <strong>{selectedItems.length}</strong> selecionado{selectedItems.length !== 1 ? 's' : ''}
           </div>
           <div className="bulk-action-buttons">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setBulkMovementModalOpen(true)}
-            >
-              <ArrowRightLeft size={14} /><span className="btn-text">Movimentar para outra sala</span>
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ background: '#64748b' }}
-              onClick={() => setBulkModalOpen(true)}
-            >
-              <ArrowRightLeft size={14} /><span className="btn-text"> Atualizar registro de {selectedItems.length}</span>
-            </button>
+            {canEdit && (
+              <>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => setBulkMovementModalOpen(true)}
+                >
+                  <ArrowRightLeft size={14} /><span className="btn-text">Movimentar para outra sala</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ background: '#64748b' }}
+                  onClick={() => setBulkModalOpen(true)}
+                >
+                  <ArrowRightLeft size={14} /><span className="btn-text"> Atualizar registro de {selectedItems.length}</span>
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="btn-primary"
@@ -775,13 +784,15 @@ export function Registro() {
                   </td>
                   <td className="card-actions-cell">
                     <div className="table-actions">
-                      <button
-                        className="btn-table-action edit"
-                        onClick={(e) => { e.stopPropagation(); setEditRegistroItem(d) }}
-                        title="Editar equipamento"
-                      >
-                        <Pencil size={14} />
-                      </button>
+                      {canEdit && (
+                        <button
+                          className="btn-table-action edit"
+                          onClick={(e) => { e.stopPropagation(); setEditRegistroItem(d) }}
+                          title="Editar equipamento"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
                       <button
                         className="btn-table-action edit"
                         onClick={(e) => { e.stopPropagation(); setHistoryEq(d) }}

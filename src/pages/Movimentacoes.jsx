@@ -815,12 +815,16 @@ export function Movimentacoes() {
               />
             </>
           )}
-          <button className="btn-primary" onClick={() => setLoteOpen(true)}>
-            <Plus size={14} /> Movimentação em Lote
-          </button>
-          <button className="btn-primary" onClick={() => { setCreatePrefill(null); setCreateOpen(true) }}>
-            <Plus size={14} /> Nova Movimentação
-          </button>
+          {canEditMovements && (
+            <>
+              <button className="btn-primary" onClick={() => setLoteOpen(true)}>
+                <Plus size={14} /> Movimentação em Lote
+              </button>
+              <button className="btn-primary" onClick={() => { setCreatePrefill(null); setCreateOpen(true) }}>
+                <Plus size={14} /> Nova Movimentação
+              </button>
+            </>
+          )}
         </div>
       </div>
 
