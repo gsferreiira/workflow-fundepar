@@ -4,6 +4,9 @@ import {
   Package, AlertTriangle, ArrowRightLeft, MapPin,
   LayoutGrid, ChevronRight, Archive,
 } from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { supabase } from '../lib/supabase.js'
 import { fmtDate } from '../utils/format.js'
@@ -15,6 +18,14 @@ const DOMAIN_COLORS = {
   Mobiliário:     { color: '#059669', bg: 'rgba(16,185,129,.06)' },
   Eletrodoméstico:{ color: '#2563eb', bg: 'rgba(37,99,235,.06)'  },
   Outros:         { color: '#d97706', bg: 'rgba(245,158,11,.06)' },
+}
+
+const STATUS_COLORS = {
+  novo:         { color: '#059669', label: 'Novo' },
+  bom:          { color: '#2563eb', label: 'Bom' },
+  regular:      { color: '#d97706', label: 'Regular' },
+  inservível:   { color: '#dc2626', label: 'Inservível' },
+  'com defeito':{ color: '#7e22ce', label: 'Com Defeito' },
 }
 
 function StatCard({ icon: Icon, label, value, sub, color, bg }) {
@@ -32,6 +43,42 @@ function StatCard({ icon: Icon, label, value, sub, color, bg }) {
   )
 }
 
+function SectionTitle({ children }) {
+  return (
+    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 16 }}>
+      {children}
+    </div>
+  )
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div style={{
+      background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+      borderRadius: 8, padding: '8px 12px', fontSize: 13,
+    }}>
+      <div style={{ fontWeight: 700, marginBottom: 2 }}>{label}</div>
+      <div style={{ color: '#6366f1' }}>{payload[0].value} movimentações</div>
+    </div>
+  )
+}
+
+// Gera os últimos N meses como [{ key: 'YYYY-MM', label: 'Jan' }, ...]
+function getLastMonths(n = 6) {
+  const months = []
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(1)
+    d.setMonth(d.getMonth() - i)
+    months.push({
+      key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+    })
+  }
+  return months
+}
+
 export function DashboardPatrimonio() {
   const { user } = useAuth()
   const [data, setData] = useState(null)
@@ -40,7 +87,12 @@ export function DashboardPatrimonio() {
     let cancelled = false
 
     const load = async () => {
-      const [locsRes, roomsRes, recentRes] = await Promise.all([
+      const months = getLastMonths(6)
+      const sixMonthsAgo = new Date()
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+      sixMonthsAgo.setDate(1)
+
+      const [locsRes, roomsRes, recentRes, monthlyMovsRes] = await Promise.all([
         supabase
           .from('equipment_locations')
           .select('id, equipment_id, asset_number, serial_number, current_room_id, equipment(name, dominio, status)'),
@@ -51,12 +103,17 @@ export function DashboardPatrimonio() {
           .is('deleted_at', null)
           .order('moved_at', { ascending: false })
           .limit(8),
+        supabase
+          .from('asset_movements')
+          .select('id, moved_at')
+          .is('deleted_at', null)
+          .gte('moved_at', sixMonthsAgo.toISOString()),
       ])
 
       if (cancelled) return
 
-      const locs  = locsRes.data  || []
-      const rooms = roomsRes.data || []
+      const locs    = locsRes.data  || []
+      const rooms   = roomsRes.data || []
       const roomMap = Object.fromEntries(rooms.map((r) => [r.id, r]))
 
       // Breakdown por domínio
@@ -67,12 +124,19 @@ export function DashboardPatrimonio() {
         byDomain[d] = (byDomain[d] || 0) + 1
       })
 
+      // Breakdown por status
+      const byStatus = {}
+      locs.forEach((l) => {
+        const s = (l.equipment?.status || 'bom').toLowerCase()
+        byStatus[s] = (byStatus[s] || 0) + 1
+      })
+
       // Itens com problema
       const withProblem = locs.filter((l) =>
         ['inservível', 'com defeito'].includes(l.equipment?.status),
       ).length
 
-      // Top salas por quantidade de bens
+      // Top salas
       const roomCount = {}
       locs.forEach((l) => {
         if (!l.current_room_id) return
@@ -83,7 +147,16 @@ export function DashboardPatrimonio() {
         .slice(0, 6)
         .map(([id, count]) => ({ id, name: roomMap[id]?.name || '—', count }))
 
-      setData({ total: locs.length, byDomain, withProblem, topRooms, recentMovs: recentRes.data || [] })
+      // Movimentações por mês (últimos 6 meses)
+      const movCountMap = {}
+      for (const m of months) movCountMap[m.key] = 0
+      ;(monthlyMovsRes.data || []).forEach((m) => {
+        const key = m.moved_at.slice(0, 7)
+        if (movCountMap[key] !== undefined) movCountMap[key]++
+      })
+      const movByMonth = months.map((m) => ({ month: m.label, count: movCountMap[m.key] }))
+
+      setData({ total: locs.length, byDomain, byStatus, withProblem, topRooms, recentMovs: recentRes.data || [], movByMonth })
     }
 
     load().catch(() => {})
@@ -92,8 +165,10 @@ export function DashboardPatrimonio() {
 
   if (!data) return <SkeletonTable />
 
-  const { total, byDomain, withProblem, topRooms, recentMovs } = data
+  const { total, byDomain, byStatus, withProblem, topRooms, recentMovs, movByMonth } = data
   const maxDomainCount = Math.max(...Object.values(byDomain), 1)
+  const totalStatus    = Object.values(byStatus).reduce((a, b) => a + b, 0) || 1
+  const hasMovData     = movByMonth.some((m) => m.count > 0)
 
   return (
     <>
@@ -119,14 +194,58 @@ export function DashboardPatrimonio() {
         />
       </div>
 
-      {/* Breakdown + Top salas */}
+      {/* Gráfico de movimentações + Breakdown de status */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginBottom: 24 }}>
+
+        {/* Gráfico movimentações por mês */}
+        <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
+          <SectionTitle>Movimentações nos últimos 6 meses</SectionTitle>
+          {hasMovData ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={movByMonth} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--text-secondary)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(99,102,241,.06)' }} />
+                <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} maxBarSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+              Nenhuma movimentação nos últimos 6 meses.
+            </div>
+          )}
+        </div>
+
+        {/* Breakdown por status */}
+        <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
+          <SectionTitle>Condição dos bens</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {Object.entries(STATUS_COLORS).map(([key, cfg]) => {
+              const count = byStatus[key] || 0
+              const pct   = Math.round((count / totalStatus) * 100)
+              return (
+                <div key={key}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{count}</span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 4, background: 'var(--border-color)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${pct}%`, background: cfg.color, borderRadius: 4, transition: 'width .4s ease' }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Breakdown por classificação + Top salas */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
 
-        {/* Distribuição por domínio */}
+        {/* Distribuição por classificação */}
         <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 16 }}>
-            Distribuição por classificação
-          </div>
+          <SectionTitle>Distribuição por classificação</SectionTitle>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {DOMINIOS.map((d) => {
               const count = byDomain[d] || 0
@@ -149,9 +268,7 @@ export function DashboardPatrimonio() {
 
         {/* Top salas */}
         <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 16 }}>
-            Salas com mais bens
-          </div>
+          <SectionTitle>Salas com mais bens</SectionTitle>
           {topRooms.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
               Nenhum bem registrado ainda.
@@ -166,9 +283,7 @@ export function DashboardPatrimonio() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
                   </div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', flexShrink: 0 }}>
-                    {r.count}
-                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', flexShrink: 0 }}>{r.count}</div>
                 </div>
               ))}
             </div>
@@ -179,9 +294,7 @@ export function DashboardPatrimonio() {
       {/* Movimentações recentes */}
       <div className="table-card fade-in" style={{ padding: '18px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-            Movimentações recentes
-          </div>
+          <SectionTitle>Movimentações recentes</SectionTitle>
           <Link to="/movimentacoes" style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
             Ver todas <ChevronRight size={13} />
           </Link>
@@ -209,9 +322,7 @@ export function DashboardPatrimonio() {
                       <MapPin size={10} /> {m.destination_room?.name || '—'}
                     </div>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>
-                    {fmtDate(m.moved_at)}
-                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0 }}>{fmtDate(m.moved_at)}</div>
                   <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: cfg.bg, color: cfg.color, flexShrink: 0 }}>
                     {dominio}
                   </span>

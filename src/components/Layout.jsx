@@ -8,6 +8,7 @@ import {
   NotificationsPanel,
   NotificationDetailModal,
   useNotifications,
+  useAlerts,
 } from './Notifications.jsx'
 import { Scanner, ScanResultModal } from './Scanner.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
@@ -43,6 +44,7 @@ export function Layout() {
   const { items, badge, seenAt, refresh, markAsSeen } = useNotifications({
     roomId: user?.role === 'coordenador' ? user?.coordinator_room?.id : undefined,
   })
+  const { alerts, alertCount } = useAlerts({ role: user?.role })
   const { notifications: roomNotifs, dismiss: dismissRoomNotif } = useRoomNotifications(user)
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
   const refreshFnRef = useRef(null)
@@ -184,7 +186,7 @@ export function Layout() {
               searchValue={search}
               onOpenScanner={openScanner}
               onToggleNotif={toggleNotif}
-              notifBadge={badge}
+              notifBadge={badge + alertCount}
               searchResults={searchResults}
               onResultSelect={handleResultSelect}
               onSearchClear={clearSearch}
@@ -194,6 +196,7 @@ export function Layout() {
               onClose={() => setNotifOpen(false)}
               items={items}
               seenAt={seenAt}
+              alerts={alerts}
               onShowDetail={(item) => {
                 setNotifOpen(false)
                 setNotifDetail(item)
