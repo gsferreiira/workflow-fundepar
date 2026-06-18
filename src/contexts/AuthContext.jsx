@@ -65,12 +65,13 @@ export function AuthProvider({ children }) {
     const merged = { ...authUser, ...profile }
 
     if (profile.role === 'coordenador') {
-      const { data: room } = await supabase
+      const { data: roomList } = await supabase
         .from('rooms')
         .select('id, name, sigla')
         .eq('coordinator_id', profile.id)
         .is('deleted_at', null)
-        .maybeSingle()
+        .limit(1)
+      const room = roomList?.[0] ?? null
       if (room) merged.coordinator_room = room
     }
 
