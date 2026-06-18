@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { X, BellOff, ArrowRightLeft, Package, Eye, MapPin, ArrowRight, User } from 'lucide-react'
+import { X, BellOff, ArrowRightLeft, Package, Eye, MapPin, ArrowRight, AlertTriangle, ClipboardList, Search } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { formatAssetNumber } from '../utils/format.js'
 import { useRealtime } from '../hooks/useRealtime.js'
@@ -32,8 +33,71 @@ const safeSetItem = (key, value) => {
   }
 }
 
-export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt }) {
+// ── Alert definitions ─────────────────────────────────────────────────────────
+
+const ALERT_DEFS = {
+  problem: {
+    icon:  AlertTriangle,
+    color: '#dc2626',
+    bg:    'rgba(239,68,68,.08)',
+    border:'rgba(239,68,68,.2)',
+    label: 'Bens com problema',
+    link:  '/registro',
+    linkLabel: 'Ver no inventário',
+  },
+  conference: {
+    icon:  ClipboardList,
+    color: '#d97706',
+    bg:    'rgba(245,158,11,.08)',
+    border:'rgba(245,158,11,.2)',
+    label: 'Conferências pendentes (mês atual)',
+    link:  '/conferencias',
+    linkLabel: 'Ver conferências',
+  },
+  unlocated: {
+    icon:  Search,
+    color: '#7e22ce',
+    bg:    'rgba(126,34,206,.08)',
+    border:'rgba(126,34,206,.2)',
+    label: 'Patrimônios sem localização',
+    link:  '/registro',
+    linkLabel: 'Ver no inventário',
+  },
+}
+
+function AlertCard({ type, count, onClose }) {
+  const def = ALERT_DEFS[type]
+  if (!def || count === 0) return null
+  const Icon = def.icon
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      background: def.bg, border: `1px solid ${def.border}`,
+      borderRadius: 10, padding: '10px 12px',
+    }}>
+      <div style={{
+        width: 30, height: 30, borderRadius: 8, background: def.border,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      }}>
+        <Icon size={14} style={{ color: def.color }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: def.color }}>{count} {def.label}</div>
+      </div>
+      <Link
+        to={def.link}
+        onClick={onClose}
+        style={{ fontSize: 11, color: def.color, fontWeight: 600, textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}
+      >
+        {def.linkLabel} →
+      </Link>
+    </div>
+  )
+}
+
+export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt, alerts = [] }) {
   if (!open) return null
+  const hasAlerts = alerts.some(a => a.count > 0)
   return (
     <>
       <div id="notifications-backdrop" className="notifications-backdrop active" onClick={onClose}></div>
@@ -44,6 +108,16 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt 
             <X size={14} />
           </button>
         </div>
+
+        {hasAlerts && (
+          <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6, borderBottom: '1px solid var(--border-color)', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>
+              Alertas
+            </div>
+            {alerts.map(a => <AlertCard key={a.type} type={a.type} count={a.count} onClose={onClose} />)}
+          </div>
+        )}
+
         <div className="notif-list">
           {items.length === 0 ? (
             <div className="notif-empty">
@@ -201,6 +275,56 @@ export function useNotifications({ roomId } = {}) {
   }, [storageKey])
 
   return { items, badge, seenAt, refresh, markAsSeen }
+}
+
+const ALERT_ROLES = ['admin', 'tecnico', 'patrimonio']
+
+export function useAlerts({ role } = {}) {
+  const [alerts, setAlerts] = useState([])
+
+  const load = useCallback(async () => {
+    if (!ALERT_ROLES.includes(role)) { setAlerts([]); return }
+    const currentMonth = new Date().toISOString().slice(0, 7)
+
+    const [locsRes, confRes, eqRes, locRes] = await Promise.all([
+      supabase
+        .from('equipment_locations')
+        .select('id, equipment_id, equipment(status)')
+        .not('equipment', 'is', null),
+      supabase
+        .from('room_conferences')
+        .select('id')
+        .eq('competencia', currentMonth)
+        .is('concluded_at', null)
+        .is('deleted_at', null),
+      supabase.from('equipment').select('id').is('deleted_at', null),
+      supabase.from('equipment_locations').select('equipment_id'),
+    ])
+
+    const problemCount = (locsRes.data || []).filter(l =>
+      ['inservível', 'com defeito'].includes(l.equipment?.status),
+    ).length
+
+    const confCount = (confRes.data || []).length
+
+    const locatedIds = new Set((locRes.data || []).map(l => l.equipment_id))
+    const unlocatedCount = (eqRes.data || []).filter(e => !locatedIds.has(e.id)).length
+
+    setAlerts([
+      { type: 'problem',    count: problemCount   },
+      { type: 'conference', count: confCount      },
+      { type: 'unlocated',  count: unlocatedCount },
+    ])
+  }, [role])
+
+  useEffect(() => {
+    load().catch(() => {})
+    const timer = setInterval(() => load().catch(() => {}), 5 * 60 * 1000)
+    return () => clearInterval(timer)
+  }, [load])
+
+  const alertCount = alerts.reduce((sum, a) => sum + a.count, 0)
+  return { alerts, alertCount }
 }
 
 export function NotificationDetailModal({ item, onClose }) {
