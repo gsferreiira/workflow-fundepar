@@ -79,9 +79,10 @@ function RoleRoute({ pageKey }) {
 }
 
 function PublicRoute() {
-  const { user, loading } = useAuth();
+  const { user, loading, recoverySession } = useAuth();
   if (loading) return <LoadingScreen />;
-  if (user) return <Navigate to="/inicio" replace />;
+  // recoverySession: usuário ainda não definiu senha — manter na tela de login
+  if (user && !recoverySession) return <Navigate to="/inicio" replace />;
   return <Outlet />;
 }
 

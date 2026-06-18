@@ -14,6 +14,7 @@ export const useAuth = () => {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [recoverySession, setRecoverySession] = useState(null)
   // ToastProvider é ancestral em App.jsx — pegamos showToast direto.
   // Antes existia um registerToast() que nunca era chamado, por isso os toasts
   // de "senha inválida" e demais erros de auth caíam silenciosamente no console.
@@ -123,7 +124,13 @@ export function AuthProvider({ children }) {
 
         if (error) throw error
         if (session && mounted) {
-          await withTimeout(fetchProfile(session.user), 'A busca do perfil')
+          // Token de recuperação de senha: não loga — exibe tela de definição de senha
+          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+          if (hashParams.get('type') === 'recovery') {
+            setRecoverySession(session)
+          } else {
+            await withTimeout(fetchProfile(session.user), 'A busca do perfil')
+          }
         }
       } catch (error) {
         console.error('Erro ao inicializar autenticacao:', error.message)
@@ -140,8 +147,9 @@ export function AuthProvider({ children }) {
       if (event === 'SIGNED_IN' && session) {
         fetchProfileInBackground(session.user)
       } else if (event === 'PASSWORD_RECOVERY' && session) {
-        fetchProfileInBackground(session.user)
-        window.location.hash = '#/perfil'
+        // Não loga ainda — guarda a sessão e exibe form de definição de senha no Login
+        setRecoverySession(session)
+        setUser(null)
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
       } else if (event === 'TOKEN_REFRESHED' && session) {
@@ -251,6 +259,14 @@ export function AuthProvider({ children }) {
     return data.user
   }
 
+  const confirmFirstPassword = async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) return error
+    // USER_UPDATED dispara → fetchProfileInBackground → user setado → redirect normal
+    setRecoverySession(null)
+    return null
+  }
+
   const adminResetPassword = async (email) => {
     const redirectTo = window.location.origin + window.location.pathname
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
@@ -266,10 +282,12 @@ export function AuthProvider({ children }) {
       value={{
         user,
         loading,
+        recoverySession,
         signIn,
         signUp,
         signOut,
         fetchProfile,
+        confirmFirstPassword,
         adminCreateUser,
         adminResetPassword,
       }}
