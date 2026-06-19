@@ -15,6 +15,12 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [recoverySession, setRecoverySession] = useState(null)
+  // true só depois que o perfil REAL (com role/coordinator_room corretos) carrega —
+  // false enquanto `user` é o fallback otimista setado no SIGNED_IN. Hooks que
+  // dependem da role (ex.: badge de notificações do coordenador) devem esperar
+  // isto ficar true antes de calcular algo, senão calculam com a role errada
+  // ('usuario') por uma fração de segundo e mostram um valor errado/instável.
+  const [profileReady, setProfileReady] = useState(false)
   // ToastProvider é ancestral em App.jsx — pegamos showToast direto.
   // Antes existia um registerToast() que nunca era chamado, por isso os toasts
   // de "senha inválida" e demais erros de auth caíam silenciosamente no console.
@@ -58,7 +64,10 @@ export function AuthProvider({ children }) {
       console.error('Erro ao buscar perfil:', error.message)
       const fallback = fallbackUser(authUser)
       // Não regride usuário já autenticado para fallback em erros transientes
-      if (mountedRef.current) setUser((prev) => prev ?? fallback)
+      if (mountedRef.current) {
+        setUser((prev) => prev ?? fallback)
+        setProfileReady(true)
+      }
       return fallback
     }
 
@@ -75,7 +84,10 @@ export function AuthProvider({ children }) {
       if (room) merged.coordinator_room = room
     }
 
-    if (mountedRef.current) setUser(merged)
+    if (mountedRef.current) {
+      setUser(merged)
+      setProfileReady(true)
+    }
 
     // Atualiza o último acesso (.then() é obrigatório — Supabase JS v2 é lazy)
     supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', authUser.id).then()
@@ -106,6 +118,7 @@ export function AuthProvider({ children }) {
   const fetchProfileInBackground = useCallback((authUser) => {
     // Só aplica fallback se ainda não há usuário carregado (evita sobrescrever role real)
     setUser((prev) => prev ?? fallbackUser(authUser))
+    setProfileReady(false)
 
     setTimeout(() => {
       withTimeout(fetchProfile(authUser), 'A busca do perfil').catch((error) => {
@@ -153,6 +166,7 @@ export function AuthProvider({ children }) {
         setUser(null)
       } else if (event === 'SIGNED_OUT') {
         setUser(null)
+        setProfileReady(false)
       } else if (event === 'TOKEN_REFRESHED' && session) {
         // Mantém o estado coerente com token novo, sem refazer fetch desnecessário
       } else if (event === 'USER_UPDATED' && session) {
@@ -283,6 +297,7 @@ export function AuthProvider({ children }) {
       value={{
         user,
         loading,
+        profileReady,
         recoverySession,
         signIn,
         signUp,

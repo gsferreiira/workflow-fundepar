@@ -39,11 +39,12 @@ export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { showToast } = useToast()
-  const { user } = useAuth()
+  const { user, profileReady } = useAuth()
   const { rooms: roomsFetcher } = useStore()
   const [rooms, setRooms] = useState([])
   const { items, badge, seenAt, refresh, markAsSeen } = useNotifications({
     roomId: user?.role === 'coordenador' ? user?.coordinator_room?.id : undefined,
+    enabled: profileReady,
   })
   const { alerts, alertCount } = useAlerts({ role: user?.role })
   const { notifications: roomNotifs, dismiss: dismissRoomNotif } = useRoomNotifications(user)
