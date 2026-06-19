@@ -543,7 +543,7 @@ function NewMovementsModal({ movements, onClose, onViewDetails }) {
         <div style={{ padding: '16px 20px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {movements.map((mov, i) => (
             <div
-              key={mov.id}
+              key={mov.asset_number || `${mov.equipment_id}_${mov.moved_at}`}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14,
                 padding: '12px 14px',

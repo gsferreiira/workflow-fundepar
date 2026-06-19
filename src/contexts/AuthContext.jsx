@@ -241,7 +241,7 @@ export function AuthProvider({ children }) {
     showToast('Logout realizado com sucesso!', 'success')
   }
 
-  const adminCreateUser = async (full_name, email, role = 'usuario') => {
+  const adminCreateUser = async (full_name, email, role = 'usuario', roomId = null) => {
     const randomPassword = (() => {
       const bytes = new Uint8Array(18)
       crypto.getRandomValues(bytes)
@@ -260,7 +260,7 @@ export function AuthProvider({ children }) {
     }
 
     const { error: profileError } = await supabase.from('profiles').upsert(
-      { id: data.user.id, full_name, email, role },
+      { id: data.user.id, full_name, email, role, room_id: roomId || null },
       { onConflict: 'id' },
     )
     if (profileError) {
