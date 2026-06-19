@@ -2,25 +2,31 @@ import { useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { useRealtime } from './useRealtime.js'
 
+// Toast em tempo real de entrada/saída de equipamento da sala do coordenador.
+// Baseado em equipment_locations (não asset_movements) porque é a tabela que
+// TODOS os fluxos atualizam — Movimentações, Registro/Editar e Lote. Usar
+// asset_movements deixava de avisar quando o equipamento era realocado
+// direto pela tela de Registro (que não grava lá).
+//
+// Sem filtro server-side: pra detectar saída precisamos comparar
+// old.current_room_id (que só vem populado com REPLICA IDENTITY FULL) com o
+// new — e o Postgres Changes não permite filtrar pela linha antiga. O filtro
+// é feito no cliente.
 export function useRoomNotifications(user) {
   const isCoordinator = user?.role === 'coordenador'
   const roomId        = user?.coordinator_room?.id
   const [notifications, setNotifications] = useState([])
   const idRef = useRef(0)
 
-  const buildNotif = useCallback(async (mov, direction) => {
+  const buildNotif = useCallback(async (row, direction) => {
     let equipmentName = null
-    if (mov.equipment_id) {
-      const { data } = await supabase
-        .from('equipment')
-        .select('name')
-        .eq('id', mov.equipment_id)
-        .maybeSingle()
+    if (row.equipment_id) {
+      const { data } = await supabase.from('equipment').select('name').eq('id', row.equipment_id).maybeSingle()
       equipmentName = data?.name || null
     }
 
     let otherRoomName = null
-    const otherRoomId = direction === 'in' ? mov.origin_room_id : mov.destination_room_id
+    const otherRoomId = direction === 'in' ? row._fromRoomId : row._toRoomId
     if (otherRoomId) {
       const { data } = await supabase.from('rooms').select('name').eq('id', otherRoomId).maybeSingle()
       otherRoomName = data?.name || null
@@ -28,43 +34,31 @@ export function useRoomNotifications(user) {
 
     return {
       id:            ++idRef.current,
-      movementId:    mov.id,
       direction,
-      assetNumber:   mov.asset_number || null,
-      equipmentName: equipmentName || (mov.asset_number ? `Patrimônio ${mov.asset_number}` : 'Equipamento'),
-      receivedBy:    mov.received_by || null,
+      assetNumber:   row.asset_number || null,
+      equipmentName: equipmentName || (row.asset_number ? `Patrimônio ${row.asset_number}` : 'Equipamento'),
       otherRoomName,
-      movedAt:       mov.moved_at || new Date().toISOString(),
+      movedAt:       row.moved_at || new Date().toISOString(),
     }
   }, [])
 
-  const handleArrival = useCallback(async (payload) => {
-    const mov = payload.new
-    if (!mov) return
-    // Guard: Supabase Realtime pode não filtrar server-side se replicação por linha não estiver ativa
-    if (mov.destination_room_id !== roomId) return
-    const notif = await buildNotif(mov, 'in')
-    setNotifications((prev) => [notif, ...prev].slice(0, 8))
+  const handleChange = useCallback(async (payload) => {
+    const row = payload.new
+    const prevRoomId = payload.old?.current_room_id ?? null
+    if (!row) return
+
+    if (row.current_room_id === roomId && prevRoomId !== roomId) {
+      const notif = await buildNotif({ ...row, _fromRoomId: prevRoomId }, 'in')
+      setNotifications((prev) => [notif, ...prev].slice(0, 8))
+    } else if (prevRoomId === roomId && row.current_room_id !== roomId) {
+      const notif = await buildNotif({ ...row, _toRoomId: row.current_room_id }, 'out')
+      setNotifications((prev) => [notif, ...prev].slice(0, 8))
+    }
   }, [roomId, buildNotif])
 
-  const handleDeparture = useCallback(async (payload) => {
-    const mov = payload.new
-    if (!mov) return
-    if (mov.origin_room_id !== roomId) return
-    const notif = await buildNotif(mov, 'out')
-    setNotifications((prev) => [notif, ...prev].slice(0, 8))
-  }, [roomId, buildNotif])
-
-  useRealtime('asset_movements', handleArrival, {
-    event:   'INSERT',
+  useRealtime('equipment_locations', handleChange, {
+    event:   '*',
     enabled: isCoordinator && !!roomId,
-    filter:  roomId ? `destination_room_id=eq.${roomId}` : undefined,
-  })
-
-  useRealtime('asset_movements', handleDeparture, {
-    event:   'INSERT',
-    enabled: isCoordinator && !!roomId,
-    filter:  roomId ? `origin_room_id=eq.${roomId}` : undefined,
   })
 
   const dismiss  = useCallback((id) => setNotifications((prev) => prev.filter((n) => n.id !== id)), [])

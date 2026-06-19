@@ -1,12 +1,15 @@
-// Detecta equipamentos novos na sala do coordenador — tanto via movimentação
-// quanto via cadastro em lote (Registro/Lote só grava em equipment_locations,
-// não em asset_movements, por isso a query usa essa tabela).
-// Roda no Layout (global) para disparar o modal em qualquer página, não só
-// no mount do Dashboard do setor — e escuta Realtime para pegar entradas
-// que aconteçam enquanto o coordenador já está logado.
-import { useState, useEffect, useCallback } from 'react'
+// Detecta equipamentos novos na sala do coordenador desde a última vez que ele
+// dispensou o aviso — tanto via movimentação quanto via cadastro em lote
+// (Registro/Lote só grava em equipment_locations, não em asset_movements, por
+// isso a query usa essa tabela). Roda no Layout (global) para disparar o
+// modal em qualquer página, não só no mount do Dashboard do setor.
+//
+// Só faz a checagem inicial (catch-up) — não escuta Realtime. Entradas que
+// aconteçam com o coordenador já logado já são avisadas pelo toast
+// (useRoomNotifications); ter os dois reagindo ao mesmo evento ao vivo
+// duplicaria o aviso (modal + toast simultâneos).
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { useRealtime } from './useRealtime.js'
 
 export function useNewRoomEquipment(user) {
   const isCoordinator = user?.role === 'coordenador'
@@ -36,36 +39,10 @@ export function useNewRoomEquipment(user) {
     return () => { cancelled = true }
   }, [isCoordinator, roomId, storageKey])
 
-  const handleChange = useCallback(async (payload) => {
-    const row = payload.new
-    if (!row || row.current_room_id !== roomId) return
-    let equipmentName = null
-    if (row.equipment_id) {
-      const { data } = await supabase.from('equipment').select('name').eq('id', row.equipment_id).maybeSingle()
-      equipmentName = data?.name || null
-    }
-    setItems((prev) => {
-      if (prev.some((i) => i.id === row.id)) return prev
-      return [{
-        id: row.id,
-        moved_at: row.moved_at,
-        asset_number: row.asset_number,
-        equipment_id: row.equipment_id,
-        equipment: { name: equipmentName },
-      }, ...prev].slice(0, 20)
-    })
-  }, [roomId])
-
-  useRealtime('equipment_locations', handleChange, {
-    event: '*',
-    enabled: isCoordinator && !!roomId,
-    filter: roomId ? `current_room_id=eq.${roomId}` : undefined,
-  })
-
-  const dismiss = useCallback(() => {
+  const dismiss = () => {
     if (storageKey) localStorage.setItem(storageKey, new Date().toISOString())
     setItems([])
-  }, [storageKey])
+  }
 
   return { items, dismiss }
 }

@@ -174,7 +174,10 @@ export function NotificationsPanel({ open, onClose, items, onShowDetail, seenAt,
  * funcionando dentro da sessão sem entrar em loop infinito.
  */
 // roomId: quando passado, filtra notificações apenas para aquela sala (coordenador)
-export function useNotifications({ roomId } = {}) {
+// enabled: só busca/calcula quando true — evita calcular com a role/roomId
+// ainda provisórios (fallback do AuthContext antes do perfil real carregar),
+// o que fazia o badge "piscar" um número errado antes de assentar no certo.
+export function useNotifications({ roomId, enabled = true } = {}) {
   const storageKey = roomId ? `notif_last_seen_room_${roomId}` : 'notif_last_seen'
 
   const [items, setItems] = useState([])
@@ -197,6 +200,7 @@ export function useNotifications({ roomId } = {}) {
   }, [storageKey])
 
   const refresh = useCallback(async () => {
+    if (!enabled) return
     let movQuery = supabase
       .from('asset_movements')
       .select(
@@ -254,7 +258,7 @@ export function useNotifications({ roomId } = {}) {
     const seen = seenAtRef.current
     const unseen = seen ? collected.filter((i) => i.date > seen).length : collected.length
     setBadge(unseen)
-  }, [roomId])
+  }, [roomId, enabled])
 
   useEffect(() => {
     refresh()
@@ -269,8 +273,8 @@ export function useNotifications({ roomId } = {}) {
     }, 1500)
   }, [refresh])
 
-  useRealtime('asset_movements', throttledRefresh, { event: 'INSERT' })
-  useRealtime('equipment', throttledRefresh, { event: 'INSERT' })
+  useRealtime('asset_movements', throttledRefresh, { event: 'INSERT', enabled })
+  useRealtime('equipment', throttledRefresh, { event: 'INSERT', enabled })
 
   useEffect(() => () => {
     if (throttleRef.current) clearTimeout(throttleRef.current)
