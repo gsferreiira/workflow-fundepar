@@ -138,9 +138,28 @@ export function Usuarios() {
   }, [list, search])
 
   const updateRole = async (userId, role) => {
+    const previous = list?.find((u) => u.id === userId)
     const { error } = await supabase.from('profiles').update({ role }).eq('id', userId)
     if (error) { showToast('Erro ao atualizar permissão.', 'danger'); return }
     audit.updated('profiles', userId, { role })
+
+    // Perdeu a role de coordenador: desvincula de todas as salas que coordenava
+    if (previous?.role === 'coordenador' && role !== 'coordenador') {
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('id')
+        .eq('coordinator_id', userId)
+        .is('deleted_at', null)
+      if (rooms?.length) {
+        await supabase
+          .from('rooms')
+          .update({ coordinator_id: null, coordinator: null })
+          .eq('coordinator_id', userId)
+        rooms.forEach((r) => audit.updated('rooms', r.id, { coordinator_id: null }))
+        invalidate('rooms', 'roomsFull')
+      }
+    }
+
     showToast('Permissão atualizada!', 'success')
     setList((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)))
     invalidate('profiles')

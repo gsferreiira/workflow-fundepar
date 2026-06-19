@@ -186,6 +186,16 @@ export function useNotifications({ roomId } = {}) {
   const seenAtRef = useRef(seenAt)
   seenAtRef.current = seenAt
 
+  // storageKey muda quando o perfil real chega (ex.: roomId só é conhecido após o
+  // fetch do perfil) — o useState acima só lê uma vez, então sem isto o seenAt fica
+  // travado no valor lido com a chave errada/genérica do primeiro render.
+  useEffect(() => {
+    const raw = safeGetItem(storageKey)
+    const next = raw ? new Date(raw) : null
+    seenAtRef.current = next
+    setSeenAt(next)
+  }, [storageKey])
+
   const refresh = useCallback(async () => {
     let movQuery = supabase
       .from('asset_movements')

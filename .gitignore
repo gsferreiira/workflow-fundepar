@@ -8,3 +8,4 @@ dist-ssr
 *.log
 .vite
 style.css.tmp
+supabase/.temp

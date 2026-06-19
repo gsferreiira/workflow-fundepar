@@ -246,12 +246,10 @@ function SalaModal({ sala, onClose, onSaved }) {
   const [coordinators, setCoordinators] = useState([])
 
   useEffect(() => {
-    // Carrega todos os usuários ativos (exceto admin/patrimônio) para o dropdown —
-    // a promoção para 'coordenador' acontece automaticamente ao salvar.
     supabase
       .from('profiles')
       .select('id, full_name, email, role')
-      .not('role', 'in', '("admin","patrimonio")')
+      .eq('role', 'coordenador')
       .is('deleted_at', null)
       .order('full_name')
       .then(({ data }) => setCoordinators(data || []))
@@ -395,9 +393,9 @@ function SalaModal({ sala, onClose, onSaved }) {
                 </option>
               ))}
             </select>
-            {coordinatorId && selectedCoordinator && selectedCoordinator.role !== 'coordenador' && (
-              <small className="form-hint" style={{ color: '#d97706' }}>
-                O usuário será promovido automaticamente para a role "Coordenador" ao salvar.
+            {coordinators.length === 0 && (
+              <small className="form-hint">
+                Nenhum usuário com a role "Coordenador" cadastrado. Promova alguém em Usuários antes de vincular.
               </small>
             )}
           </div>
