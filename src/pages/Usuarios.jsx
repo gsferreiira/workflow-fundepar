@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useRef } from 'react'
 import {
   Plus, X, Loader2, Pencil, Trash2, KeyRound,
   Clock, Mail, Shield, CheckCircle, AlertCircle,
-  User, RefreshCw, Send,
+  User, RefreshCw, Send, MapPin, Users, ChevronRight, Crown,
 } from 'lucide-react'
 import { useOutletContext } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
@@ -10,9 +10,32 @@ import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { useToast } from '../contexts/ToastContext.jsx'
 import { useAudit } from '../hooks/useAudit.js'
-import { SkeletonTable } from '../components/Skeleton.jsx'
+import { SkeletonCards } from '../components/Skeleton.jsx'
 import { EmptyState } from '../components/EmptyState.jsx'
-import { fmtDate, fmtDateTime } from '../utils/format.js'
+import { fmtDate, fmtDateTime, normalizeText } from '../utils/format.js'
+
+const NO_ROOM = '__sem_sala__'
+
+// Paleta de identidade visual por setor — cor estável por sala (hash do id),
+// não por posição na lista, pra não mudar enquanto o usuário filtra/busca.
+const SECTOR_PALETTE = [
+  { c: '#6366f1', dark: '#4f46e5', bg: 'rgba(99,102,241,.08)' },
+  { c: '#2563eb', dark: '#1d4ed8', bg: 'rgba(37,99,235,.08)' },
+  { c: '#059669', dark: '#047857', bg: 'rgba(5,150,105,.08)' },
+  { c: '#d97706', dark: '#b45309', bg: 'rgba(217,119,6,.08)' },
+  { c: '#7e22ce', dark: '#6b21a8', bg: 'rgba(126,34,206,.08)' },
+  { c: '#db2777', dark: '#be185d', bg: 'rgba(219,39,119,.08)' },
+  { c: '#0891b2', dark: '#0e7490', bg: 'rgba(8,145,178,.08)' },
+  { c: '#dc2626', dark: '#b91c1c', bg: 'rgba(220,38,38,.08)' },
+]
+const NEUTRAL_SECTOR = { c: '#64748b', dark: '#475569', bg: 'rgba(100,116,139,.08)' }
+
+function sectorColor(roomId) {
+  if (roomId === NO_ROOM) return NEUTRAL_SECTOR
+  let hash = 0
+  for (let i = 0; i < roomId.length; i++) hash = (hash * 31 + roomId.charCodeAt(i)) >>> 0
+  return SECTOR_PALETTE[hash % SECTOR_PALETTE.length]
+}
 
 const DEFAULT_EMAIL_DOMAIN = 'fundepar.pr.gov.br'
 
@@ -82,17 +105,20 @@ async function fetchAuthInfo() {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export function Usuarios() {
-  const { search, registerRefresh } = useOutletContext()
+  const { registerRefresh } = useOutletContext()
   const { user, adminCreateUser } = useAuth()
-  const { invalidate } = useStore()
+  const { roomsFull: roomsFullFetcher, invalidate } = useStore()
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
   const [list, setList] = useState(null)
+  const [rooms, setRooms] = useState([])
   const [authMap, setAuthMap] = useState({})
   const [authLoading, setAuthLoading] = useState(true)
-  const [createOpen, setCreateOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [createOpen, setCreateOpen] = useState(undefined) // undefined fechado | '' sem sala | roomId
   const [editUser, setEditUser] = useState(null)
   const [detailUser, setDetailUser] = useState(null)
+  const [activeRoomId, setActiveRoomId] = useState(null)
   const isAdmin = user?.role === 'admin'
   const loadRef = useRef(null)
 
@@ -109,6 +135,7 @@ export function Usuarios() {
 
   useEffect(() => {
     load()
+    roomsFullFetcher().then(setRooms).catch(() => {})
     registerRefresh?.(() => loadRef.current?.())
     return () => registerRefresh?.(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -127,15 +154,35 @@ export function Usuarios() {
     setAuthLoading(false)
   }
 
-  const filtered = useMemo(() => {
+  // Agrupa usuários por sala — coordenador pertence à sala mesmo sem room_id
+  // setado, pra não depender de migração retroativa de dados.
+  const groups = useMemo(() => {
     if (!list) return []
-    const q = (search || '').toLowerCase().trim()
-    if (!q) return list
-    return list.filter((u) =>
-      [u.full_name, u.email, roleLabel(u.role)]
-        .filter(Boolean).join(' ').toLowerCase().includes(q),
-    )
-  }, [list, search])
+    const byRoom = rooms.map((room) => ({
+      room,
+      members: list.filter((u) => u.room_id === room.id || room.coordinator_id === u.id),
+    }))
+    const claimedIds = new Set(byRoom.flatMap((g) => g.members.map((m) => m.id)))
+    const unassigned = list.filter((u) => !claimedIds.has(u.id))
+    return [...byRoom, { room: { id: NO_ROOM, name: 'Sem sala / Geral' }, members: unassigned }]
+  }, [list, rooms])
+
+  const filteredGroups = useMemo(() => {
+    const q = normalizeText(search).trim()
+    if (!q) return groups
+    return groups.filter(({ room, members }) => {
+      const haystack = [
+        room.name,
+        ...members.flatMap((m) => [m.full_name, m.email, roleLabel(m.role)]),
+      ].filter(Boolean).join(' ')
+      return normalizeText(haystack).includes(q)
+    })
+  }, [groups, search])
+
+  const activeGroup = useMemo(
+    () => groups.find((g) => g.room.id === activeRoomId) || null,
+    [groups, activeRoomId],
+  )
 
   const updateRole = async (userId, role) => {
     const previous = list?.find((u) => u.id === userId)
@@ -223,19 +270,17 @@ export function Usuarios() {
     return { total, pending, active, inactive, never }
   }, [list, authMap])
 
-  if (!list) return <SkeletonTable />
-
-  const colSpan = isAdmin ? 6 : 4
+  if (!list) return <SkeletonCards />
 
   return (
     <>
       <div className="view-header">
         <div>
           <h2>Usuários</h2>
-          <p>Gerencie as contas e permissões de acesso ao sistema.</p>
+          <p>Gerencie as contas e permissões de acesso ao sistema, organizadas por setor.</p>
         </div>
         {isAdmin && (
-          <button className="btn-primary" onClick={() => setCreateOpen(true)}>
+          <button className="btn-primary" onClick={() => setCreateOpen('')}>
             <Plus size={14} /> Novo Usuário
           </button>
         )}
@@ -275,184 +320,96 @@ export function Usuarios() {
         </div>
       )}
 
-      <div className="table-card fade-in">
-        {isAdmin && (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            padding: '8px 16px 0', gap: 8,
-          }}>
-            {authLoading && <Loader2 size={13} className="spin" style={{ color: 'var(--text-secondary)' }} />}
-            {!authLoading && Object.keys(authMap).length === 0 && (
-              <span style={{ fontSize: 12, color: '#d97706' }}>
-                ⚠ Função SQL não criada — status de acesso indisponível
-              </span>
-            )}
-            <button
-              className="btn-filter-clear"
-              onClick={async () => { await load(); await refreshAuthInfo() }}
-              title="Recarregar dados"
-            >
-              <RefreshCw size={13} /> Atualizar
-            </button>
+      <div className="filter-bar fade-in">
+        <div className="filter-row">
+          <div className="filter-group" style={{ flex: 1 }}>
+            <label className="filter-label">Pesquisar setor ou usuário</label>
+            <input
+              type="text"
+              className="form-control filter-control"
+              placeholder="Digite um nome, e-mail ou sala..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
-        )}
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>E-mail</th>
-              <th>Nível de Acesso</th>
-              {isAdmin && <th>Status da Conta</th>}
-              {isAdmin && <th>Último Acesso</th>}
-              {isAdmin && <th style={{ width: 160 }}>Ações</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={colSpan}>
-                  <EmptyState
-                    preset={search ? 'search' : 'users'}
-                    title={search ? 'Nenhum usuário encontrado' : 'Nenhum usuário cadastrado'}
-                    description={search ? 'Tente outro termo de busca.' : 'Adicione um usuário para começar.'}
-                  />
-                </td>
-              </tr>
-            ) : (
-              filtered.map((u) => {
-                const auth = authMap[u.id]
-                const status = getUserStatus(auth, u)
-                const isPending = status === 'pending'
-                return (
-                  <tr key={u.id}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {/* Avatar initials */}
-                        <div style={{
-                          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-                          background: 'rgba(99,102,241,.12)',
-                          color: '#6366f1', fontWeight: 700, fontSize: 13,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          {(u.full_name || u.email || '?')[0].toUpperCase()}
-                        </div>
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <strong>{u.full_name || '—'}</strong>
-                            {u.id === user?.id && (
-                              <span style={{
-                                background: 'rgba(99,102,241,.1)', color: '#6366f1',
-                                padding: '1px 7px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-                              }}>Você</span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
-                            desde {fmtDate(u.created_at)}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ color: 'var(--text-secondary)' }}>{u.email || '—'}</td>
-                    <td>
-                      {isAdmin && u.id !== user?.id ? (
-                        <select
-                          className="form-control filter-control"
-                          style={{ maxWidth: 160 }}
-                          value={u.role || 'usuario'}
-                          onChange={(e) => updateRole(u.id, e.target.value)}
-                        >
-                          {ROLES.map((r) => (
-                            <option key={r.value} value={r.value}>{r.label}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span style={{
-                          background: 'rgba(99,102,241,.1)', color: '#6366f1',
-                          padding: '2px 8px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                        }}>
-                          {roleLabel(u.role)}
-                        </span>
-                      )}
-                    </td>
-                    {isAdmin && (
-                      <td>
-                        {authLoading ? (
-                          <Loader2 size={12} className="spin" style={{ color: 'var(--text-secondary)' }} />
-                        ) : (
-                          <StatusBadge status={status} small />
-                        )}
-                      </td>
-                    )}
-                    {isAdmin && (
-                      <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                        {(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
-                          ? fmtDateTime(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
-                          : <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
-                        }
-                      </td>
-                    )}
-                    {isAdmin && (
-                      <td>
-                        {u.id !== user?.id && (
-                          <div className="table-actions">
-                            <button
-                              className="btn-table-action edit"
-                              onClick={() => setDetailUser({ profile: u, auth })}
-                              title="Ver detalhes"
-                            >
-                              <User size={14} />
-                            </button>
-                            <button
-                              className="btn-table-action edit"
-                              onClick={() => setEditUser(u)}
-                              title="Editar"
-                            >
-                              <Pencil size={14} />
-                            </button>
-                            {isPending ? (
-                              <button
-                                className="btn-table-action"
-                                onClick={() => resetSenha(u, true)}
-                                title="Reenviar convite"
-                                style={{ color: '#d97706' }}
-                              >
-                                <Send size={14} />
-                              </button>
-                            ) : (
-                              <button
-                                className="btn-table-action"
-                                onClick={() => resetSenha(u, false)}
-                                title="Redefinir senha"
-                                style={{ color: 'var(--warning-color)' }}
-                              >
-                                <KeyRound size={14} />
-                              </button>
-                            )}
-                            <button
-                              className="btn-table-action delete"
-                              onClick={() => deleteUsuario(u.id)}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
+        </div>
+        <div className="filter-actions">
+          <span className="filter-count">
+            {filteredGroups.length} setor{filteredGroups.length !== 1 ? 'es' : ''}
+          </span>
+          {isAdmin && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {authLoading && <Loader2 size={13} className="spin" style={{ color: 'var(--text-secondary)' }} />}
+              {!authLoading && Object.keys(authMap).length === 0 && (
+                <span style={{ fontSize: 12, color: '#d97706' }}>
+                  ⚠ Função SQL não criada — status de acesso indisponível
+                </span>
+              )}
+              <button
+                className="btn-filter-clear"
+                onClick={async () => { await load(); await refreshAuthInfo() }}
+                title="Recarregar dados"
+              >
+                <RefreshCw size={13} /> Atualizar
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {createOpen && (
+      {filteredGroups.length === 0 ? (
+        <EmptyState
+          preset={search ? 'search' : 'users'}
+          title={search ? 'Nenhum resultado encontrado' : 'Nenhum usuário cadastrado'}
+          description={search ? 'Tente outro termo de busca.' : 'Adicione um usuário para começar.'}
+        />
+      ) : (
+        <div
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}
+          className="fade-in"
+        >
+          {filteredGroups.map(({ room, members }) => (
+            <SectorCard
+              key={room.id}
+              room={room}
+              members={members}
+              currentUserId={user?.id}
+              onOpen={() => setActiveRoomId(room.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {activeGroup && (
+        <SectorUsersModal
+          room={activeGroup.room}
+          members={activeGroup.members}
+          user={user}
+          isAdmin={isAdmin}
+          authMap={authMap}
+          authLoading={authLoading}
+          onClose={() => setActiveRoomId(null)}
+          onUpdateRole={updateRole}
+          onDetail={(u) => setDetailUser({ profile: u, auth: authMap[u.id] })}
+          onEdit={setEditUser}
+          onResetSenha={resetSenha}
+          onDelete={deleteUsuario}
+          onCreateUser={() => {
+            setActiveRoomId(null)
+            setCreateOpen(activeGroup.room.id === NO_ROOM ? '' : activeGroup.room.id)
+          }}
+        />
+      )}
+
+      {createOpen !== undefined && (
         <UsuarioCreateModal
           adminCreateUser={adminCreateUser}
           audit={audit}
-          onClose={() => setCreateOpen(false)}
+          rooms={rooms}
+          initialRoomId={createOpen}
+          onClose={() => setCreateOpen(undefined)}
           onSaved={async () => {
-            setCreateOpen(false)
+            setCreateOpen(undefined)
             invalidate('profiles')
             await load()
             await refreshAuthInfo()
@@ -462,6 +419,7 @@ export function Usuarios() {
       {editUser && (
         <UsuarioEditModal
           usuario={editUser}
+          rooms={rooms}
           audit={audit}
           onClose={() => setEditUser(null)}
           onSaved={async () => {
@@ -483,6 +441,355 @@ export function Usuarios() {
         />
       )}
     </>
+  )
+}
+
+// ── Card de setor/sala ─────────────────────────────────────────────────────────
+function SectorCard({ room, members, currentUserId, onOpen }) {
+  const isNoRoom = room.id === NO_ROOM
+  const color = sectorColor(room.id)
+  const coordinator = members.find((m) => m.role === 'coordenador' && m.id === room.coordinator_id)
+  const rest = members.filter((m) => m.id !== coordinator?.id)
+  const MAX_CLUSTER = 5
+  const cluster = [...(coordinator ? [coordinator] : []), ...rest].slice(0, MAX_CLUSTER)
+  const extra = members.length - cluster.length
+
+  return (
+    <div
+      className="table-card"
+      style={{ padding: 0, overflow: 'hidden', cursor: 'pointer', transition: 'transform .15s, box-shadow .15s' }}
+      onClick={onOpen}
+      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(0,0,0,.1)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}
+    >
+      <div style={{ height: 5, background: isNoRoom ? 'var(--border-color)' : `linear-gradient(90deg, ${color.c}, ${color.dark})` }} />
+
+      <div style={{ padding: '16px 18px 4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+            background: color.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {isNoRoom ? <Users size={17} style={{ color: color.c }} /> : <MapPin size={17} style={{ color: color.c }} />}
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {room.name}
+            </div>
+            {room.room_number ? (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Nº {room.room_number}</div>
+            ) : isNoRoom ? (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Sem setor definido</div>
+            ) : null}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', margin: '16px 0 10px', minHeight: 34 }}>
+          {members.length === 0 ? (
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+              Nenhum usuário vinculado
+            </span>
+          ) : (
+            <>
+              {cluster.map((m, i) => {
+                const isCoord = m.id === coordinator?.id
+                return (
+                  <div
+                    key={m.id}
+                    title={`${m.full_name || m.email}${isCoord ? ' · Coordenador(a)' : ''}`}
+                    style={{
+                      position: 'relative',
+                      width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                      marginLeft: i === 0 ? 0 : -10,
+                      border: '2px solid var(--bg-card)',
+                      background: isCoord ? color.c : color.bg,
+                      color: isCoord ? '#fff' : color.c,
+                      fontWeight: 700, fontSize: 12,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      zIndex: cluster.length - i,
+                    }}
+                  >
+                    {(m.full_name || m.email || '?')[0].toUpperCase()}
+                    {isCoord && (
+                      <Crown
+                        size={12}
+                        style={{
+                          position: 'absolute', top: -5, right: -5,
+                          color: '#d97706', background: 'var(--bg-card)', borderRadius: '50%', padding: 1,
+                        }}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+              {extra > 0 && (
+                <div style={{
+                  width: 34, height: 34, borderRadius: '50%', flexShrink: 0, marginLeft: -10,
+                  border: '2px solid var(--bg-card)', background: 'var(--bg-main)', color: 'var(--text-secondary)',
+                  fontWeight: 700, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  +{extra}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', minHeight: 16 }}>
+          {coordinator ? (
+            <>Coordenado por <strong>{coordinator.full_name || coordinator.email}</strong>{coordinator.id === currentUserId ? ' (você)' : ''}</>
+          ) : !isNoRoom ? (
+            'Sem coordenador definido'
+          ) : null}
+        </div>
+      </div>
+
+      <div style={{
+        marginTop: 14, padding: '10px 18px', borderTop: '1px solid var(--border-color)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: isNoRoom ? 'var(--text-secondary)' : color.c }}>
+          {members.length} usuário{members.length !== 1 ? 's' : ''}
+        </span>
+        <span style={{
+          fontSize: 12, fontWeight: 600, color: isNoRoom ? 'var(--text-secondary)' : color.c,
+          display: 'flex', alignItems: 'center', gap: 2,
+        }}>
+          Ver todos <ChevronRight size={13} />
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ── Linha de usuário (reaproveitada na tabela de detalhe do setor) ────────────
+function UserRow({ u, isAdmin, currentUserId, authMap, authLoading, onUpdateRole, onDetail, onEdit, onResetSenha, onDelete }) {
+  const auth = authMap[u.id]
+  const status = getUserStatus(auth, u)
+  const isPending = status === 'pending'
+  return (
+    <tr>
+      <td>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+            background: 'rgba(99,102,241,.12)',
+            color: '#6366f1', fontWeight: 700, fontSize: 13,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {(u.full_name || u.email || '?')[0].toUpperCase()}
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <strong>{u.full_name || '—'}</strong>
+              {u.id === currentUserId && (
+                <span style={{
+                  background: 'rgba(99,102,241,.1)', color: '#6366f1',
+                  padding: '1px 7px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                }}>Você</span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
+              desde {fmtDate(u.created_at)}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td style={{ color: 'var(--text-secondary)' }}>{u.email || '—'}</td>
+      <td>
+        {isAdmin && u.id !== currentUserId ? (
+          <select
+            className="form-control filter-control"
+            style={{ maxWidth: 160 }}
+            value={u.role || 'usuario'}
+            onChange={(e) => onUpdateRole(u.id, e.target.value)}
+          >
+            {ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        ) : (
+          <span style={{
+            background: 'rgba(99,102,241,.1)', color: '#6366f1',
+            padding: '2px 8px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+          }}>
+            {roleLabel(u.role)}
+          </span>
+        )}
+      </td>
+      {isAdmin && (
+        <td>
+          {authLoading ? (
+            <Loader2 size={12} className="spin" style={{ color: 'var(--text-secondary)' }} />
+          ) : (
+            <StatusBadge status={status} small />
+          )}
+        </td>
+      )}
+      {isAdmin && (
+        <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+          {(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
+            ? fmtDateTime(authMap[u.id]?.last_sign_in_at || u.last_seen_at)
+            : <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
+          }
+        </td>
+      )}
+      {isAdmin && (
+        <td>
+          {u.id !== currentUserId && (
+            <div className="table-actions">
+              <button className="btn-table-action edit" onClick={() => onDetail(u)} title="Ver detalhes">
+                <User size={14} />
+              </button>
+              <button className="btn-table-action edit" onClick={() => onEdit(u)} title="Editar">
+                <Pencil size={14} />
+              </button>
+              {isPending ? (
+                <button className="btn-table-action" onClick={() => onResetSenha(u, true)} title="Reenviar convite" style={{ color: '#d97706' }}>
+                  <Send size={14} />
+                </button>
+              ) : (
+                <button className="btn-table-action" onClick={() => onResetSenha(u, false)} title="Redefinir senha" style={{ color: 'var(--warning-color)' }}>
+                  <KeyRound size={14} />
+                </button>
+              )}
+              <button className="btn-table-action delete" onClick={() => onDelete(u.id)}>
+                <Trash2 size={14} />
+              </button>
+            </div>
+          )}
+        </td>
+      )}
+    </tr>
+  )
+}
+
+// ── Modal com os usuários de um setor/sala ────────────────────────────────────
+function SectorUsersModal({
+  room, members, user, isAdmin, authMap, authLoading,
+  onClose, onUpdateRole, onDetail, onEdit, onResetSenha, onDelete, onCreateUser,
+}) {
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = normalizeText(search).trim()
+    if (!q) return members
+    return members.filter((m) =>
+      normalizeText([m.full_name, m.email, roleLabel(m.role)].filter(Boolean).join(' ')).includes(q),
+    )
+  }, [members, search])
+
+  const colSpan = isAdmin ? 6 : 4
+  const isNoRoom = room.id === NO_ROOM
+  const color = sectorColor(room.id)
+  const coordinator = members.find((m) => m.role === 'coordenador' && m.id === room.coordinator_id)
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 900, width: '95vw', padding: 0, overflow: 'hidden' }}>
+        <div style={{
+          background: `linear-gradient(135deg, ${color.c} 0%, ${color.dark} 100%)`,
+          padding: '22px 24px', position: 'relative',
+        }}>
+          <button
+            className="modal-close"
+            type="button"
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              color: 'rgba(255,255,255,.85)', background: 'rgba(255,255,255,.15)',
+              border: 'none', borderRadius: 8, width: 28, height: 28,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            }}
+          >
+            <X size={15} />
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              {isNoRoom ? <Users size={20} style={{ color: '#fff' }} /> : <MapPin size={20} style={{ color: '#fff' }} />}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h3 style={{ color: '#fff', margin: 0, fontSize: 18, fontWeight: 800 }}>{room.name}</h3>
+              <div style={{ color: 'rgba(255,255,255,.85)', fontSize: 13, marginTop: 2 }}>
+                {members.length} usuário{members.length !== 1 ? 's' : ''}
+                {coordinator ? ` · Coordenado por ${coordinator.full_name || coordinator.email}` : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ padding: '20px 24px' }}>
+          <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+            <input
+              type="text"
+              className="form-control filter-control"
+              placeholder="Buscar usuário, e-mail, nível..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ flex: '1 1 200px', minWidth: 160 }}
+            />
+            {isAdmin && (
+              <button type="button" className="btn-primary" style={{ flexShrink: 0 }} onClick={onCreateUser}>
+                <Plus size={14} /> Adicionar usuário
+              </button>
+            )}
+          </div>
+
+          <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>E-mail</th>
+                  <th>Nível de Acesso</th>
+                  {isAdmin && <th>Status da Conta</th>}
+                  {isAdmin && <th>Último Acesso</th>}
+                  {isAdmin && <th style={{ width: 160 }}>Ações</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={colSpan}>
+                      <EmptyState
+                        preset="search"
+                        title="Nenhum usuário encontrado"
+                        description="Tente outro termo de busca."
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((u) => (
+                    <UserRow
+                      key={u.id}
+                      u={u}
+                      isAdmin={isAdmin}
+                      currentUserId={user?.id}
+                      authMap={authMap}
+                      authLoading={authLoading}
+                      onUpdateRole={onUpdateRole}
+                      onDetail={onDetail}
+                      onEdit={onEdit}
+                      onResetSenha={onResetSenha}
+                      onDelete={onDelete}
+                    />
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+            <button className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -652,12 +959,13 @@ function UserDetailModal({ profile, auth, currentUserId, onClose, onEdit, onRese
 }
 
 // ── Modal de criação ──────────────────────────────────────────────────────────
-function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
+function UsuarioCreateModal({ adminCreateUser, audit, rooms, initialRoomId, onClose, onSaved }) {
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('usuario')
+  const [roomId, setRoomId] = useState(initialRoomId || '')
 
   const finalEmail = normalizeEmail(email)
 
@@ -665,9 +973,9 @@ function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
     e.preventDefault()
     if (!finalEmail) { showToast('Informe o e-mail ou usuário.', 'warning'); return }
     setBusy(true)
-    const newUser = await adminCreateUser(fullName.trim(), finalEmail, role)
+    const newUser = await adminCreateUser(fullName.trim(), finalEmail, role, roomId || null)
     if (!newUser) { setBusy(false); return }
-    audit.created('profiles', newUser.id, { full_name: fullName.trim(), email: finalEmail, role })
+    audit.created('profiles', newUser.id, { full_name: fullName.trim(), email: finalEmail, role, room_id: roomId || null })
     showToast(
       `Usuário "${fullName}" criado. Um e-mail de definição de senha foi enviado para ${finalEmail}.`,
       'success',
@@ -700,6 +1008,18 @@ function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
               {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
+          <div className="form-group">
+            <label>
+              Sala / Setor{' '}
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
+            </label>
+            <select className="form-control" value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+              <option value="">— Sem sala vinculada —</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
             Um e-mail será enviado para o usuário definir sua senha.
           </p>
@@ -716,11 +1036,12 @@ function UsuarioCreateModal({ adminCreateUser, audit, onClose, onSaved }) {
 }
 
 // ── Modal de edição ───────────────────────────────────────────────────────────
-function UsuarioEditModal({ usuario, audit, onClose, onSaved }) {
+function UsuarioEditModal({ usuario, rooms, audit, onClose, onSaved }) {
   const { showToast } = useToast()
   const [busy, setBusy] = useState(false)
   const [fullName, setFullName] = useState(usuario.full_name || '')
   const [email, setEmail] = useState(usuario.email || '')
+  const [roomId, setRoomId] = useState(usuario.room_id || '')
 
   const submit = async (e) => {
     e.preventDefault()
@@ -729,9 +1050,9 @@ function UsuarioEditModal({ usuario, audit, onClose, onSaved }) {
       .from('profiles').select('id').eq('email', email.trim()).neq('id', usuario.id).is('deleted_at', null).limit(1)
     if (checkError) { showToast('Erro ao validar e-mail: ' + checkError.message, 'danger'); setBusy(false); return }
     if (existing && existing.length > 0) { showToast('Este e-mail já está em uso por outro usuário.', 'warning'); setBusy(false); return }
-    const { error } = await supabase.from('profiles').update({ full_name: fullName.trim(), email: email.trim() }).eq('id', usuario.id)
+    const { error } = await supabase.from('profiles').update({ full_name: fullName.trim(), email: email.trim(), room_id: roomId || null }).eq('id', usuario.id)
     if (error) { showToast('Erro ao atualizar: ' + error.message, 'danger'); setBusy(false); return }
-    audit.updated('profiles', usuario.id, { full_name: fullName.trim(), email: email.trim() })
+    audit.updated('profiles', usuario.id, { full_name: fullName.trim(), email: email.trim(), room_id: roomId || null })
     showToast('Usuário atualizado!', 'success')
     onSaved()
   }
@@ -751,6 +1072,18 @@ function UsuarioEditModal({ usuario, audit, onClose, onSaved }) {
           <div className="form-group">
             <label>E-mail de exibição</label>
             <input type="email" className="form-control" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label>
+              Sala / Setor{' '}
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>(Opcional)</span>
+            </label>
+            <select className="form-control" value={roomId} onChange={(e) => setRoomId(e.target.value)}>
+              <option value="">— Sem sala vinculada —</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
             <button type="button" className="btn-primary" style={{ background: '#e2e8f0', color: '#475569' }} onClick={onClose}>Cancelar</button>
