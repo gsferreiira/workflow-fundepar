@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ErrorBoundary } from './ErrorBoundary.jsx'
-import { X, MapPin, Loader2, RefreshCw } from 'lucide-react'
+import { X, MapPin, Loader2, RefreshCw, Package, ArrowRightLeft } from 'lucide-react'
 import { Sidebar } from './Sidebar.jsx'
 import { Topbar } from './Topbar.jsx'
 import {
@@ -15,10 +15,11 @@ import { useToast } from '../contexts/ToastContext.jsx'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import { useStore } from '../contexts/StoreContext.jsx'
 import { supabase } from '../lib/supabase.js'
-import { debounce } from '../utils/format.js'
+import { debounce, fmtDate } from '../utils/format.js'
 import { Onboarding, shouldShowOnboarding } from './Onboarding.jsx'
 import { usePullToRefresh } from '../hooks/usePullToRefresh.js'
 import { useRoomNotifications } from '../hooks/useRoomNotifications.js'
+import { useNewRoomEquipment } from '../hooks/useNewRoomEquipment.js'
 
 // Contexto compartilhado com as páginas — value vem do <Outlet context={...}/>
 import { createContext, useContext } from 'react'
@@ -46,6 +47,7 @@ export function Layout() {
   })
   const { alerts, alertCount } = useAlerts({ role: user?.role })
   const { notifications: roomNotifs, dismiss: dismissRoomNotif } = useRoomNotifications(user)
+  const { items: newRoomEquipment, dismiss: dismissNewRoomEquipment } = useNewRoomEquipment(user)
   const [showOnboarding, setShowOnboarding] = useState(() => shouldShowOnboarding(user?.id))
   const refreshFnRef = useRef(null)
   const registerRefresh = useCallback((fn) => { refreshFnRef.current = fn }, [])
@@ -261,6 +263,18 @@ export function Layout() {
       )}
       <RoomNotificationStack notifications={roomNotifs} onDismiss={dismissRoomNotif} user={user} />
 
+      {newRoomEquipment.length > 0 && (
+        <NewMovementsModal
+          movements={newRoomEquipment}
+          onClose={() => dismissNewRoomEquipment()}
+          onViewDetails={() => {
+            dismissNewRoomEquipment()
+            const sl = user?.coordinator_room?.sigla?.toLowerCase()
+            navigate(sl ? `/setor/${sl}/movimentacoes` : '/inicio')
+          }}
+        />
+      )}
+
       {pullState !== 'idle' && (
         <div className={`pull-indicator ${pullState}`}>
           {pullState === 'refreshing'
@@ -462,6 +476,118 @@ function QuickLocateModal({ assetNumber, rooms, userId, onClose, onSaved, onRegi
             onClick={handleSave}
           >
             {busy ? <Loader2 size={14} className="spin" /> : 'Registrar localização'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NewMovementsModal({ movements, onClose, onViewDetails }) {
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content fade-in" style={{ maxWidth: 500, padding: 0, overflow: 'hidden' }}>
+
+        {/* Header colorido */}
+        <div style={{
+          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+          padding: '24px 24px 22px',
+          position: 'relative',
+        }}>
+          <button
+            className="modal-close"
+            type="button"
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              color: 'rgba(255,255,255,.8)',
+              background: 'rgba(255,255,255,.15)',
+              border: 'none',
+              borderRadius: 8,
+              width: 28, height: 28,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <X size={15} />
+          </button>
+          <div style={{
+            width: 50, height: 50, borderRadius: 14,
+            background: 'rgba(255,255,255,.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 14,
+          }}>
+            <Package size={24} style={{ color: '#fff' }} />
+          </div>
+          <h3 style={{ color: '#fff', margin: '0 0 6px', fontSize: 18, fontWeight: 800 }}>
+            Novidades na sua sala!
+          </h3>
+          <p style={{ color: 'rgba(255,255,255,.8)', margin: 0, fontSize: 13, lineHeight: 1.4 }}>
+            {movements.length} equipamento{movements.length !== 1 ? 's' : ''}{' '}
+            {movements.length !== 1 ? 'foram recebidos' : 'foi recebido'} desde sua última visita
+          </p>
+        </div>
+
+        {/* Lista de equipamentos */}
+        <div style={{ padding: '16px 20px', maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {movements.map((mov, i) => (
+            <div
+              key={mov.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14,
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: 'var(--bg-main)',
+                border: '1px solid var(--border-color)',
+                animation: `fadeIn .25s ease ${i * 40}ms both`,
+              }}
+            >
+              <div style={{
+                width: 40, height: 40, borderRadius: 11,
+                background: 'rgba(99,102,241,.1)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <Package size={18} style={{ color: '#6366f1' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {mov.equipment?.name || '—'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>
+                  {mov.asset_number ? `PAT ${mov.asset_number.toString().padStart(6, '0')} · ` : ''}
+                  {fmtDate(mov.moved_at)}
+                </div>
+              </div>
+              <span style={{
+                flexShrink: 0, fontSize: 10, fontWeight: 700,
+                padding: '3px 9px', borderRadius: 20,
+                background: 'rgba(99,102,241,.1)', color: '#6366f1',
+                textTransform: 'uppercase', letterSpacing: '.05em',
+              }}>
+                Novo
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* Rodapé */}
+        <div style={{
+          padding: '14px 20px 20px',
+          borderTop: '1px solid var(--border-color)',
+          display: 'flex', gap: 10, justifyContent: 'flex-end',
+        }}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            OK, ciente
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onViewDetails}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <ArrowRightLeft size={14} />
+            Ver movimentações
           </button>
         </div>
       </div>
