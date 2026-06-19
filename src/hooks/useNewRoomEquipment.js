@@ -25,13 +25,15 @@ export function useNewRoomEquipment(user) {
 
     supabase
       .from('equipment_locations')
-      .select('id, moved_at, asset_number, equipment_id, equipment(name)')
+      .select('moved_at, asset_number, equipment_id, equipment(name)')
       .eq('current_room_id', roomId)
       .gte('moved_at', since)
       .order('moved_at', { ascending: false })
       .limit(20)
-      .then(({ data }) => {
-        if (cancelled || !data || data.length === 0) return
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.warn('useNewRoomEquipment:', error.message); return }
+        if (!data || data.length === 0) return
         setItems(data)
       })
       .catch(() => {})
