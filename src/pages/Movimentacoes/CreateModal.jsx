@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { X, Loader2, ScanLine } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../../lib/supabase.js"
@@ -22,6 +22,16 @@ export function CreateModal({ equipment, rooms, profilesList, user, prefill, aud
   const [itemStatus, setItemStatus] = useState('')
   const [comentario, setComentario] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
+
+  // Sugere automaticamente o coordenador da sala de destino como recebedor.
+  useEffect(() => {
+    if (!destId) return
+    const room = rooms.find((r) => r.id === destId)
+    if (room?.coordinator_id) {
+      setReceivedByProfileId(room.coordinator_id)
+      setReceivedBy(room.coordinator || '')
+    }
+  }, [destId, rooms])
 
   const submit = async (e) => {
     e.preventDefault()

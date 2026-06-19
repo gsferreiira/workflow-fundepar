@@ -76,7 +76,7 @@ export function Movimentacoes() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { rooms: roomsFetcher, equipment: equipmentFetcher, profiles: profilesFetcher, invalidate } =
+  const { rooms: roomsFetcher, roomsFull: roomsFullFetcher, equipment: equipmentFetcher, profiles: profilesFetcher, invalidate } =
     useStore()
   const { showToast, showUndoToast, confirm } = useToast()
   const audit = useAudit()
@@ -241,6 +241,16 @@ export function Movimentacoes() {
   const [loteComentario, setLoteComentario] = useState('')
   const [loteBusy, setLoteBusy] = useState(false)
 
+  // Sugere automaticamente o coordenador da sala de destino como recebedor.
+  useEffect(() => {
+    if (!loteDestId) return
+    const room = rooms.find((r) => r.id === loteDestId)
+    if (room?.coordinator_id) {
+      setLoteReceivedByProfileId(room.coordinator_id)
+      setLoteReceivedBy(room.coordinator || '')
+    }
+  }, [loteDestId, rooms])
+
   const fileInputRef = useRef(null)
   const filtersRef = useRef(filters)
   filtersRef.current = filters
@@ -251,13 +261,13 @@ export function Movimentacoes() {
   const loadDropdowns = useCallback(async () => {
     const [eq, rm, pr] = await Promise.all([
       equipmentFetcher(),
-      roomsFetcher(),
+      roomsFullFetcher(),
       profilesFetcher(),
     ])
     setEquipment(eq)
     setRooms(rm)
     setProfilesList(pr)
-  }, [equipmentFetcher, roomsFetcher, profilesFetcher])
+  }, [equipmentFetcher, roomsFullFetcher, profilesFetcher])
 
   useEffect(() => {
     loadDropdowns()
