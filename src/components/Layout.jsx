@@ -298,10 +298,12 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
 
   const handleReport = async (notif) => {
     setSending(true)
-    const title = `Movimentação indevida: ${notif.equipmentName}${notif.assetNumber ? ` (Pat. ${notif.assetNumber})` : ''}`
+    const acao = notif.direction === 'out' ? 'saída indevida' : 'entrada indevida'
+    const title = `Movimentação ${acao}: ${notif.equipmentName}${notif.assetNumber ? ` (Pat. ${notif.assetNumber})` : ''}`
     const description = [
       `Equipamento: ${notif.equipmentName}`,
       notif.assetNumber ? `Patrimônio: ${notif.assetNumber}` : '',
+      notif.otherRoomName ? (notif.direction === 'out' ? `Foi para: ${notif.otherRoomName}` : `Vindo de: ${notif.otherRoomName}`) : '',
       ticketMsg.trim() ? `\nDetalhes: ${ticketMsg.trim()}` : '',
     ].filter(Boolean).join('\n')
 
@@ -328,12 +330,14 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
 
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 1200, display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 360, width: 'calc(100vw - 48px)' }}>
-      {notifications.map((notif) => (
-        <div key={notif.id} style={{ background: 'var(--bg-card)', border: '1px solid rgba(99,102,241,.3)', borderLeft: '4px solid #6366f1', borderRadius: 12, boxShadow: '0 4px 20px rgba(0,0,0,.12)', padding: '14px 16px', animation: 'fadeIn .25s ease' }}>
+      {notifications.map((notif) => {
+        const isOut = notif.direction === 'out'
+        return (
+        <div key={notif.id} style={{ background: 'var(--bg-card)', border: `1px solid ${isOut ? 'rgba(220,38,38,.3)' : 'rgba(99,102,241,.3)'}`, borderLeft: `4px solid ${isOut ? '#dc2626' : '#6366f1'}`, borderRadius: 12, boxShadow: '0 4px 20px rgba(0,0,0,.12)', padding: '14px 16px', animation: 'fadeIn .25s ease' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', marginBottom: 2 }}>
-                📦 Novo equipamento recebido
+              <div style={{ fontSize: 12, fontWeight: 700, color: isOut ? '#dc2626' : '#6366f1', marginBottom: 2 }}>
+                {isOut ? '📤 Equipamento saiu da sala' : '📦 Novo equipamento recebido'}
               </div>
               <div style={{ fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {notif.equipmentName}
@@ -341,6 +345,11 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
               {notif.assetNumber && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>
                   Patrimônio: {notif.assetNumber}
+                </div>
+              )}
+              {notif.otherRoomName && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 1 }}>
+                  {isOut ? `Foi para: ${notif.otherRoomName}` : `Vindo de: ${notif.otherRoomName}`}
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -409,7 +418,8 @@ function RoomNotificationStack({ notifications, onDismiss, user }) {
             </div>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
